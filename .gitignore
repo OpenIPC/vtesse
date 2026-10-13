@@ -1,0 +1,5 @@
+# local credentials and deployment notes never go to the repository
+probe.conf
+*.local
+/build/
+__pycache__/
