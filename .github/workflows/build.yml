@@ -36,7 +36,7 @@ jobs:
     name: Unit tests (native, sanitizers)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Build and test
         run: |
@@ -63,7 +63,7 @@ jobs:
     env:
       TOOLCHAIN_CACHE: ${{ github.workspace }}/.toolchains
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install qemu-user
         run: |
@@ -71,7 +71,7 @@ jobs:
           sudo apt-get install -y -qq qemu-user
 
       - name: Cache toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .toolchains
           key: toolchain-${{ matrix.target }}-${{ hashFiles('ci/build-musl.sh') }}
@@ -86,7 +86,7 @@ jobs:
           done | tee sizes-${{ matrix.target }}.md
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vtesse-${{ matrix.target }}
           path: |
@@ -99,7 +99,7 @@ jobs:
     name: Test bench (VTun 3.0.2 in Docker)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Build
         run: make -j"$(nproc)"
@@ -135,11 +135,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -151,9 +151,9 @@ jobs:
           if [ -z "$VER" ]; then echo "::error::no VTESSE_VERSION found"; exit 1; fi
           echo "ver=$VER" >> "$GITHUB_OUTPUT"
           mkdir latest versioned
-          for f in artifacts/vtesse-*; do
+          # artifacts keep their directory layout (dist/...)
+          for f in $(find artifacts -type f -name 'vtesse-*' ! -name '*.md' | sort); do
             name=$(basename "$f")
-            case "$name" in *.md) continue ;; esac
             arch=${name##*-}
             base=${name%-*}
             cp "$f" "latest/$name"
