@@ -21,7 +21,103 @@ A resource access microsystem: a client for existing **VTun** servers (`vtund -s
 - **Targets:** embedded Linux (IP cameras, routers; ARM and MIPS, including big-endian, uClibc/musl), Android, and later an embeddable communication module
 - **Library first:** C99 + POSIX, single-threaded, no own main loop — easy to embed
 
-## Quick start
+## Download
+
+Static binaries (no dependencies) are on the [releases page](https://github.com/compot-dev/vtesse/releases): [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) is rebuilt from every push to `main` (stable file names, used below); versioned releases such as [`v1.00`](https://github.com/compot-dev/vtesse/releases/tag/v1.00) carry the version in the file names (`vtesse-1.00-arm32`).
+
+| Platform | `ARCH` |
+|---|---|
+| OpenIPC cameras: HiSilicon, Goke, SigmaStar, other 32-bit ARM; Raspberry Pi with a 32-bit OS | `arm32` |
+| OpenIPC cameras: Ingenic (T31 and others); MIPS little-endian routers (MediaTek MT7621, MT7628) | `mipsel` |
+| MIPS big-endian routers (Qualcomm Atheros ath79 and others) | `mips` |
+| 64-bit ARM: Raspberry Pi with a 64-bit OS, Rockchip, other ARM64 boards | `arm64` |
+| PCs and servers | `x86_64` |
+
+Two binaries per platform: `vtesse-ARCH` (lwIP and TAP backends: SOCKS5 / port forwards without root, or a kernel interface with `--tap`) and `vtesse-tap-ARCH` (TAP only, about half the size). The TAP backend needs root and the `tun` driver (`/dev/net/tun`), and the hook scripts `vtesse-hook.sh` and `vtesse-udhcpc.script`.
+
+### Configuration
+
+All installations below read `/etc/vtesse.conf` (the session name is the device ID: 12 characters `0-9A-F`, also used as the MAC):
+
+```sh
+cat > /etc/vtesse.conf <<EOF
+host=vtun.example.org
+port=5555
+session=02AB34CD56EF
+password=secret
+EOF
+chmod 600 /etc/vtesse.conf
+```
+
+### OpenIPC camera
+
+```sh
+# as root; ARCH = arm32 or mipsel, see the table
+ARCH=arm32
+URL=https://github.com/compot-dev/vtesse/releases/download/latest
+cd /tmp
+curl -fsSLO $URL/vtesse-tap-$ARCH
+curl -fsSLO $URL/vtesse-hook.sh
+curl -fsSLO $URL/vtesse-udhcpc.script
+curl -fsSL $URL/SHA256SUMS | grep -E " (vtesse-tap-$ARCH|vtesse-hook.sh|vtesse-udhcpc.script)$" | sha256sum -c -   # check the download
+# install
+cp vtesse-tap-$ARCH /usr/bin/vtesse
+mkdir -p /usr/share/vtesse
+cp vtesse-hook.sh vtesse-udhcpc.script /usr/share/vtesse/
+chmod 755 /usr/bin/vtesse /usr/share/vtesse/*
+vtesse --version
+# run in the foreground (Ctrl+C to stop)
+vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
+```
+
+Start at boot:
+
+```sh
+cat > /etc/init.d/S99vtesse <<'EOF'
+#!/bin/sh
+case "$1" in
+    start) start-stop-daemon -S -b -m -p /var/run/vtesse.pid -x /usr/bin/vtesse -- \
+               --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh ;;
+    stop)  start-stop-daemon -K -p /var/run/vtesse.pid ;;
+esac
+EOF
+chmod +x /etc/init.d/S99vtesse
+/etc/init.d/S99vtesse start
+```
+
+### OpenWrt router
+
+```sh
+opkg update && opkg install curl kmod-tun   # kmod-tun is needed for --tap only
+# apk add curl kmod-tun on OpenWrt 25+
+# install the binary and the scripts as on the camera above, then:
+cat > /etc/init.d/vtesse <<'EOF'
+#!/bin/sh /etc/rc.common
+START=99
+USE_PROCD=1
+start_service() {
+    procd_open_instance
+    procd_set_param command /usr/bin/vtesse --config /etc/vtesse.conf \
+        --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
+    procd_set_param respawn
+    procd_close_instance
+}
+EOF
+chmod +x /etc/init.d/vtesse
+/etc/init.d/vtesse enable && /etc/init.d/vtesse start
+```
+
+### Linux PC, Raspberry Pi
+
+```sh
+ARCH=x86_64   # x86_64; arm64 / arm32 on a Raspberry Pi with a 64-bit / 32-bit OS
+curl -fsSLO https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-$ARCH
+chmod +x vtesse-$ARCH
+# no root needed: SOCKS5 on 127.0.0.1:1080 and a forward to a camera's RTSP
+./vtesse-$ARCH --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
+```
+
+## Build from source
 
 ```sh
 make

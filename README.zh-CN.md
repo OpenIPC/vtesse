@@ -21,7 +21,103 @@
 - **目标平台：** 嵌入式 Linux（IP 摄像机、路由器；ARM 与 MIPS，含大端序，uClibc/musl）、Android，后续还将提供可嵌入的通信模块
 - **库优先：** C99 + POSIX，单线程，不自带主循环——易于嵌入
 
-## 快速开始
+## 下载
+
+静态二进制文件（无依赖）发布在 [Releases 页面](https://github.com/compot-dev/vtesse/releases)：[`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) 随 `main` 的每次推送重新构建（文件名固定，下文使用）；带版本号的发布（如 [`v1.00`](https://github.com/compot-dev/vtesse/releases/tag/v1.00)）的文件名包含版本号（`vtesse-1.00-arm32`）。
+
+| 平台 | `ARCH` |
+|---|---|
+| OpenIPC 摄像机：海思、国科、SigmaStar 及其他 32 位 ARM；运行 32 位系统的树莓派 | `arm32` |
+| OpenIPC 摄像机：君正（T31 等）；小端 MIPS 路由器（联发科 MT7621、MT7628） | `mipsel` |
+| 大端 MIPS 路由器（高通 Atheros ath79 等） | `mips` |
+| 64 位 ARM：运行 64 位系统的树莓派、瑞芯微及其他 ARM64 开发板 | `arm64` |
+| PC 与服务器 | `x86_64` |
+
+每个平台提供两个二进制文件：`vtesse-ARCH`（lwIP 与 TAP 两种后端：无需 root 的 SOCKS5 / 端口转发，或使用 `--tap` 的内核接口）和 `vtesse-tap-ARCH`（仅 TAP，体积约为一半）。TAP 后端需要 root、`tun` 驱动（`/dev/net/tun`）以及钩子脚本 `vtesse-hook.sh` 和 `vtesse-udhcpc.script`。
+
+### 配置
+
+下面所有安装方式都读取 `/etc/vtesse.conf`（会话名即设备 ID：12 个 `0-9A-F` 字符，同时用作 MAC 地址）：
+
+```sh
+cat > /etc/vtesse.conf <<EOF
+host=vtun.example.org
+port=5555
+session=02AB34CD56EF
+password=secret
+EOF
+chmod 600 /etc/vtesse.conf
+```
+
+### OpenIPC 摄像机
+
+```sh
+# 以 root 运行；ARCH = arm32 或 mipsel，见上表
+ARCH=arm32
+URL=https://github.com/compot-dev/vtesse/releases/download/latest
+cd /tmp
+curl -fsSLO $URL/vtesse-tap-$ARCH
+curl -fsSLO $URL/vtesse-hook.sh
+curl -fsSLO $URL/vtesse-udhcpc.script
+curl -fsSL $URL/SHA256SUMS | grep -E " (vtesse-tap-$ARCH|vtesse-hook.sh|vtesse-udhcpc.script)$" | sha256sum -c -   # 校验下载
+# 安装
+cp vtesse-tap-$ARCH /usr/bin/vtesse
+mkdir -p /usr/share/vtesse
+cp vtesse-hook.sh vtesse-udhcpc.script /usr/share/vtesse/
+chmod 755 /usr/bin/vtesse /usr/share/vtesse/*
+vtesse --version
+# 前台运行（Ctrl+C 停止）
+vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
+```
+
+开机自启：
+
+```sh
+cat > /etc/init.d/S99vtesse <<'EOF'
+#!/bin/sh
+case "$1" in
+    start) start-stop-daemon -S -b -m -p /var/run/vtesse.pid -x /usr/bin/vtesse -- \
+               --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh ;;
+    stop)  start-stop-daemon -K -p /var/run/vtesse.pid ;;
+esac
+EOF
+chmod +x /etc/init.d/S99vtesse
+/etc/init.d/S99vtesse start
+```
+
+### OpenWrt 路由器
+
+```sh
+opkg update && opkg install curl kmod-tun   # kmod-tun 仅在使用 --tap 时需要
+# OpenWrt 25+ 使用：apk add curl kmod-tun
+# 按上面摄像机的步骤安装二进制文件和脚本，然后：
+cat > /etc/init.d/vtesse <<'EOF'
+#!/bin/sh /etc/rc.common
+START=99
+USE_PROCD=1
+start_service() {
+    procd_open_instance
+    procd_set_param command /usr/bin/vtesse --config /etc/vtesse.conf \
+        --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
+    procd_set_param respawn
+    procd_close_instance
+}
+EOF
+chmod +x /etc/init.d/vtesse
+/etc/init.d/vtesse enable && /etc/init.d/vtesse start
+```
+
+### Linux PC、树莓派
+
+```sh
+ARCH=x86_64   # x86_64；64 位 / 32 位系统的树莓派用 arm64 / arm32
+curl -fsSLO https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-$ARCH
+chmod +x vtesse-$ARCH
+# 无需 root：127.0.0.1:1080 上的 SOCKS5，以及到摄像机 RTSP 的转发
+./vtesse-$ARCH --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
+```
+
+## 从源码构建
 
 ```sh
 make

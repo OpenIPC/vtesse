@@ -21,7 +21,103 @@
 - **Платформы:** встраиваемый Linux (IP-камеры, роутеры; ARM и MIPS, в том числе big-endian, uClibc/musl), Android, в будущем — встраиваемый модуль связи
 - **Сначала библиотека:** C99 + POSIX, один поток, без собственного главного цикла — легко встраивается
 
-## Быстрый старт
+## Скачивание
+
+Статические бинарники (без зависимостей) — на [странице релизов](https://github.com/compot-dev/vtesse/releases): [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) пересобирается при каждом push в `main` (постоянные имена файлов, используются ниже); у версионных релизов, например [`v1.00`](https://github.com/compot-dev/vtesse/releases/tag/v1.00), версия входит в имя файла (`vtesse-1.00-arm32`).
+
+| Платформа | `ARCH` |
+|---|---|
+| Камеры OpenIPC: HiSilicon, Goke, SigmaStar, другие 32-битные ARM; Raspberry Pi с 32-битной ОС | `arm32` |
+| Камеры OpenIPC: Ingenic (T31 и другие); роутеры MIPS little-endian (MediaTek MT7621, MT7628) | `mipsel` |
+| Роутеры MIPS big-endian (Qualcomm Atheros ath79 и другие) | `mips` |
+| 64-битный ARM: Raspberry Pi с 64-битной ОС, Rockchip, другие платы ARM64 | `arm64` |
+| ПК и серверы | `x86_64` |
+
+На каждую платформу два бинарника: `vtesse-ARCH` (режимы lwIP и TAP: SOCKS5 / проброс портов без root или интерфейс ядра с `--tap`) и `vtesse-tap-ARCH` (только TAP, примерно вдвое меньше). Режиму TAP нужны root, драйвер `tun` (`/dev/net/tun`) и хук-скрипты `vtesse-hook.sh` и `vtesse-udhcpc.script`.
+
+### Конфигурация
+
+Все варианты установки ниже читают `/etc/vtesse.conf` (имя сессии — ID устройства: 12 символов `0-9A-F`, он же MAC-адрес):
+
+```sh
+cat > /etc/vtesse.conf <<EOF
+host=vtun.example.org
+port=5555
+session=02AB34CD56EF
+password=secret
+EOF
+chmod 600 /etc/vtesse.conf
+```
+
+### Камера OpenIPC
+
+```sh
+# от root; ARCH = arm32 или mipsel, см. таблицу
+ARCH=arm32
+URL=https://github.com/compot-dev/vtesse/releases/download/latest
+cd /tmp
+curl -fsSLO $URL/vtesse-tap-$ARCH
+curl -fsSLO $URL/vtesse-hook.sh
+curl -fsSLO $URL/vtesse-udhcpc.script
+curl -fsSL $URL/SHA256SUMS | grep -E " (vtesse-tap-$ARCH|vtesse-hook.sh|vtesse-udhcpc.script)$" | sha256sum -c -   # проверка загрузки
+# установка
+cp vtesse-tap-$ARCH /usr/bin/vtesse
+mkdir -p /usr/share/vtesse
+cp vtesse-hook.sh vtesse-udhcpc.script /usr/share/vtesse/
+chmod 755 /usr/bin/vtesse /usr/share/vtesse/*
+vtesse --version
+# запуск в терминале (остановка — Ctrl+C)
+vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
+```
+
+Автозапуск при загрузке:
+
+```sh
+cat > /etc/init.d/S99vtesse <<'EOF'
+#!/bin/sh
+case "$1" in
+    start) start-stop-daemon -S -b -m -p /var/run/vtesse.pid -x /usr/bin/vtesse -- \
+               --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh ;;
+    stop)  start-stop-daemon -K -p /var/run/vtesse.pid ;;
+esac
+EOF
+chmod +x /etc/init.d/S99vtesse
+/etc/init.d/S99vtesse start
+```
+
+### Роутер OpenWrt
+
+```sh
+opkg update && opkg install curl kmod-tun   # kmod-tun нужен только для --tap
+# на OpenWrt 25+: apk add curl kmod-tun
+# бинарник и скрипты устанавливаются как на камере выше, затем:
+cat > /etc/init.d/vtesse <<'EOF'
+#!/bin/sh /etc/rc.common
+START=99
+USE_PROCD=1
+start_service() {
+    procd_open_instance
+    procd_set_param command /usr/bin/vtesse --config /etc/vtesse.conf \
+        --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
+    procd_set_param respawn
+    procd_close_instance
+}
+EOF
+chmod +x /etc/init.d/vtesse
+/etc/init.d/vtesse enable && /etc/init.d/vtesse start
+```
+
+### Linux на ПК, Raspberry Pi
+
+```sh
+ARCH=x86_64   # x86_64; arm64 / arm32 на Raspberry Pi с 64- / 32-битной ОС
+curl -fsSLO https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-$ARCH
+chmod +x vtesse-$ARCH
+# root не нужен: SOCKS5 на 127.0.0.1:1080 и проброс на RTSP камеры
+./vtesse-$ARCH --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
+```
+
+## Сборка из исходников
 
 ```sh
 make
