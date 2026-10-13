@@ -227,20 +227,25 @@ client's Ethernet MAC in `type ether` sessions.
 
 ```c
 typedef struct tunnel_ops {
-    int  (*get_fd)(void *ctx);              /* may change; re-query every loop */
-    int  (*wants_write)(void *ctx);         /* POLLOUT needed (connect, backlog) */
-    int  (*on_readable)(void *ctx);
-    int  (*on_writable)(void *ctx);
-    int  (*next_timeout_ms)(void *ctx);     /* keepalive, reconnect, stack timers */
-    int  (*on_timer)(void *ctx);
-    void (*set_rx_cb)(void *ctx, void (*cb)(void *user, const uint8_t *, size_t), void *user);
-    void (*set_event_cb)(void *ctx, void (*cb)(void *user, int event, int err), void *user);
-    int  (*send)(void *ctx, const uint8_t *pkt, size_t len);  /* whole packet or drop */
+    int  (*get_fd)(void *ctx);              /* -1 when none; may change, re-query every loop */
+    int  (*wants_write)(void *ctx);         /* POLLOUT needed (connect, pending output) */
+    void (*on_readable)(void *ctx);
+    void (*on_writable)(void *ctx);
+    int  (*next_timeout_ms)(void *ctx);     /* 0 = due, -1 = none */
+    void (*on_timer)(void *ctx);
+    void (*set_rx_cb)(void *ctx, tunnel_rx_cb cb, void *user);
+    void (*set_event_cb)(void *ctx, tunnel_event_cb cb, void *user);  /* CONNECTING/UP/DOWN/FAILED */
+    int  (*send)(void *ctx, const uint8_t *pkt, size_t len);  /* whole packet or -1 (dropped) */
     int  (*link_type)(void *ctx);           /* L2 (Ethernet) or L3 (IPv4) */
     int  (*mtu)(void *ctx);
     void (*close)(void *ctx);
 } tunnel_ops_t;
 ```
+
+See [`include/netcore/tunnel.h`](include/netcore/tunnel.h). `DOWN` means the tunnel
+retries by itself (exponential backoff 1–30 s, reset after a stable session);
+`FAILED` is final (wrong credentials, compression/encryption/UDP/unsupported type on
+the server, not a VTun server).
 
 Partial TCP writes are buffered so frames are never split; when the buffer is full
 whole packets are dropped.
@@ -273,6 +278,30 @@ network changes are handled by reconnecting (`NetworkCallback`).
   encryption has no integrity protection anyway).
 - Use only over trusted networks or inside an external secure channel (TLS /
   stunnel, an operator VPN). A TLS wrapper for the TCP transport is on the roadmap.
+
+## Building
+
+C99 + POSIX, plain `make`; cross compile with `make CC=<toolchain>-gcc`.
+
+```sh
+make            # build/libnetcore.a, build/libvtesse.a, build/vtesse-cli
+make test       # unit tests and client scenarios against a scripted server
+```
+
+Layout:
+
+| Path | Contents |
+|---|---|
+| `include/netcore/`, `netcore/` | `tunnel_ops_t`, poll loop helper (protocol-agnostic) |
+| `include/vtesse/`, `vtun/` | VTun wire format helpers and the VTun client |
+| `cli/` | `vtesse-cli` |
+| `tests/` | unit tests (`test_proto`), client scenarios (`test_client`) |
+| `bench/` | Docker test bench |
+| `tools/` | probe script |
+
+`vtesse-cli --config FILE [--seconds N] [-v]` reads `host`, `port`, `session`,
+`password` from a key=value file (never from the command line), keeps the session
+up and reports events and received traffic. The userspace stack is added next.
 
 ## Tools
 
