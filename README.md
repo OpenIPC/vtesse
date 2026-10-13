@@ -286,14 +286,13 @@ the real device off — use a dedicated test session.
 
 Stages and tasks are tracked as [GitHub issues](https://github.com/compot-dev/vtesse/issues):
 
-
 | Stage | Issues |
 |---|---|
-| 0. Test bench (VTun 3.0.2 in Docker, bridge, DHCP with option 121) | #1 |
-| 1. CLI prototype on Linux: TCP + `type ether` + DHCP over lwIP | #2 #3 #4 #5 #6 #7 #8 |
-| 2. Local proxy: SOCKS5 and port forwarding | #10 #11 |
-| 3. Embedded Linux: ARM/MIPS cross builds, footprint | #12 |
-| 4. Android app (no VpnService) | #13 |
-| 5. Optional: UDP transport, TLS wrapper, Blowfish auth | #14 #15 #16 |
-| 6. Reuse of the upper layers for camex | #17 |
-| Cross-cutting: tests and CI, license | #9 #18 |
+| 0. Test bench (VTun 3.0.2 in Docker, bridge, DHCP with option 121) | [#1](https://github.com/compot-dev/vtesse/issues/1) |
+| 1. CLI prototype on Linux: TCP + `type ether` + DHCP over lwIP | [#2](https://github.com/compot-dev/vtesse/issues/2) [#3](https://github.com/compot-dev/vtesse/issues/3) [#4](https://github.com/compot-dev/vtesse/issues/4) [#5](https://github.com/compot-dev/vtesse/issues/5) [#6](https://github.com/compot-dev/vtesse/issues/6) [#7](https://github.com/compot-dev/vtesse/issues/7) [#8](https://github.com/compot-dev/vtesse/issues/8) |
+| 2. Local proxy: SOCKS5 and port forwarding | [#10](https://github.com/compot-dev/vtesse/issues/10) [#11](https://github.com/compot-dev/vtesse/issues/11) |
+| 3. Embedded Linux: ARM/MIPS cross builds, footprint | [#12](https://github.com/compot-dev/vtesse/issues/12) |
+| 4. Android app (no VpnService) | [#13](https://github.com/compot-dev/vtesse/issues/13) |
+| 5. Optional: UDP transport, TLS wrapper, Blowfish auth | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16) |
+| 6. Reuse of the upper layers for camex | [#17](https://github.com/compot-dev/vtesse/issues/17) |
+| Cross-cutting: tests and CI, license | [#9](https://github.com/compot-dev/vtesse/issues/9) [#18](https://github.com/compot-dev/vtesse/issues/18) |
