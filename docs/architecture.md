@@ -68,7 +68,7 @@ the tunnel; there is no system network interface.
 | `ci/` | cross builds (`build-musl.sh`), build containers, big-endian MIPS tests under qemu |
 | `.github/workflows/` | CI: tests, cross builds, test bench, releases |
 | `tools/` | probe script |
-| `scripts/` | hook and udhcpc scripts for the TAP backend |
+| `scripts/` | hook and udhcpc scripts for the TAP backend, service scripts (`S99vtesse`, `vtesse.init`) |
 | `docs/` | documentation |
 
 ## Tunnel interface

@@ -114,6 +114,12 @@ userspace stack. Every program on the device then uses the tunnel, including
 
 `dhclient` is a fallback in the hook; its stock script has the two problems above.
 
+Service scripts: [`scripts/S99vtesse`](../scripts/S99vtesse) for OpenIPC and other
+BusyBox systems (`start|stop|restart|status`, overrides in `/etc/default/vtesse`) and
+[`scripts/vtesse.init`](../scripts/vtesse.init) for OpenWrt (procd, respawn). Both are
+published with every release next to the binaries and the hook scripts; see the README
+for the installation commands.
+
 ```sh
 vtesse-cli --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
 ```

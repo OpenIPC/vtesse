@@ -160,13 +160,13 @@ jobs:
             cp "$f" "versioned/${base}-${VER}-${arch}"
           done
           for d in latest versioned; do
-            cp scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script "$d/"
+            cp scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse scripts/vtesse.init "$d/"
             (cd "$d" && sha256sum * > SHA256SUMS)
           done
           {
             echo "| File | Size, bytes |"
             echo "|---|---|"
-            for f in $(ls latest/vtesse-* | grep -v "\.sh$\|\.script$"); do echo "| $(basename "$f") | $(wc -c < "$f") |"; done
+            for f in $(ls latest/vtesse-* | grep -v "\.sh$\|\.script$\|\.init$"); do echo "| $(basename "$f") | $(wc -c < "$f") |"; done
           } > sizes.md
           cat sizes.md
 

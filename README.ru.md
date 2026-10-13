@@ -56,49 +56,35 @@ chmod 600 /etc/vtesse.conf
 ARCH=arm32
 URL=https://github.com/compot-dev/vtesse/releases/download/latest
 # каталоги, затем каждый файл сразу на своё место, права — после успешной загрузки
-mkdir -p /usr/bin /usr/share/vtesse
+mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
 curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
 curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
+curl -fsSL -o /etc/init.d/S99vtesse $URL/S99vtesse && chmod 755 /etc/init.d/S99vtesse
 vtesse --version
 # запуск в терминале (остановка — Ctrl+C)
 vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
 ```
 
-Автозапуск при загрузке:
+Автозапуск при загрузке (`S99vtesse` уже установлен; настройки можно переопределить в `/etc/default/vtesse`):
 
 ```sh
-cat > /etc/init.d/S99vtesse <<'EOF'
-#!/bin/sh
-case "$1" in
-    start) start-stop-daemon -S -b -m -p /var/run/vtesse.pid -x /usr/bin/vtesse -- \
-               --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh ;;
-    stop)  start-stop-daemon -K -p /var/run/vtesse.pid ;;
-esac
-EOF
-chmod +x /etc/init.d/S99vtesse
 /etc/init.d/S99vtesse start
+/etc/init.d/S99vtesse status
 ```
 
 ### Роутер OpenWrt
 
 ```sh
-opkg update && opkg install curl kmod-tun   # kmod-tun нужен только для --tap
-# на OpenWrt 25+: apk add curl kmod-tun
-# бинарник и скрипты устанавливаются как на камере выше, затем:
-cat > /etc/init.d/vtesse <<'EOF'
-#!/bin/sh /etc/rc.common
-START=99
-USE_PROCD=1
-start_service() {
-    procd_open_instance
-    procd_set_param command /usr/bin/vtesse --config /etc/vtesse.conf \
-        --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
-    procd_set_param respawn
-    procd_close_instance
-}
-EOF
-chmod +x /etc/init.d/vtesse
+opkg update && opkg install curl kmod-tun   # kmod-tun нужен только для --tap; на OpenWrt 25+: apk add curl kmod-tun
+# ARCH = mipsel (MT7621, MT7628), mips (ath79), arm64 или arm32, см. таблицу
+ARCH=mipsel
+URL=https://github.com/compot-dev/vtesse/releases/download/latest
+mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
+curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
+curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
+curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
+curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtesse
 /etc/init.d/vtesse enable && /etc/init.d/vtesse start
 ```
 

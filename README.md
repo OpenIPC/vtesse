@@ -56,49 +56,35 @@ chmod 600 /etc/vtesse.conf
 ARCH=arm32
 URL=https://github.com/compot-dev/vtesse/releases/download/latest
 # directories, then each file straight to its place, executable on success
-mkdir -p /usr/bin /usr/share/vtesse
+mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
 curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
 curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
+curl -fsSL -o /etc/init.d/S99vtesse $URL/S99vtesse && chmod 755 /etc/init.d/S99vtesse
 vtesse --version
 # run in the foreground (Ctrl+C to stop)
 vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
 ```
 
-Start at boot:
+Start at boot (`S99vtesse` is already installed; settings can be overridden in `/etc/default/vtesse`):
 
 ```sh
-cat > /etc/init.d/S99vtesse <<'EOF'
-#!/bin/sh
-case "$1" in
-    start) start-stop-daemon -S -b -m -p /var/run/vtesse.pid -x /usr/bin/vtesse -- \
-               --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh ;;
-    stop)  start-stop-daemon -K -p /var/run/vtesse.pid ;;
-esac
-EOF
-chmod +x /etc/init.d/S99vtesse
 /etc/init.d/S99vtesse start
+/etc/init.d/S99vtesse status
 ```
 
 ### OpenWrt router
 
 ```sh
-opkg update && opkg install curl kmod-tun   # kmod-tun is needed for --tap only
-# apk add curl kmod-tun on OpenWrt 25+
-# install the binary and the scripts as on the camera above, then:
-cat > /etc/init.d/vtesse <<'EOF'
-#!/bin/sh /etc/rc.common
-START=99
-USE_PROCD=1
-start_service() {
-    procd_open_instance
-    procd_set_param command /usr/bin/vtesse --config /etc/vtesse.conf \
-        --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
-    procd_set_param respawn
-    procd_close_instance
-}
-EOF
-chmod +x /etc/init.d/vtesse
+opkg update && opkg install curl kmod-tun   # kmod-tun is needed for --tap only; apk add curl kmod-tun on OpenWrt 25+
+# ARCH = mipsel (MT7621, MT7628), mips (ath79), arm64 or arm32, see the table
+ARCH=mipsel
+URL=https://github.com/compot-dev/vtesse/releases/download/latest
+mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
+curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
+curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
+curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
+curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtesse
 /etc/init.d/vtesse enable && /etc/init.d/vtesse start
 ```
 
