@@ -2,15 +2,19 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/if.h>
-#include <linux/if_arp.h>
-#include <linux/if_tun.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
-#include <sys/socket.h>
+#include <sys/socket.h>     /* before linux/if.h: old kernel headers need struct sockaddr */
 #include <unistd.h>
+
+#include <linux/if.h>
+#include <linux/if_tun.h>
+
+#ifndef ARPHRD_ETHER
+#define ARPHRD_ETHER 1      /* linux/if_arp.h drags in netlink headers */
+#endif
 
 #ifndef TUNSETCARRIER
 #define TUNSETCARRIER _IOW('T', 226, int)

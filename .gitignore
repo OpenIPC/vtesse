@@ -3,3 +3,5 @@ probe.conf
 *.local
 __pycache__/
 /build*/
+/dist/
+/.toolchains/

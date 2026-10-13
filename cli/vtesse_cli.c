@@ -22,6 +22,7 @@
 
 #include "netcore/loop.h"
 #include "netcore/route.h"
+#include "vtesse/version.h"
 #include "vtesse/vtun_client.h"
 
 #ifndef VTESSE_WITH_LWIP
@@ -66,7 +67,7 @@ static void on_signal(int sig)
 static void usage(void)
 {
     fprintf(stderr,
-            "usage: vtesse-cli [--config FILE] [--seconds N] [-v]\n"
+            "usage: vtesse-cli [--config FILE] [--seconds N] [-v] [--version]\n"
 #if VTESSE_WITH_LWIP
             "  lwIP backend (default):\n"
             "                  [--socks PORT] [--forward LPORT:IP:RPORT]... [--listen ADDR]\n"
@@ -492,6 +493,11 @@ int main(int argc, char **argv)
             seconds = atof(argv[++i]);
         else if (!strcmp(argv[i], "-v"))
             verbose = 1;
+        else if (!strcmp(argv[i], "--version")) {
+            printf("vtesse-cli %s (%s)\n", VTESSE_VERSION,
+                   VTESSE_WITH_LWIP ? "lwip+tap" : "tap");
+            return 0;
+        }
 #if VTESSE_WITH_TAP
         else if (!strcmp(argv[i], "--tap"))
             use_tap = 1;

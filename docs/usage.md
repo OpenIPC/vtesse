@@ -12,13 +12,35 @@
 
 ## Building
 
-C99 + POSIX, plain `make`; cross compile with `make CC=<toolchain>-gcc`.
+C99 + POSIX, plain `make`.
 
 ```sh
 make            # build/libnetcore.a, build/libvtesse.a, build/vtesse-cli
 make test       # unit tests and client scenarios against a scripted server
-make LWIP=0     # TAP backend only: no userspace stack and proxy (~23 KiB of code)
+make LWIP=0     # TAP backend only: no userspace stack and proxy
+make CROSS_COMPILE=mipsel-linux-musl- STATIC=1      # cross compile, static binary
 ```
+
+Static musl binaries for cameras and routers are built by
+[`ci/build-musl.sh`](../ci/build-musl.sh) (also used by CI):
+
+```sh
+QEMU=1 ci/build-musl.sh arm32 dist     # downloads the toolchain, runs the tests under qemu
+```
+
+| Target | Toolchain | Devices |
+|---|---|---|
+| `arm32` | OpenIPC `hisilicon-hi3516cv100` (arm musleabi) | 32-bit ARM cameras |
+| `mipsel` | OpenIPC `ingenic-t31` (mipsel musl) | Ingenic cameras, MIPS routers |
+| `arm64` | Bootlin aarch64 musl | 64-bit ARM |
+| `mips` | Bootlin mips32 musl | big-endian MIPS routers |
+| `x86_64` | Bootlin x86-64 musl | PCs, servers |
+
+Each target gives `vtesse-<target>` (lwIP + TAP) and `vtesse-tap-<target>` (TAP
+only). Use musl builds on devices: a static glibc binary cannot resolve host names
+without the NSS libraries of the same glibc. Prebuilt binaries are on the
+[releases page](https://github.com/compot-dev/vtesse/releases) (`latest` is rebuilt
+from every push to `main`).
 
 ## vtesse-cli
 

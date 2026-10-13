@@ -1,0 +1,212 @@
+#
+# build.yml — VTesse CI: tests, static musl builds for camera/router targets,
+# the Docker test bench, releases.
+#
+# Static musl binaries (a static glibc binary cannot resolve host names without
+# the NSS libraries of the same glibc on the device). 32-bit ARM and MIPSEL use
+# the OpenIPC firmware toolchains, the rest Bootlin musl toolchains
+# (ci/build-musl.sh).
+#
+# Releases (as in openipc/decoder): the version lives in one place,
+# include/vtesse/version.h (VTESSE_VERSION "MAJOR.MM"). Every push to main
+# refreshes the rolling "latest" pre-release; the first build of a version
+# that has no release yet also publishes release vMAJOR.MM at the built commit
+# with notes since the previous v1.* release. A push without a version bump
+# (docs, CI) only updates "latest".
+#
+
+name: VTesse CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# One run per branch and event: a newer push cancels the older run, so
+# "latest" always carries the build of the newest commit.
+concurrency:
+  group: build-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ------------------------------------------------------------------ tests
+  tests:
+    name: Unit tests (native, sanitizers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build and test
+        run: |
+          make -j"$(nproc)"
+          make test
+
+      - name: Test under ASan/UBSan
+        run: |
+          make -j"$(nproc)" BUILD=build-asan \
+            CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" \
+            LDFLAGS="-fsanitize=address,undefined" test
+
+      - name: TAP-only build (LWIP=0)
+        run: make -j"$(nproc)" BUILD=build-tap LWIP=0 all
+
+  # ------------------------------------------------------------------ cross
+  build:
+    name: Build ${{ matrix.target }} (musl static)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [arm32, mipsel, arm64, mips, x86_64]
+    env:
+      TOOLCHAIN_CACHE: ${{ github.workspace }}/.toolchains
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install qemu-user
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-user
+
+      - name: Cache toolchain
+        uses: actions/cache@v4
+        with:
+          path: .toolchains
+          key: toolchain-${{ matrix.target }}-${{ hashFiles('ci/build-musl.sh') }}
+
+      - name: Build and run the unit tests under qemu
+        run: QEMU=1 ci/build-musl.sh ${{ matrix.target }} dist
+
+      - name: Report size
+        run: |
+          for f in dist/*; do
+            echo "| $(basename "$f") | $(wc -c < "$f") |"
+          done | tee sizes-${{ matrix.target }}.md
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: vtesse-${{ matrix.target }}
+          path: |
+            dist/*
+            sizes-${{ matrix.target }}.md
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------ bench
+  bench:
+    name: Test bench (VTun 3.0.2 in Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: Start the bench
+        run: |
+          bench/bench.sh build
+          bench/bench.sh up
+          sleep 5
+
+      - name: Server self-test
+        run: bench/bench.sh selftest
+
+      - name: Stage 1 acceptance (lwIP, DHCP)
+        run: bench/bench.sh cli-test
+
+      - name: Stage 2 acceptance (SOCKS5, port forwards)
+        run: bench/bench.sh proxy-test
+
+      - name: TAP backend acceptance
+        run: bench/bench.sh tap-test
+
+      - name: Server log
+        if: always()
+        run: docker logs vtesse-bench-server 2>&1 | tail -100 || true
+
+  # ---------------------------------------------------------------- release
+  release:
+    name: Release
+    needs: [tests, build, bench]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Collect assets
+        id: vars
+        run: |
+          VER=$(sed -n 's/^#define VTESSE_VERSION "\(.*\)"/\1/p' include/vtesse/version.h)
+          if [ -z "$VER" ]; then echo "::error::no VTESSE_VERSION found"; exit 1; fi
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          mkdir latest versioned
+          for f in artifacts/vtesse-*; do
+            name=$(basename "$f")
+            case "$name" in *.md) continue ;; esac
+            arch=${name##*-}
+            base=${name%-*}
+            cp "$f" "latest/$name"
+            cp "$f" "versioned/${base}-${VER}-${arch}"
+          done
+          for d in latest versioned; do
+            cp scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script "$d/"
+            (cd "$d" && sha256sum * > SHA256SUMS)
+          done
+          {
+            echo "| File | Size, bytes |"
+            echo "|---|---|"
+            for f in latest/vtesse-*; do echo "| $(basename "$f") | $(wc -c < "$f") |"; done
+          } > sizes.md
+          cat sizes.md
+
+      - name: Rolling "latest" pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ steps.vars.outputs.ver }}
+        run: |
+          gh release delete latest --cleanup-tag --yes 2>/dev/null || true
+          gh release create latest latest/* \
+            --prerelease \
+            --title "Development build" \
+            --target "${GITHUB_SHA}" \
+            --notes "Automated build of ${GITHUB_SHA::7} from main (version ${VER}).
+
+          Static musl binaries: \`vtesse-<arch>\` (lwIP + TAP backends), \`vtesse-tap-<arch>\` (TAP only, smaller).
+          arm32 / mipsel are built with the OpenIPC firmware toolchains (hisilicon-hi3516cv100, ingenic-t31).
+
+          $(cat sizes.md)"
+
+      - name: Versioned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ steps.vars.outputs.ver }}
+        run: |
+          TAG="v${VER}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists: only latest was updated"
+            exit 0
+          fi
+          # the previous version by number, not by date
+          TAGS=$(gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" -q '.[].tag_name')
+          PREV=$(printf '%s\n' "$TAGS" | grep '^v1\.' | sed 's/^v//' | { cat; echo "$VER"; } \
+            | sort -V -u | grep -B1 -x "$VER" | grep -v -x "$VER" || true)
+          if [ -n "$PREV" ]; then
+            NOTES=(--generate-notes --notes-start-tag "v$PREV")
+          else
+            NOTES=(--notes "First release of the 1.xx line.
+
+          $(cat sizes.md)")
+          fi
+          gh release create "$TAG" versioned/* --target "${GITHUB_SHA}" \
+            --title "VTesse ${VER}" "${NOTES[@]}"

@@ -1,14 +1,27 @@
-# VTesse build. Cross compile with e.g.: make CC=mipsel-linux-musl-gcc
-# LWIP=0 builds without the userspace stack and proxy (TAP backend only).
+# VTesse build.
+#   make CROSS_COMPILE=mipsel-linux-musl- STATIC=1   cross compile, static binary
+#   make LWIP=0                                       TAP backend only (no stack, no proxy)
+CROSS_COMPILE ?=
+ifneq ($(CROSS_COMPILE),)
+CC      := $(CROSS_COMPILE)gcc
+AR      := $(CROSS_COMPILE)ar
+endif
 CC      ?= cc
 AR      ?= ar
 CFLAGS  ?= -Os -g
+STATIC  ?= 0
 # Required flags stay separate so that CFLAGS can be overridden on the command line.
 LWIP_DIR    := third_party/lwip
 INCLUDES    := -Iinclude -Iport/lwip -I$(LWIP_DIR)/src/include
-BASE_CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -Wshadow -D_POSIX_C_SOURCE=200809L $(INCLUDES)
+BASE_CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -Wshadow -D_POSIX_C_SOURCE=200809L \
+               -ffunction-sections -fdata-sections $(INCLUDES)
+BASE_LDFLAGS := -Wl,--gc-sections
+ifeq ($(STATIC),1)
+BASE_LDFLAGS += -static
+endif
 # vendored lwIP: unmodified upstream code, built with relaxed warnings
-LWIP_CFLAGS := -std=gnu99 -Wall -Wno-unused-parameter -Wno-address $(INCLUDES)
+LWIP_CFLAGS := -std=gnu99 -Wall -Wno-unused-parameter -Wno-address \
+               -ffunction-sections -fdata-sections $(INCLUDES)
 LDFLAGS ?=
 BUILD   ?= build
 LWIP    ?= 1
@@ -34,7 +47,7 @@ LIBVTESSE  := $(BUILD)/libvtesse.a
 CLI        := $(BUILD)/vtesse-cli
 TESTS      := $(BUILD)/test_proto $(BUILD)/test_client $(BUILD)/test_route
 
-.PHONY: all test clean
+.PHONY: all test tests clean
 
 all: $(LIBNETCORE) $(LIBVTESSE) $(CLI)
 
@@ -53,10 +66,12 @@ $(LIBVTESSE): $(VTUN_OBJ)
 	$(AR) rcs $@ $^
 
 $(CLI): $(BUILD)/cli/vtesse_cli.o $(LIBVTESSE) $(LIBNETCORE)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) $(BASE_LDFLAGS) $(LDFLAGS) -o $@ $^
 
 $(BUILD)/test_%: $(BUILD)/tests/test_%.o $(LIBVTESSE) $(LIBNETCORE)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) $(BASE_LDFLAGS) $(LDFLAGS) -o $@ $^
+
+tests: $(TESTS)
 
 test: $(TESTS)
 	@for t in $(TESTS); do echo "== $$t"; $$t || exit 1; done

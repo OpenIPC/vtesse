@@ -1,0 +1,6 @@
+# Cross build environment for ci/build-musl.sh (Bootlin musl toolchains + qemu-user).
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends make curl ca-certificates xz-utils file qemu-user \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
