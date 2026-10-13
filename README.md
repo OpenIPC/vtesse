@@ -1,2 +1,1 @@
-# vtesse
-VTesse - resource access microsystem
+# VTesse - resource access microsystem
