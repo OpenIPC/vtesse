@@ -166,7 +166,7 @@ jobs:
           {
             echo "| File | Size, bytes |"
             echo "|---|---|"
-            for f in latest/vtesse-*; do echo "| $(basename "$f") | $(wc -c < "$f") |"; done
+            for f in $(ls latest/vtesse-* | grep -v "\.sh$\|\.script$"); do echo "| $(basename "$f") | $(wc -c < "$f") |"; done
           } > sizes.md
           cat sizes.md
 
