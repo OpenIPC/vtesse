@@ -134,6 +134,9 @@ def main():
     ap.add_argument("--config", default="~/.config/vtesse/probe.conf")
     ap.add_argument("--dhcp", action="store_true", help="send one DHCPDISCOVER (type ether)")
     ap.add_argument("--seconds", type=float, default=12)
+    ap.add_argument("--delay", type=float, default=1.0,
+                    help="wait before the first data frame: the server brings the tap up "
+                         "asynchronously and drops the session if a frame arrives earlier")
     a = ap.parse_args()
     cfg = load_cfg(a.config)
 
@@ -151,6 +154,7 @@ def main():
         raise SystemExit("authentication failed")
 
     if a.dhcp:
+        time.sleep(a.delay)
         frame = dhcp_discover(bytes.fromhex(cfg["session"]))
         s.sendall(struct.pack(">H", len(frame)) + frame)
         print("sent DHCPDISCOVER (%d bytes)" % len(frame))

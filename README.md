@@ -155,6 +155,12 @@ hdr, big-endian: bits 0..11 = length (VTUN_FSIZE_MASK 0x0fff), bits 12..15 = fla
   `ECHO_REP` and ignores `ECHO_REP`.
 - VTesse answers every `ECHO_REQ` and sends its own `ECHO_REQ` to detect dead links.
 
+**tap-up race.** The server runs the session `up` commands (bringing the tap up,
+adding it to a bridge) asynchronously and starts forwarding at once. A data frame
+that arrives before the tap is up fails with `EIO` on the server and the session is
+dropped. VTesse waits ~0.5 s after `OK FLAGS` before its first data frame
+(reproduced on the [bench](bench/)).
+
 ### UDP transport (deferred)
 
 With `U` in the flags (`udp_session` in `netlib.c`) both sides create a UDP socket,
@@ -270,13 +276,17 @@ network changes are handled by reconnecting (`NetworkCallback`).
 
 ## Tools
 
+[`bench/`](bench/) — Docker test bench: VTun 3.0.2 server, bridged segment with a
+DHCP server (option 121) and a remote device; protocol self-test and reference
+vectors.
+
 `tools/vtun_probe.py` — Python 3, no dependencies. Performs the handshake (XOR
 auth), prints the greeting and flags, answers keepalives, optionally sends one
 DHCPDISCOVER through a `type ether` session and decodes the offer (including
 option 121), then closes with `VTUN_CONN_CLOSE`.
 
 ```sh
-tools/vtun_probe.py [--config ~/.config/vtesse/probe.conf] [--dhcp] [--seconds N]
+tools/vtun_probe.py [--config ~/.config/vtesse/probe.conf] [--dhcp] [--delay S] [--seconds N]
 ```
 
 The config file (`key=value`: `host`, `port`, `session`, `password`) lives outside
