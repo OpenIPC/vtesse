@@ -1,0 +1,40 @@
+# Security
+
+> **Status: prototype.** Traffic is not encrypted.
+
+## VTun authentication
+
+- **XOR mode** (servers built without OpenSSL): the challenge and the response are
+  sent in clear and `response = challenge XOR password` — one captured handshake
+  reveals the first 16 password characters. The 3.0.2 challenge comes from
+  `srand(time(NULL))` + `rand()` and is predictable.
+- **Blowfish mode** (servers with OpenSSL): unsalted `MD5(password)` key — offline
+  brute force is possible from a captured handshake.
+
+## Data
+
+- Data is sent in clear. VTesse refuses sessions with VTun encryption or compression;
+  VTun's own encryption has no integrity protection anyway.
+- Use only over trusted networks or inside an external secure channel (TLS /
+  stunnel, an operator VPN). A TLS wrapper for the TCP transport is planned
+  ([#15](https://github.com/compot-dev/vtesse/issues/15)).
+
+## Sessions
+
+- With `multi killold` anyone who knows a session's credentials can take it over;
+  the legitimate client sees "closed by server" and reconnects, and both keep kicking
+  each other off.
+- Never use production session names for tests.
+
+## Local side
+
+- The local proxy listens on `127.0.0.1` by default. Any process on the device can
+  use an unauthenticated proxy — configure `socks_user` / `socks_password` where
+  other applications run. Listening on other addresses (`--listen`) exposes the
+  tunnel to the network.
+- Credentials are read from a configuration file only (never from the command line,
+  where other users could see them in the process list); keep it with mode 600. The
+  CLI wipes the password from memory after use.
+- Only outbound connections are possible through the lwIP backend: nothing behind the
+  tunnel can connect to services of the device running VTesse (the tunnel address
+  answers ARP and ping only).
