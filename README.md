@@ -1,19 +1,23 @@
-# VTesse — resource access microsystem
+![OpenIPC logo][logo]
 
-VTesse is a client for existing **VTun** servers (`vtund -s`) that works **without a
-TUN/TAP device and without a system VPN**. The tunnel is terminated inside the
-application by a userspace TCP/IP stack (lwIP); applications reach remote devices
-through a local SOCKS5 proxy or port forwards on `127.0.0.1`.
+# VTesse
 
-- No root, no `/dev/net/tun`, no Android `VpnService` (no VPN icon).
-- Targets: embedded Linux (IP cameras, routers; ARM and MIPS, including big-endian,
-  uClibc/musl), Android, and later an embeddable communication module.
-- VTun 3.0.x, TCP transport, `type ether` and `type tun` sessions, XOR challenge
-  response, no VTun compression/encryption.
-- Address and routes via DHCP through the tunnel (option 121, RFC 3442).
-- Client only, outbound connections only, IPv4 only.
+**English** | [Русский](README.ru.md) | [简体中文](README.zh-CN.md)
 
-> **Status: prototype.** Traffic is not encrypted (see [security](docs/security.md)).
+[![License](https://img.shields.io/badge/license-Prosperity%203.0-blue)](LICENSE.md)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android-brightgreen)](docs/architecture.md)
+[![Status](https://img.shields.io/badge/status-prototype-orange)](docs/security.md)
+
+A resource access microsystem: a client for existing **VTun** servers (`vtund -s`) that works **without a TUN/TAP device and without a system VPN**. The tunnel is terminated inside the application by a userspace TCP/IP stack (lwIP); applications reach remote devices through a local SOCKS5 proxy or port forwards on `127.0.0.1`.
+
+## Features
+
+- **No VPN:** no root, no `/dev/net/tun`, no Android `VpnService` (no VPN icon)
+- **VTun:** 3.0.x servers, TCP transport, `type ether` and `type tun` sessions, XOR challenge response, keepalive, automatic reconnection with exponential back-off
+- **Network:** address and routes via DHCP through the tunnel (option 121, RFC 3442), IPv4, outbound connections only
+- **Local proxy:** SOCKS5 `CONNECT` with optional username/password, static TCP port forwards (e.g. RTSP over TCP for video players)
+- **Targets:** embedded Linux (IP cameras, routers; ARM and MIPS, including big-endian, uClibc/musl), Android, and later an embeddable communication module
+- **Library first:** C99 + POSIX, single-threaded, no own main loop — easy to embed
 
 ## Quick start
 
@@ -33,8 +37,7 @@ curl --socks5 127.0.0.1:1080 http://10.78.0.10/
 ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 ```
 
-The session name is the device ID (12 characters `0-9A-F`, also used as the MAC);
-credentials are read only from the configuration file.
+The session name is the device ID (12 characters `0-9A-F`, also used as the MAC); credentials are read only from the configuration file.
 
 ## Documentation
 
@@ -65,6 +68,13 @@ Stages and tasks are tracked as [GitHub issues](https://github.com/compot-dev/vt
 
 ## License
 
-[The Prosperity Public License 3.0.0](LICENSE.md) — free for noncommercial use, a
-thirty-day trial for commercial use. Third-party code keeps its own license
-(lwIP: BSD-3-Clause).
+[The Prosperity Public License 3.0.0](LICENSE.md): free for noncommercial use, with a 30-day trial for commercial use. See [LICENSE.md](LICENSE.md) for the full terms. Third-party code keeps its own license (lwIP: BSD-3-Clause).
+
+## Support
+
+- Questions and bug reports: [GitHub Issues](https://github.com/compot-dev/vtesse/issues)
+- Documentation: [docs/](docs/)
+
+[![Telegram](https://openipc.org/images/telegram_button.svg)](https://openipc.org/our-channels)
+
+[logo]: https://raw.githubusercontent.com/OpenIPC/.github/refs/heads/main/assets/openipc-logo-black.svg
