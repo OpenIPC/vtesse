@@ -286,10 +286,14 @@ the real device off — use a dedicated test session.
 
 Stages and tasks are tracked as [GitHub issues](https://github.com/compot-dev/vtesse/issues):
 
-0. Test bench (VTun 3.0.2 server in Docker, bridge, DHCP with option 121) and probe.
-1. CLI prototype on Linux: TCP + `type ether` + DHCP over lwIP.
-2. Local proxy: SOCKS5 and port forwarding.
-3. Embedded Linux: ARM/MIPS cross builds, footprint.
-4. Android app (no VpnService).
-5. Optional: UDP transport, TLS wrapper, Blowfish auth.
-6. Reuse of the upper layers for camex.
+
+| Stage | Issues |
+|---|---|
+| 0. Test bench (VTun 3.0.2 in Docker, bridge, DHCP with option 121) | #1 |
+| 1. CLI prototype on Linux: TCP + `type ether` + DHCP over lwIP | #2 #3 #4 #5 #6 #7 #8 |
+| 2. Local proxy: SOCKS5 and port forwarding | #10 #11 |
+| 3. Embedded Linux: ARM/MIPS cross builds, footprint | #12 |
+| 4. Android app (no VpnService) | #13 |
+| 5. Optional: UDP transport, TLS wrapper, Blowfish auth | #14 #15 #16 |
+| 6. Reuse of the upper layers for camex | #17 |
+| Cross-cutting: tests and CI, license | #9 #18 |
