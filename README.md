@@ -22,6 +22,7 @@ through a local SOCKS5 proxy or port forwards on `127.0.0.1`.
 - [Security](#security)
 - [Tools](#tools)
 - [Roadmap](#roadmap)
+- [License](#license)
 
 ## How it works
 
@@ -296,3 +297,9 @@ Stages and tasks are tracked as [GitHub issues](https://github.com/compot-dev/vt
 | 5. Optional: UDP transport, TLS wrapper, Blowfish auth | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16) |
 | 6. Reuse of the upper layers for camex | [#17](https://github.com/compot-dev/vtesse/issues/17) |
 | Cross-cutting: tests and CI, license | [#9](https://github.com/compot-dev/vtesse/issues/9) [#18](https://github.com/compot-dev/vtesse/issues/18) |
+
+## License
+
+[The Prosperity Public License 3.0.0](LICENSE.md) — free for noncommercial use, a
+thirty-day trial for commercial use. Third-party code keeps its own license
+(lwIP: BSD-3-Clause).
