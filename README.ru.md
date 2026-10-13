@@ -58,17 +58,19 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 
 Этапы и задачи ведутся в [GitHub Issues](https://github.com/compot-dev/vtesse/issues):
 
-| Этап | Задачи |
-|---|---|
-| 0. Тестовый стенд (VTun 3.0.2 в Docker, мост, DHCP с опцией 121) | [#1](https://github.com/compot-dev/vtesse/issues/1) |
-| 1. Прототип CLI для Linux: TCP + `type ether` + DHCP поверх lwIP | [#2](https://github.com/compot-dev/vtesse/issues/2) [#3](https://github.com/compot-dev/vtesse/issues/3) [#4](https://github.com/compot-dev/vtesse/issues/4) [#5](https://github.com/compot-dev/vtesse/issues/5) [#6](https://github.com/compot-dev/vtesse/issues/6) [#7](https://github.com/compot-dev/vtesse/issues/7) [#8](https://github.com/compot-dev/vtesse/issues/8) |
-| 2. Локальный прокси: SOCKS5 и проброс портов | [#10](https://github.com/compot-dev/vtesse/issues/10) [#11](https://github.com/compot-dev/vtesse/issues/11) |
-| 3. Встраиваемый Linux: кросс-сборка ARM/MIPS, размер и память | [#12](https://github.com/compot-dev/vtesse/issues/12) |
-| 3. Дополнительный режим TAP/TUN (интерфейс ядра вместо lwIP, Linux) | [#19](https://github.com/compot-dev/vtesse/issues/19) |
-| 4. Приложение для Android (без VpnService) | [#13](https://github.com/compot-dev/vtesse/issues/13) |
-| 5. Опционально: транспорт UDP, обёртка TLS, аутентификация Blowfish | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16) |
-| 6. Повторное использование верхних слоёв в camex | [#17](https://github.com/compot-dev/vtesse/issues/17) |
-| Общее: тесты и CI, лицензия | [#9](https://github.com/compot-dev/vtesse/issues/9) [#18](https://github.com/compot-dev/vtesse/issues/18) |
+| Этап | Статус | Задачи |
+|---|---|---|
+| 0. Тестовый стенд (VTun 3.0.2 в Docker, мост, DHCP с опцией 121) | ✅ Готово | [#1](https://github.com/compot-dev/vtesse/issues/1) ✅ |
+| 1. Прототип CLI для Linux: TCP + `type ether` + DHCP поверх lwIP | ✅ Готово | [#2](https://github.com/compot-dev/vtesse/issues/2) ✅ [#3](https://github.com/compot-dev/vtesse/issues/3) ✅ [#4](https://github.com/compot-dev/vtesse/issues/4) ✅ [#5](https://github.com/compot-dev/vtesse/issues/5) [#6](https://github.com/compot-dev/vtesse/issues/6) [#7](https://github.com/compot-dev/vtesse/issues/7) ✅ [#8](https://github.com/compot-dev/vtesse/issues/8) |
+| 2. Локальный прокси: SOCKS5 и проброс портов | ✅ Готово | [#10](https://github.com/compot-dev/vtesse/issues/10) ✅ [#11](https://github.com/compot-dev/vtesse/issues/11) ✅ |
+| 3. Встраиваемый Linux: кросс-сборка ARM/MIPS, размер и память, CI | 🔄 В работе | [#12](https://github.com/compot-dev/vtesse/issues/12) [#20](https://github.com/compot-dev/vtesse/issues/20) ✅ |
+| 3. Режим TAP/TUN (интерфейс ядра вместо lwIP, Linux) | 🔄 В работе | [#19](https://github.com/compot-dev/vtesse/issues/19) |
+| 4. Приложение для Android (без VpnService) | ⏳ Запланировано | [#13](https://github.com/compot-dev/vtesse/issues/13) |
+| 5. Опционально: транспорт UDP, обёртка TLS, аутентификация Blowfish | ⏳ Запланировано | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16) |
+| 6. Повторное использование верхних слоёв в camex | ⏳ Запланировано | [#17](https://github.com/compot-dev/vtesse/issues/17) |
+| Общее: тесты, лицензия | 🔄 В работе | [#9](https://github.com/compot-dev/vtesse/issues/9) [#18](https://github.com/compot-dev/vtesse/issues/18) ✅ |
+
+✅ — задача закрыта.
 
 ## Лицензия
 
