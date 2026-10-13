@@ -55,16 +55,11 @@ chmod 600 /etc/vtesse.conf
 # as root; ARCH = arm32 or mipsel, see the table
 ARCH=arm32
 URL=https://github.com/compot-dev/vtesse/releases/download/latest
-cd /tmp
-curl -fsSLO $URL/vtesse-tap-$ARCH
-curl -fsSLO $URL/vtesse-hook.sh
-curl -fsSLO $URL/vtesse-udhcpc.script
-curl -fsSL $URL/SHA256SUMS | grep -E " (vtesse-tap-$ARCH|vtesse-hook.sh|vtesse-udhcpc.script)$" | sha256sum -c -   # check the download
-# install
-cp vtesse-tap-$ARCH /usr/bin/vtesse
-mkdir -p /usr/share/vtesse
-cp vtesse-hook.sh vtesse-udhcpc.script /usr/share/vtesse/
-chmod 755 /usr/bin/vtesse /usr/share/vtesse/*
+# directories, then each file straight to its place, executable on success
+mkdir -p /usr/bin /usr/share/vtesse
+curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
+curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
+curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
 vtesse --version
 # run in the foreground (Ctrl+C to stop)
 vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
@@ -111,10 +106,10 @@ chmod +x /etc/init.d/vtesse
 
 ```sh
 ARCH=x86_64   # x86_64; arm64 / arm32 on a Raspberry Pi with a 64-bit / 32-bit OS
-curl -fsSLO https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-$ARCH
-chmod +x vtesse-$ARCH
+mkdir -p ~/.local/bin
+curl -fsSL -o ~/.local/bin/vtesse https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
 # no root needed: SOCKS5 on 127.0.0.1:1080 and a forward to a camera's RTSP
-./vtesse-$ARCH --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
+~/.local/bin/vtesse --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
 
 ## Build from source

@@ -55,16 +55,11 @@ chmod 600 /etc/vtesse.conf
 # 以 root 运行；ARCH = arm32 或 mipsel，见上表
 ARCH=arm32
 URL=https://github.com/compot-dev/vtesse/releases/download/latest
-cd /tmp
-curl -fsSLO $URL/vtesse-tap-$ARCH
-curl -fsSLO $URL/vtesse-hook.sh
-curl -fsSLO $URL/vtesse-udhcpc.script
-curl -fsSL $URL/SHA256SUMS | grep -E " (vtesse-tap-$ARCH|vtesse-hook.sh|vtesse-udhcpc.script)$" | sha256sum -c -   # 校验下载
-# 安装
-cp vtesse-tap-$ARCH /usr/bin/vtesse
-mkdir -p /usr/share/vtesse
-cp vtesse-hook.sh vtesse-udhcpc.script /usr/share/vtesse/
-chmod 755 /usr/bin/vtesse /usr/share/vtesse/*
+# 先建目录，再把每个文件直接下载到目标位置，下载成功后设置权限
+mkdir -p /usr/bin /usr/share/vtesse
+curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
+curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
+curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
 vtesse --version
 # 前台运行（Ctrl+C 停止）
 vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
@@ -111,10 +106,10 @@ chmod +x /etc/init.d/vtesse
 
 ```sh
 ARCH=x86_64   # x86_64；64 位 / 32 位系统的树莓派用 arm64 / arm32
-curl -fsSLO https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-$ARCH
-chmod +x vtesse-$ARCH
+mkdir -p ~/.local/bin
+curl -fsSL -o ~/.local/bin/vtesse https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
 # 无需 root：127.0.0.1:1080 上的 SOCKS5，以及到摄像机 RTSP 的转发
-./vtesse-$ARCH --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
+~/.local/bin/vtesse --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
 
 ## 从源码构建
