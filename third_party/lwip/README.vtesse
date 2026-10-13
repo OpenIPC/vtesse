@@ -1,0 +1,4 @@
+lwIP 2.2.1 (STABLE-2_2_1_RELEASE, https://github.com/lwip-tcpip/lwip), BSD-3-Clause (COPYING).
+
+Vendored subset, unmodified: core sources (no IPv6), IPv4, ethernet; full header tree.
+VTesse configuration and port files live in port/lwip/ (lwipopts.h, arch/cc.h, hooks).

@@ -58,6 +58,7 @@ struct vt {
     uint64_t reconnect_at;
     uint64_t up_at;
     uint64_t data_ok_at;
+    int up_emitted;             /* UP is reported once data may flow */
     uint64_t last_rx;
     uint64_t last_ka_tx;
     int backoff_ms;
@@ -226,8 +227,10 @@ static void establish(vt_t *vt)
     vt->data_ok_at = now + (uint64_t)vt->cfg.data_delay_ms;
     vt->last_rx = now;
     vt->last_ka_tx = now;
+    vt->up_emitted = 0;
     queue_flag(vt, VT_ECHO_REQ);    /* like the stock client */
-    emit(vt, TUNNEL_EV_UP, TUNNEL_OK);
+    /* TUNNEL_EV_UP follows from on_timer after data_delay_ms: the server brings
+     * the tap up asynchronously and drops the session if data arrives earlier. */
 }
 
 /* One 50-byte control message during the handshake. */
@@ -451,7 +454,11 @@ static int op_next_timeout_ms(void *ctx)
     case ST_ESTABLISHED:
         a = ms_until(vt->last_ka_tx + (uint64_t)vt->cfg.ka_interval_ms, now);
         b = ms_until(vt->last_rx + (uint64_t)vt->cfg.ka_interval_ms * (uint64_t)vt->cfg.ka_count, now);
-        return a < b ? a : b;
+        if (a > b)
+            a = b;
+        if (!vt->up_emitted && ms_until(vt->data_ok_at, now) < a)
+            a = ms_until(vt->data_ok_at, now);
+        return a;
     default:
         return -1;
     }
@@ -484,6 +491,10 @@ static void op_on_timer(void *ctx)
             queue_flag(vt, VT_ECHO_REQ);
             flush(vt);
         }
+        if (vt->state == ST_ESTABLISHED && !vt->up_emitted && now >= vt->data_ok_at) {
+            vt->up_emitted = 1;
+            emit(vt, TUNNEL_EV_UP, TUNNEL_OK);
+        }
         break;
     default:
         break;
@@ -511,9 +522,7 @@ static int op_send(void *ctx, const uint8_t *pkt, size_t len)
     vt_t *vt = ctx;
     uint8_t h[2];
 
-    if (vt->state != ST_ESTABLISHED || len == 0 || len > VT_FRAME_SIZE)
-        return -1;
-    if (nc_now_ms() < vt->data_ok_at)
+    if (vt->state != ST_ESTABLISHED || !vt->up_emitted || len == 0 || len > VT_FRAME_SIZE)
         return -1;
     vt_hdr_put(h, (uint16_t)len);
     if (queue2(vt, h, 2, pkt, len) < 0)
@@ -526,7 +535,7 @@ static int op_link_type(void *ctx)
 {
     vt_t *vt = ctx;
 
-    if (vt->state != ST_ESTABLISHED)
+    if (vt->state != ST_ESTABLISHED || !vt->up_emitted)
         return TUNNEL_LINK_NONE;
     return vt->flags.type == 'e' ? TUNNEL_LINK_L2 : TUNNEL_LINK_L3;
 }
@@ -543,6 +552,7 @@ static void op_close(void *ctx)
 
     if (vt->state == ST_ESTABLISHED && vt->fd >= 0) {
         uint8_t h[2];
+
 
         flush(vt);
         vt_hdr_put(h, VT_CONN_CLOSE);
@@ -658,5 +668,5 @@ const vt_flags_t *vt_session_flags(const vt_t *vt)
 
 int vt_is_up(const vt_t *vt)
 {
-    return vt->state == ST_ESTABLISHED;
+    return vt->state == ST_ESTABLISHED && vt->up_emitted;
 }

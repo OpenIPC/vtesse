@@ -1,11 +1,12 @@
 /*
  * vtesse-cli: Linux console client.
  *
- * Stage 1, step 1: connects to a VTun server, keeps the session alive and
- * reports link events and received traffic. The userspace stack (lwIP, DHCP)
- * is added on top of this in the next steps.
+ * Connects to a VTun server, runs the userspace stack (lwIP) over the tunnel,
+ * obtains address and routes via DHCP (type ether) and reports events.
+ * --fetch performs one HTTP GET through the stack to check TCP end to end.
  *
  * Credentials are read from a key=value file, never from the command line.
+ * The session name is the device ID and doubles as the client MAC.
  */
 #include <errno.h>
 #include <signal.h>
@@ -13,7 +14,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "lwip/ip4_addr.h"
+#include "lwip/tcp.h"
 #include "netcore/loop.h"
+#include "netcore/route.h"
+#include "netcore/stack.h"
 #include "vtesse/vtun_client.h"
 
 #define DEFAULT_CONFIG "~/.config/vtesse/probe.conf"
@@ -25,10 +30,6 @@ typedef struct cfg_file {
     char auth[16];
     int port;
 } cfg_file_t;
-
-typedef struct stats {
-    unsigned long frames, bytes, ipv4, arp, ipv6, other;
-} stats_t;
 
 static nc_loop_t loop;
 static int verbose;
@@ -43,6 +44,8 @@ static void usage(void)
 {
     fprintf(stderr,
             "usage: vtesse-cli [--config FILE] [--seconds N] [-v]\n"
+            "                  [--fetch http://IP[:PORT]/PATH]\n"
+            "                  [--debug-ip A.B.C.D/P --debug-gw A.B.C.D]\n"
             "  FILE: key=value lines: host, port, session, password, auth (xor)\n"
             "        default " DEFAULT_CONFIG "\n");
 }
@@ -121,43 +124,204 @@ static double elapsed(uint64_t t0)
 static uint64_t t_start;
 static vt_t *vt;
 
-static void on_event(void *user, int ev, int err)
+/* ---- --fetch: one HTTP GET through lwIP ---- */
+
+static struct {
+    int wanted, started, done;
+    uint32_t ip;
+    uint16_t port;
+    char path[256];
+    unsigned long bytes;
+    char status[96];
+    size_t status_len;
+} fetch;
+
+static int parse_ip4(const char *s, uint32_t *out)
+{
+    unsigned a, b, c, d;
+    char tail;
+
+    if (sscanf(s, "%u.%u.%u.%u%c", &a, &b, &c, &d, &tail) != 4 || a > 255 || b > 255 || c > 255 || d > 255)
+        return -1;
+    *out = a << 24 | b << 16 | c << 8 | d;
+    return 0;
+}
+
+static int parse_url(const char *url)
+{
+    char host[64];
+    const char *p = url, *slash, *colon;
+    size_t hl;
+
+    if (strncmp(p, "http://", 7) == 0)
+        p += 7;
+    slash = strchr(p, '/');
+    hl = slash ? (size_t)(slash - p) : strlen(p);
+    if (hl == 0 || hl >= sizeof(host))
+        return -1;
+    memcpy(host, p, hl);
+    host[hl] = '\0';
+    fetch.port = 80;
+    colon = strchr(host, ':');
+    if (colon) {
+        fetch.port = (uint16_t)atoi(colon + 1);
+        host[colon - host] = '\0';
+    }
+    snprintf(fetch.path, sizeof(fetch.path), "%s", slash ? slash : "/");
+    return parse_ip4(host, &fetch.ip);
+}
+
+static void fetch_finish(struct tcp_pcb *pcb, const char *how)
+{
+    char ip[16];
+
+    if (pcb) {
+        tcp_arg(pcb, NULL);
+        tcp_recv(pcb, NULL);
+        tcp_err(pcb, NULL);
+        if (tcp_close(pcb) != ERR_OK)
+            tcp_abort(pcb);
+    }
+    fetch.done = 1;
+    nc_ip4_format(fetch.ip, ip, sizeof(ip));
+    printf("[%8.3f] fetch %s:%u%s: %s, %lu bytes, \"%s\"\n", (double)(nc_now_ms() - t_start) / 1000.0,
+           ip, fetch.port, fetch.path, how, fetch.bytes, fetch.status);
+    fflush(stdout);
+}
+
+static err_t fetch_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+{
+    struct pbuf *q;
+
+    (void)arg;
+    (void)err;
+    if (!p) {
+        fetch_finish(pcb, "ok");
+        return ERR_OK;
+    }
+    for (q = p; q; q = q->next) {
+        size_t i;
+        for (i = 0; i < q->len && fetch.status_len < sizeof(fetch.status) - 1; i++) {
+            char c = ((char *)q->payload)[i];
+            if (c == '\r' || c == '\n') {
+                fetch.status_len = sizeof(fetch.status);    /* first line complete */
+                break;
+            }
+            fetch.status[fetch.status_len++] = c;
+        }
+    }
+    fetch.bytes += p->tot_len;
+    tcp_recved(pcb, p->tot_len);
+    pbuf_free(p);
+    return ERR_OK;
+}
+
+static void fetch_err(void *arg, err_t err)
+{
+    (void)arg;
+    fetch_finish(NULL, err == ERR_RST ? "reset" : err == ERR_ABRT ? "aborted" : "timeout/error");
+}
+
+static err_t fetch_connected(void *arg, struct tcp_pcb *pcb, err_t err)
+{
+    char req[400], ip[16];
+    int n;
+
+    (void)arg;
+    (void)err;
+    nc_ip4_format(fetch.ip, ip, sizeof(ip));
+    n = snprintf(req, sizeof(req), "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: vtesse-cli\r\n\r\n",
+                 fetch.path, ip);
+    tcp_write(pcb, req, (u16_t)n, TCP_WRITE_FLAG_COPY);
+    tcp_output(pcb);
+    return ERR_OK;
+}
+
+static void fetch_start(void)
+{
+    struct tcp_pcb *pcb;
+    ip4_addr_t a;
+
+    fetch.started = 1;
+    if (!nc_stack_route_ok(fetch.ip)) {
+        snprintf(fetch.status, sizeof(fetch.status), "no route via tunnel");
+        fetch_finish(NULL, "failed");
+        return;
+    }
+    pcb = tcp_new();
+    if (!pcb) {
+        fetch_finish(NULL, "out of memory");
+        return;
+    }
+    ip4_addr_set_u32(&a, lwip_htonl(fetch.ip));
+    tcp_arg(pcb, NULL);
+    tcp_recv(pcb, fetch_recv);
+    tcp_err(pcb, fetch_err);
+    if (tcp_connect(pcb, &a, fetch.port, fetch_connected) != ERR_OK) {
+        tcp_abort(pcb);
+        fetch_finish(NULL, "connect failed");
+    }
+}
+
+/* ---- events ---- */
+
+static void print_info(void)
+{
+    nc_stack_info_t in;
+    char a[16], m[16], g[16], r[48];
+    int i;
+
+    nc_stack_get_info(&in);
+    nc_ip4_format(in.addr, a, sizeof(a));
+    nc_ip4_format(in.mask, m, sizeof(m));
+    nc_ip4_format(in.gw, g, sizeof(g));
+    printf("[%8.3f] address %s mask %s, option 3 %s%s\n", elapsed(t_start), a, m, g,
+           in.default_route ? " (default route)" : " (ignored: classless routes present)");
+    for (i = 0; i < in.routes.count; i++) {
+        nc_route_format(&in.routes.r[i], r, sizeof(r));
+        printf("[%8.3f]   route %s\n", elapsed(t_start), r);
+    }
+}
+
+static void on_stack_event(void *user, int ev, int tev, int err)
 {
     char flags[64];
 
     (void)user;
-    if (ev == TUNNEL_EV_UP) {
+    if (ev == NC_STACK_EV_ADDR_BOUND) {
+        print_info();
+        if (fetch.wanted && !fetch.started)
+            fetch_start();
+    } else if (ev == NC_STACK_EV_ADDR_LOST) {
+        printf("[%8.3f] address lost\n", elapsed(t_start));
+    } else if (tev == TUNNEL_EV_UP) {
         vt_flags_format(vt_session_flags(vt), flags, sizeof(flags));
         printf("[%8.3f] up: %s, flags %s\n", elapsed(t_start), vt_greeting(vt), flags);
     } else if (err) {
-        printf("[%8.3f] %s: %s\n", elapsed(t_start), tunnel_event_name(ev), tunnel_strerror(err));
+        printf("[%8.3f] %s: %s\n", elapsed(t_start), tunnel_event_name(tev), tunnel_strerror(err));
     } else {
-        printf("[%8.3f] %s\n", elapsed(t_start), tunnel_event_name(ev));
+        printf("[%8.3f] %s\n", elapsed(t_start), tunnel_event_name(tev));
     }
-    if (ev == TUNNEL_EV_FAILED)
+    if (tev == TUNNEL_EV_FAILED)
         loop.stop = 1;
     fflush(stdout);
 }
 
-static void on_rx(void *user, const uint8_t *p, size_t n)
+static int parse_prefix(const char *s, uint32_t *addr, uint32_t *mask)
 {
-    stats_t *s = user;
-    uint16_t type = n >= 14 ? (uint16_t)((p[12] << 8) | p[13]) : 0;
+    char buf[32];
+    const char *slash = strchr(s, '/');
+    int p;
 
-    s->frames++;
-    s->bytes += n;
-    if (vt_session_flags(vt)->type == 'u')
-        s->ipv4++;
-    else if (type == 0x0800)
-        s->ipv4++;
-    else if (type == 0x0806)
-        s->arp++;
-    else if (type == 0x86dd)
-        s->ipv6++;
-    else
-        s->other++;
-    if (verbose)
-        printf("[%8.3f] rx %zu bytes, type 0x%04x\n", elapsed(t_start), n, type);
+    if (!slash || (size_t)(slash - s) >= sizeof(buf))
+        return -1;
+    memcpy(buf, s, (size_t)(slash - s));
+    buf[slash - s] = '\0';
+    p = atoi(slash + 1);
+    if (p < 0 || p > 32 || parse_ip4(buf, addr) < 0)
+        return -1;
+    *mask = p ? 0xffffffffu << (32 - p) : 0;
+    return 0;
 }
 
 int main(int argc, char **argv)
@@ -166,11 +330,12 @@ int main(int argc, char **argv)
     double seconds = 0;
     cfg_file_t c;
     vt_cfg_t vc;
-    stats_t st;
+    nc_stack_cfg_t sc;
     tunnel_t t;
     nc_source_t src;
-    int i, err;
+    int i, err, rc;
 
+    memset(&sc, 0, sizeof(sc));
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--config") && i + 1 < argc)
             config = argv[++i];
@@ -178,13 +343,39 @@ int main(int argc, char **argv)
             seconds = atof(argv[++i]);
         else if (!strcmp(argv[i], "-v"))
             verbose = 1;
-        else {
+        else if (!strcmp(argv[i], "--fetch") && i + 1 < argc) {
+            if (parse_url(argv[++i]) < 0) {
+                fprintf(stderr, "--fetch: expected http://IPv4[:port]/path\n");
+                return 2;
+            }
+            fetch.wanted = 1;
+        } else if (!strcmp(argv[i], "--debug-ip") && i + 1 < argc) {
+            if (parse_prefix(argv[++i], &sc.addr, &sc.mask) < 0) {
+                fprintf(stderr, "--debug-ip: expected A.B.C.D/P\n");
+                return 2;
+            }
+            sc.static_ip = 1;
+        } else if (!strcmp(argv[i], "--debug-gw") && i + 1 < argc) {
+            if (parse_ip4(argv[++i], &sc.gw) < 0) {
+                fprintf(stderr, "--debug-gw: expected A.B.C.D\n");
+                return 2;
+            }
+        } else {
             usage();
             return 2;
         }
     }
     if (load_config(config, &c) < 0)
         return 2;
+    if (nc_devid_to_mac(c.session, sc.mac) < 0) {
+        /* not a device ID: still usable as a session name, MAC is derived */
+        uint8_t h = 0;
+        for (i = 0; c.session[i]; i++)
+            h = (uint8_t)(h * 31 + (uint8_t)c.session[i]);
+        memcpy(sc.mac, "\x02\x00\x5e\x00\x00\x00", 6);
+        sc.mac[5] = h;
+        fprintf(stderr, "warning: session name is not a device ID (12 x 0-9A-F); using MAC 02:00:5e:00:00:%02x\n", h);
+    }
 
     memset(&vc, 0, sizeof(vc));
     vc.host = c.host;
@@ -199,10 +390,11 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    memset(&st, 0, sizeof(st));
     t = vt_tunnel(vt);
-    t.ops->set_event_cb(vt, on_event, NULL);
-    t.ops->set_rx_cb(vt, on_rx, &st);
+    if (nc_stack_init(&t, &sc, on_stack_event, NULL) < 0) {
+        fprintf(stderr, "stack initialisation failed\n");
+        return 2;
+    }
 
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
@@ -211,15 +403,17 @@ int main(int argc, char **argv)
     nc_loop_init(&loop);
     src = nc_source_from_tunnel(&t);
     nc_loop_add(&loop, &src);
+    src = nc_stack_timer_source();
+    nc_loop_add(&loop, &src);
 
     t_start = nc_now_ms();
     vt_start(vt);
     nc_loop_run(&loop, seconds > 0 ? t_start + (uint64_t)(seconds * 1000) : 0);
 
-    printf("[%8.3f] rx frames %lu (%lu bytes): ipv4 %lu, arp %lu, ipv6 %lu, other %lu\n",
-           elapsed(t_start), st.frames, st.bytes, st.ipv4, st.arp, st.ipv6, st.other);
-    err = vt_is_up(vt) ? 0 : 1;
+    rc = vt_is_up(vt) ? 0 : 1;
+    if (fetch.wanted && (!fetch.done || strncmp(fetch.status, "HTTP/", 5) != 0))
+        rc = 1;
     t.ops->close(vt);
     vt_destroy(vt);
-    return err;
+    return rc;
 }

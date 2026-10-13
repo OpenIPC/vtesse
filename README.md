@@ -242,10 +242,31 @@ typedef struct tunnel_ops {
 } tunnel_ops_t;
 ```
 
-See [`include/netcore/tunnel.h`](include/netcore/tunnel.h). `DOWN` means the tunnel
-retries by itself (exponential backoff 1–30 s, reset after a stable session);
-`FAILED` is final (wrong credentials, compression/encryption/UDP/unsupported type on
-the server, not a VTun server).
+See [`include/netcore/tunnel.h`](include/netcore/tunnel.h). `UP` is reported once data
+may flow (the VTun client holds it back ~0.5 s after `OK FLAGS`, see the tap-up race).
+`DOWN` means the tunnel retries by itself (exponential backoff 1–30 s, reset after a
+stable session); `FAILED` is final (wrong credentials, compression/encryption/UDP/
+unsupported type on the server, not a VTun server).
+
+### Userspace stack
+
+[`include/netcore/stack.h`](include/netcore/stack.h) runs lwIP 2.2.1 over a tunnel
+(one stack per process — lwIP keeps global state):
+
+- L2 links: Ethernet netif with ARP; frames not addressed to our MAC or broadcast and
+  EtherTypes other than IPv4/ARP are dropped before lwIP (the bridge is shared).
+  L3 links: raw IPv4.
+- DHCP client (lwIP) requesting options 121 and 249; parsed routes are applied when
+  the lease is bound. RFC 3442: with classless routes option 3 is ignored.
+- No default netif: `LWIP_HOOK_IP4_ROUTE_SRC` admits only the connected subnet and
+  routed destinations; `LWIP_HOOK_ETHARP_GET_GW` picks the per-route gateway.
+- On every tunnel `UP` the ARP cache is flushed: a Linux bridge without a fixed MAC
+  takes a port's MAC, so the gateway MAC changes when taps come and go (found on the
+  bench — replies went to the old MAC until the gateway re-ARPed).
+- After a reconnect the link comes up again and lwIP requests the previous address
+  (DHCP INIT-REBOOT); the lease is never released.
+- `port/lwip/`: `lwipopts.h` (default and `VTESSE_LWIP_SMALL` profiles), `arch/cc.h`,
+  hook prototypes. `third_party/lwip/`: unmodified upstream subset.
 
 Partial TCP writes are buffered so frames are never split; when the buffer is full
 whole packets are dropped.
@@ -292,16 +313,33 @@ Layout:
 
 | Path | Contents |
 |---|---|
-| `include/netcore/`, `netcore/` | `tunnel_ops_t`, poll loop helper (protocol-agnostic) |
+| `include/netcore/`, `netcore/` | `tunnel_ops_t`, poll loop helper, route table, lwIP stack glue (protocol-agnostic) |
 | `include/vtesse/`, `vtun/` | VTun wire format helpers and the VTun client |
 | `cli/` | `vtesse-cli` |
-| `tests/` | unit tests (`test_proto`), client scenarios (`test_client`) |
+| `tests/` | unit tests (`test_proto`, `test_route`), client scenarios (`test_client`) |
+| `port/lwip/`, `third_party/lwip/` | lwIP configuration and vendored lwIP 2.2.1 |
+| `ci/` | big-endian MIPS build + tests under qemu (`ci/test-mips.sh`, Docker) |
 | `bench/` | Docker test bench |
 | `tools/` | probe script |
 
-`vtesse-cli --config FILE [--seconds N] [-v]` reads `host`, `port`, `session`,
-`password` from a key=value file (never from the command line), keeps the session
-up and reports events and received traffic. The userspace stack is added next.
+`vtesse-cli --config FILE [--seconds N] [--fetch http://IP[:PORT]/PATH]` reads `host`,
+`port`, `session` (= device ID, also the MAC), `password` from a key=value file (never
+from the command line), brings the tunnel and the stack up, prints the DHCP address
+and routes and optionally performs one HTTP GET through lwIP. `--debug-ip A.B.C.D/P
+--debug-gw G` replaces DHCP (debugging, `type tun`).
+
+```
+[   0.504] up: VTUN server ver 3.X 10/13/2026, flags <TeK>
+[   3.512] address 10.77.0.169 mask 255.255.255.0, option 3 10.77.0.1 (ignored: classless routes present)
+[   3.512]   route 10.78.0.0/24 via 10.77.0.1
+[   3.512]   route 10.79.0.0/24 via 10.77.0.1
+[   3.522] fetch 10.78.0.10:80/: ok, 205 bytes, "HTTP/1.0 200 OK"
+```
+
+Checks: `make test` (also under ASan/UBSan), `ci/test-mips.sh` (big-endian),
+`bench/bench.sh selftest` and `bench/bench.sh cli-test` (stage 1 acceptance on the
+bench: DHCP, routes, HTTP through lwIP, ping from the device, reconnect after a
+`killold` take-over with the same address).
 
 ## Tools
 

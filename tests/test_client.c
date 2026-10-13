@@ -302,23 +302,24 @@ static void test_happy_path(void)
     rec_t r;
     vt_t *vt = make_client(port, &r, 1);
     tunnel_t t = vt_tunnel(vt);
-    uint64_t up;
+    uint64_t t0;
 
+    t0 = nc_now_ms();
     vt_start(vt);
-    CHECK(run_until(vt, pred_up, &r, 2000));
-    up = nc_now_ms();
-    CHECK_EQ_INT(t.ops->link_type(vt), TUNNEL_LINK_L2);
-    CHECK_EQ_STR(vt_greeting(vt), "VTUN server ver 3.X 10/13/2026");
-    CHECK_EQ_INT(vt_session_flags(vt)->type, 'e');
-    CHECK_EQ_INT(t.ops->send(vt, (const uint8_t *)"early", 5), -1);   /* data delay */
-
+    CHECK_EQ_INT(t.ops->send(vt, (const uint8_t *)"early", 5), -1);   /* not up */
+    /* frames are delivered while UP is still held back by the data delay */
     CHECK(run_until(vt, pred_rx2, &r, 2000));
+    CHECK(!vt_is_up(vt));
+    CHECK_EQ_INT(t.ops->send(vt, (const uint8_t *)"early", 5), -1);
     CHECK_EQ_INT(r.nrx, 2);
     CHECK(r.rxlen[0] == 5 && memcmp(r.rx[0], "hello", 5) == 0);
     CHECK(r.rxlen[1] == 5 && memcmp(r.rx[1], "after", 5) == 0);
 
-    while (nc_now_ms() < up + 260)
-        run_until(vt, pred_failed, &r, 20);
+    CHECK(run_until(vt, pred_up, &r, 2000));
+    CHECK(nc_now_ms() - t0 >= 190);                                    /* data delay */
+    CHECK_EQ_INT(t.ops->link_type(vt), TUNNEL_LINK_L2);
+    CHECK_EQ_STR(vt_greeting(vt), "VTUN server ver 3.X 10/13/2026");
+    CHECK_EQ_INT(vt_session_flags(vt)->type, 'e');
     CHECK_EQ_INT(t.ops->send(vt, (const uint8_t *)"ping", 4), 0);
     CHECK(run_until(vt, pred_failed, &r, 2000));
     CHECK_EQ_INT(r.errs[r.nev - 1], TUNNEL_ERR_PEER_CLOSED);
@@ -416,13 +417,13 @@ static void test_keepalive_timeout(void)
     vt_t *vt = make_client(port, &r, 1);
     uint64_t t0;
 
+    t0 = nc_now_ms();
     vt_start(vt);
     CHECK(run_until(vt, pred_up, &r, 2000));
     CHECK_EQ_INT(vt_tunnel(vt).ops->link_type(vt), TUNNEL_LINK_L3);
-    t0 = nc_now_ms();
     CHECK(run_until(vt, pred_failed, &r, 3000));
     CHECK_EQ_INT(r.errs[r.nev - 1], TUNNEL_ERR_KEEPALIVE);
-    CHECK(nc_now_ms() - t0 >= 550);    /* 3 x 200 ms of silence */
+    CHECK(nc_now_ms() - t0 >= 550);    /* 3 x 200 ms of silence after OK FLAGS */
     vt_destroy(vt);
     kill(pid, SIGTERM);
     server_status(pid);
@@ -435,10 +436,11 @@ static void script_reconnect(int lfd)
     close(fd);                          /* first attempt: dropped at once */
     fd = accept(lfd, NULL, NULL);
     srv_handshake(fd, "OK FLAGS: <TeK>\n");
+    sleep_ms(300);                      /* client reports UP after the data delay */
     srv_flag(fd, VT_CONN_CLOSE);        /* e.g. taken over by killold */
     fd = accept(lfd, NULL, NULL);
     srv_handshake(fd, "OK FLAGS: <TeK>\n");
-    sleep_ms(300);
+    sleep_ms(1000);
     close(fd);
 }
 

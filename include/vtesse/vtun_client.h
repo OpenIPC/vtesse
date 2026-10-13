@@ -27,7 +27,7 @@ typedef struct vt_cfg {
     int handshake_timeout_ms;           /* per step, default 15000 (CHAL step >= 10000) */
     int ka_interval_ms;                 /* own ECHO_REQ period, default 10000 */
     int ka_count;                       /* dead after ka_count * interval silence, default 5 */
-    int data_delay_ms;                  /* wait after OK FLAGS before data, default 500 */
+    int data_delay_ms;                  /* OK FLAGS -> TUNNEL_EV_UP delay, default 500 */
     int reconnect_min_ms;               /* default 1000 */
     int reconnect_max_ms;               /* default 30000 */
     int out_buffer_size;                /* default 65536 */

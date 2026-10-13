@@ -53,6 +53,11 @@ bench/bench.sh logs
 bench/bench.sh down
 ```
 
+`bench.sh cli-test` (after `make`) is the stage 1 acceptance test for
+`build/vtesse-cli`: DHCP address and option 121 routes, option 3 ignored, HTTP GET to
+the device through lwIP, ping of the client from the device, reconnect after a
+`killold` take-over keeping the same address.
+
 `selftest.py` checks: 50-byte greeting; `<TeK>`; `ECHO_REQ` as the first frame;
 DHCP OFFER through the tunnel, delayed ≥ 2 s, with option 121; `killold`
 take-over (new login OK, old connection closed); shaper/compression/tun flags;
@@ -69,5 +74,9 @@ Reference handshake vectors from the stock client: [`vectors/`](vectors/).
   server drops the session. Reproduced with frames sent < 50 ms after `OK FLAGS`;
   a client must wait (~0.5 s) before its first data frame. Keepalive frames are
   not affected.
+- **Bridge MAC changes.** `br-vtesse` has no fixed MAC, so it takes a port's MAC and
+  changes when taps join/leave. A client that cached the gateway MAC before a
+  reconnect sends to a dead MAC until the gateway re-ARPs; VTesse flushes its ARP
+  cache on every tunnel `UP`.
 - The stock client applies option 121 and therefore ignores option 3 (RFC 3442):
   no default route via the tunnel.

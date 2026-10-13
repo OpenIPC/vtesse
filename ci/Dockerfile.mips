@@ -1,0 +1,6 @@
+# Big-endian MIPS cross build + test runner (qemu-user, no binfmt needed).
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends make gcc-mips-linux-gnu libc6-dev-mips-cross qemu-user \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
