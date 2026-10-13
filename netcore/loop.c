@@ -1,7 +1,6 @@
 #include "netcore/loop.h"
 
 #include <errno.h>
-#include <poll.h>
 #include <string.h>
 #include <time.h>
 
@@ -36,33 +35,46 @@ nc_source_t nc_source_from_tunnel(const tunnel_t *t)
     s.on_writable = t->ops->on_writable;
     s.next_timeout_ms = t->ops->next_timeout_ms;
     s.on_timer = t->ops->on_timer;
+    s.poll_fill = NULL;
+    s.poll_dispatch = NULL;
     s.ctx = t->ctx;
     return s;
 }
 
 int nc_loop_run_once(nc_loop_t *loop, int max_wait_ms)
 {
-    struct pollfd pfd[NC_LOOP_MAX_SOURCES];
-    int idx[NC_LOOP_MAX_SOURCES];
-    int nfds = 0, timeout = max_wait_ms, i, rc;
+    struct pollfd pfd[NC_LOOP_MAX_FDS];
+    int first[NC_LOOP_MAX_SOURCES], count[NC_LOOP_MAX_SOURCES];
+    int nfds = 0, timeout = max_wait_ms, i, j, rc;
 
     for (i = 0; i < loop->count; i++) {
         nc_source_t *s = &loop->src[i];
-        int fd = s->get_fd ? s->get_fd(s->ctx) : -1;
+        int fd;
 
+        first[i] = nfds;
+        count[i] = 0;
         if (s->next_timeout_ms) {
             int t = s->next_timeout_ms(s->ctx);
             if (t >= 0 && (timeout < 0 || t < timeout))
                 timeout = t;
         }
-        if (fd < 0)
+        if (s->poll_fill) {
+            count[i] = s->poll_fill(s->ctx, pfd + nfds, NC_LOOP_MAX_FDS - nfds);
+            for (j = 0; j < count[i]; j++)
+                pfd[nfds + j].revents = 0;
+            nfds += count[i];
+            continue;
+        }
+        fd = s->get_fd ? s->get_fd(s->ctx) : -1;
+        if (fd < 0 || nfds >= NC_LOOP_MAX_FDS)
             continue;
         pfd[nfds].fd = fd;
         pfd[nfds].events = POLLIN;
         if (s->wants_write && s->wants_write(s->ctx))
             pfd[nfds].events |= POLLOUT;
         pfd[nfds].revents = 0;
-        idx[nfds++] = i;
+        count[i] = 1;
+        nfds++;
     }
 
     rc = poll(pfd, (nfds_t)nfds, timeout);
@@ -71,17 +83,26 @@ int nc_loop_run_once(nc_loop_t *loop, int max_wait_ms)
     if (rc < 0)
         return rc;
 
-    for (i = 0; i < nfds; i++) {
-        nc_source_t *s = &loop->src[idx[i]];
-        short re = pfd[i].revents;
+    for (i = 0; i < loop->count; i++) {
+        nc_source_t *s = &loop->src[i];
+        struct pollfd *p = &pfd[first[i]];
+        short re;
 
+        if (!count[i])
+            continue;
+        if (s->poll_fill) {
+            if (s->poll_dispatch)
+                s->poll_dispatch(s->ctx, p, count[i]);
+            continue;
+        }
+        re = p->revents;
         /* The fd may have changed inside an earlier handler of the same source. */
-        if (!re || !s->get_fd || s->get_fd(s->ctx) != pfd[i].fd)
+        if (!re || !s->get_fd || s->get_fd(s->ctx) != p->fd)
             continue;
         if ((re & (POLLOUT | POLLERR | POLLHUP)) && s->on_writable &&
             s->wants_write && s->wants_write(s->ctx))
             s->on_writable(s->ctx);
-        if (s->get_fd(s->ctx) != pfd[i].fd)
+        if (s->get_fd(s->ctx) != p->fd)
             continue;
         if ((re & (POLLIN | POLLERR | POLLHUP)) && s->on_readable)
             s->on_readable(s->ctx);

@@ -7,11 +7,13 @@
 #ifndef NETCORE_LOOP_H
 #define NETCORE_LOOP_H
 
+#include <poll.h>
 #include <stdint.h>
 
 #include "netcore/tunnel.h"
 
 #define NC_LOOP_MAX_SOURCES 16
+#define NC_LOOP_MAX_FDS     512
 
 typedef struct nc_source {
     int  (*get_fd)(void *ctx);          /* -1: no fd (timer-only source) */
@@ -20,6 +22,11 @@ typedef struct nc_source {
     void (*on_writable)(void *ctx);     /* may be NULL */
     int  (*next_timeout_ms)(void *ctx); /* may be NULL; 0 = due, -1 = none */
     void (*on_timer)(void *ctx);        /* may be NULL */
+    /* Multi-fd sources (e.g. the proxy) set these instead of get_fd:
+     * poll_fill() writes up to max entries and returns how many;
+     * poll_dispatch() receives the same entries with revents filled in. */
+    int  (*poll_fill)(void *ctx, struct pollfd *pfd, int max);
+    void (*poll_dispatch)(void *ctx, const struct pollfd *pfd, int n);
     void *ctx;
 } nc_source_t;
 

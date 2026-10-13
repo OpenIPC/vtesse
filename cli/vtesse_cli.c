@@ -3,6 +3,7 @@
  *
  * Connects to a VTun server, runs the userspace stack (lwIP) over the tunnel,
  * obtains address and routes via DHCP (type ether) and reports events.
+ * Local proxy: --socks PORT (SOCKS5 CONNECT) and --forward LPORT:IP:RPORT.
  * --fetch performs one HTTP GET through the stack to check TCP end to end.
  *
  * Credentials are read from a key=value file, never from the command line.
@@ -17,6 +18,7 @@
 #include "lwip/ip4_addr.h"
 #include "lwip/tcp.h"
 #include "netcore/loop.h"
+#include "netcore/proxy.h"
 #include "netcore/route.h"
 #include "netcore/stack.h"
 #include "vtesse/vtun_client.h"
@@ -28,6 +30,8 @@ typedef struct cfg_file {
     char session[64];
     char password[128];
     char auth[16];
+    char socks_user[256];
+    char socks_password[256];
     int port;
 } cfg_file_t;
 
@@ -44,9 +48,11 @@ static void usage(void)
 {
     fprintf(stderr,
             "usage: vtesse-cli [--config FILE] [--seconds N] [-v]\n"
+            "                  [--socks PORT] [--forward LPORT:IP:RPORT]... [--listen ADDR]\n"
             "                  [--fetch http://IP[:PORT]/PATH]\n"
             "                  [--debug-ip A.B.C.D/P --debug-gw A.B.C.D]\n"
-            "  FILE: key=value lines: host, port, session, password, auth (xor)\n"
+            "  FILE: key=value lines: host, port, session, password, auth (xor),\n"
+            "        optional socks_user, socks_password (SOCKS5 user/password auth)\n"
             "        default " DEFAULT_CONFIG "\n");
 }
 
@@ -103,6 +109,10 @@ static int load_config(const char *path, cfg_file_t *c)
             snprintf(c->password, sizeof(c->password), "%s", v);
         else if (!strcmp(k, "auth"))
             snprintf(c->auth, sizeof(c->auth), "%s", v);
+        else if (!strcmp(k, "socks_user"))
+            snprintf(c->socks_user, sizeof(c->socks_user), "%s", v);
+        else if (!strcmp(k, "socks_password"))
+            snprintf(c->socks_password, sizeof(c->socks_password), "%s", v);
     }
     fclose(f);
     if (!c->host[0] || c->port <= 0 || c->port > 65535 || !c->session[0] || !c->password[0]) {
@@ -263,6 +273,25 @@ static void fetch_start(void)
     }
 }
 
+static void on_proxy_log(void *user, const char *msg)
+{
+    (void)user;
+    printf("[%8.3f] proxy: %s\n", (double)(nc_now_ms() - t_start) / 1000.0, msg);
+    fflush(stdout);
+}
+
+static int parse_forward(const char *s, nc_forward_t *f)
+{
+    char ip[32];
+    unsigned lp, rp;
+
+    if (sscanf(s, "%u:%31[0-9.]:%u", &lp, ip, &rp) != 3 || !lp || lp > 65535 || !rp || rp > 65535)
+        return -1;
+    f->local_port = (uint16_t)lp;
+    f->port = (uint16_t)rp;
+    return parse_ip4(ip, &f->ip);
+}
+
 /* ---- events ---- */
 
 static void print_info(void)
@@ -331,11 +360,14 @@ int main(int argc, char **argv)
     cfg_file_t c;
     vt_cfg_t vc;
     nc_stack_cfg_t sc;
+    nc_proxy_cfg_t pc;
+    nc_proxy_t *px = NULL;
     tunnel_t t;
     nc_source_t src;
     int i, err, rc;
 
     memset(&sc, 0, sizeof(sc));
+    memset(&pc, 0, sizeof(pc));
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--config") && i + 1 < argc)
             config = argv[++i];
@@ -349,6 +381,22 @@ int main(int argc, char **argv)
                 return 2;
             }
             fetch.wanted = 1;
+        } else if (!strcmp(argv[i], "--socks") && i + 1 < argc) {
+            int p = atoi(argv[++i]);
+            if (p <= 0 || p > 65535) {
+                fprintf(stderr, "--socks: expected a port\n");
+                return 2;
+            }
+            pc.socks_port = (uint16_t)p;
+        } else if (!strcmp(argv[i], "--forward") && i + 1 < argc) {
+            if (pc.forward_count >= NC_PROXY_MAX_FORWARDS ||
+                parse_forward(argv[++i], &pc.forwards[pc.forward_count]) < 0) {
+                fprintf(stderr, "--forward: expected LPORT:A.B.C.D:RPORT (max %d)\n", NC_PROXY_MAX_FORWARDS);
+                return 2;
+            }
+            pc.forward_count++;
+        } else if (!strcmp(argv[i], "--listen") && i + 1 < argc) {
+            pc.listen_addr = argv[++i];
         } else if (!strcmp(argv[i], "--debug-ip") && i + 1 < argc) {
             if (parse_prefix(argv[++i], &sc.addr, &sc.mask) < 0) {
                 fprintf(stderr, "--debug-ip: expected A.B.C.D/P\n");
@@ -396,6 +444,26 @@ int main(int argc, char **argv)
         return 2;
     }
 
+    if (pc.socks_port || pc.forward_count) {
+        pc.socks_user = c.socks_user;
+        pc.socks_password = c.socks_password;
+        px = nc_proxy_create(&pc, on_proxy_log, NULL);
+        memset(c.socks_password, 0, sizeof(c.socks_password));
+        if (!px) {
+            fprintf(stderr, "cannot start the local proxy\n");
+            return 2;
+        }
+        if (pc.socks_port)
+            printf("socks5 on %s:%u%s\n", pc.listen_addr ? pc.listen_addr : "127.0.0.1",
+                   (unsigned)pc.socks_port, c.socks_user[0] ? " (user/password)" : "");
+        for (i = 0; i < pc.forward_count; i++) {
+            char ip[16];
+            nc_ip4_format(pc.forwards[i].ip, ip, sizeof(ip));
+            printf("forward %s:%u -> %s:%u\n", pc.listen_addr ? pc.listen_addr : "127.0.0.1",
+                   (unsigned)pc.forwards[i].local_port, ip, (unsigned)pc.forwards[i].port);
+        }
+    }
+
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
     signal(SIGPIPE, SIG_IGN);
@@ -405,11 +473,22 @@ int main(int argc, char **argv)
     nc_loop_add(&loop, &src);
     src = nc_stack_timer_source();
     nc_loop_add(&loop, &src);
+    if (px) {
+        src = nc_proxy_source(px);
+        nc_loop_add(&loop, &src);
+    }
 
     t_start = nc_now_ms();
     vt_start(vt);
     nc_loop_run(&loop, seconds > 0 ? t_start + (uint64_t)(seconds * 1000) : 0);
 
+    if (px) {
+        nc_proxy_stats_t ps;
+        nc_proxy_get_stats(px, &ps);
+        printf("[%8.3f] proxy: accepted %lu, connected %lu, failed %lu, rejected %lu, up %llu B, down %llu B\n",
+               elapsed(t_start), ps.accepted, ps.connected, ps.failed, ps.rejected, ps.bytes_up, ps.bytes_down);
+        nc_proxy_destroy(px);
+    }
     rc = vt_is_up(vt) ? 0 : 1;
     if (fetch.wanted && (!fetch.done || strncmp(fetch.status, "HTTP/", 5) != 0))
         rc = 1;

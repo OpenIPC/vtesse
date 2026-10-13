@@ -11,7 +11,7 @@ LWIP_CFLAGS := -std=gnu99 -Wall -Wno-unused-parameter -Wno-address $(INCLUDES)
 LDFLAGS ?=
 BUILD   ?= build
 
-NETCORE_SRC := netcore/tunnel.c netcore/loop.c netcore/route.c netcore/stack.c
+NETCORE_SRC := netcore/tunnel.c netcore/loop.c netcore/route.c netcore/stack.c netcore/proxy.c
 VTUN_SRC    := vtun/vtun_proto.c vtun/vtun_client.c
 LWIP_SRC    := $(addprefix $(LWIP_DIR)/src/core/, def.c inet_chksum.c init.c ip.c mem.c \
                  memp.c netif.c pbuf.c stats.c sys.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \

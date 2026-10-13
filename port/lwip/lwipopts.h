@@ -9,6 +9,7 @@
 #define LWIP_NETCONN                    0
 #define LWIP_SOCKET                     0
 #define LWIP_STATS                      0
+#define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS 1   /* use the system htons/ntohl */
 #define LWIP_HOOK_FILENAME              "nc_lwip_hooks.h"   /* prototypes */
 #define LWIP_HOOK_IP4_ROUTE_SRC(src, dest)      nc_hook_ip4_route(src, dest)
 #define LWIP_HOOK_ETHARP_GET_GW(netif, dest)    nc_hook_etharp_get_gw(netif, dest)
@@ -18,7 +19,7 @@
 /* ---- memory ---- */
 #ifndef VTESSE_LWIP_SMALL
 #define MEM_SIZE                        (256 * 1024)
-#define PBUF_POOL_SIZE                  96
+#define PBUF_POOL_SIZE                  256     /* >= sum of receive windows of parallel connections */
 #define MEMP_NUM_PBUF                   64
 #define MEMP_NUM_TCP_PCB                32
 #define TCP_WND                         (16 * TCP_MSS)

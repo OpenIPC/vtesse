@@ -9,6 +9,7 @@
 #   bench.sh probe [args]    run tools/vtun_probe.py against the bench
 #   bench.sh selftest        protocol self-test against the running bench
 #   bench.sh cli-test        stage 1 acceptance: build/vtesse-cli (lwIP, DHCP) on the bench
+#   bench.sh proxy-test      stage 2 acceptance: SOCKS5 and port forwards of build/vtesse-cli
 set -eu
 
 IMAGE=${BENCH_IMAGE:-vtesse-bench}
@@ -114,6 +115,7 @@ case "${1:-}" in
     stock-test) cmd_stock_test ;;
     probe) shift; cmd_probe "$@" ;;
     cli-test) cmd_cli_test ;;
+    proxy-test) python3 "$HERE/proxy_test.py" "$HERE/../build/vtesse-cli" "$BENCH_PORT" "$SERVER" ;;
     selftest) python3 "$HERE/selftest.py" 127.0.0.1 "$BENCH_PORT" ;;
-    *) sed -n '2,11p' "$0"; exit 1 ;;
+    *) sed -n '2,12p' "$0"; exit 1 ;;
 esac

@@ -7,7 +7,8 @@
 #
 # Bench addressing (test values only):
 #   bridge segment  10.77.0.0/24  bridge/router/DHCP 10.77.0.1, leases .100-.199 (infinite)
-#   device subnet   10.78.0.0/24  router 10.78.0.1, device 10.78.0.10 (HTTP :80, RTSP :554)
+#   device subnet   10.78.0.0/24  router 10.78.0.1, device 10.78.0.10
+#                   (HTTP :80 with /big.bin 20 MiB, RTSP stub :554, TCP echo :7)
 #   option 121      10.78.0.0/24 and 10.79.0.0/24 (unreachable) via 10.77.0.1
 set -eu
 
@@ -44,10 +45,14 @@ setup_segment() {
 
     mkdir -p /opt/device/www
     echo "vtesse bench device" > /opt/device/www/index.html
+    head -c 20971520 /dev/urandom > /opt/device/www/big.bin     # 20 MiB for transfer tests
+    sha256sum /opt/device/www/big.bin | cut -d" " -f1 > /opt/device/www/big.sha256
     ip netns exec device python3 -m http.server 80 --bind 10.78.0.10 --directory /opt/device/www \
         >/var/log/device-http.log 2>&1 &
     ip netns exec device python3 /opt/device/rtsp_stub.py 10.78.0.10 554 \
         >/var/log/device-rtsp.log 2>&1 &
+    ip netns exec device python3 /opt/device/echo_server.py 10.78.0.10 7 \
+        >/var/log/device-echo.log 2>&1 &
 
     # Default dnsmasq behaviour pings an address before offering it, which
     # delays the OFFER by ~3 s (three ARP probes), like the target server.

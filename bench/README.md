@@ -23,7 +23,8 @@ All names, addresses and passwords are bench-only test values.
 - DHCP: leases `10.77.0.100–199`, infinite; option 3 `10.77.0.1`; option 121
   `10.78.0.0/24` and `10.79.0.0/24` (unreachable) via `10.77.0.1`. dnsmasq pings an
   address before offering it, so the OFFER comes after ~3 s, like on the target server.
-- The RTSP "device" is a stub that answers `OPTIONS`/`DESCRIBE` (no media).
+- The RTSP "device" is a stub that answers `OPTIONS`/`DESCRIBE` (no media); the
+  device also has `/big.bin` (20 MiB) on HTTP and a TCP echo server on port 7.
 - vtund syslog output is forwarded to `docker logs`.
 
 ## Sessions (`vtund.conf`)
@@ -57,6 +58,12 @@ bench/bench.sh down
 `build/vtesse-cli`: DHCP address and option 121 routes, option 3 ignored, HTTP GET to
 the device through lwIP, ping of the client from the device, reconnect after a
 `killold` take-over keeping the same address.
+
+`bench.sh proxy-test` is the stage 2 acceptance test (SOCKS5 and port forwards):
+reply codes for host names/IPv6/no route/refused, `curl --socks5`, 20 MiB download
+and 8 MiB TCP echo through forwards with integrity checks, RTSP `OPTIONS`, 8 parallel
+downloads, SOCKS5 username/password. The device also serves `/big.bin` (20 MiB,
+sha256 in `/big.sha256`) and a TCP echo on port 7.
 
 `selftest.py` checks: 50-byte greeting; `<TeK>`; `ECHO_REQ` as the first frame;
 DHCP OFFER through the tunnel, delayed ≥ 2 s, with option 121; `killold`

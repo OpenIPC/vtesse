@@ -273,14 +273,27 @@ whole packets are dropped.
 
 ### Local proxy
 
-- SOCKS5 `CONNECT` (no auth by default, optional RFC 1929 user/password), IPv4
-  destinations only; domain names (ATYP 3) and IPv6 (ATYP 4) are rejected — there is
-  no DNS in the stack.
-- Static port forwards `127.0.0.1:L → remote_ip:R` for players without proxy support.
-- RTSP: use RTSP-over-TCP (interleaved); RTP over UDP cannot pass a TCP forward.
-- Any local process can use an unauthenticated proxy on `127.0.0.1`.
-- TCP-over-TCP: inner TCP connections degrade on lossy links; lwIP TCP timers are
-  tuned conservatively.
+[`include/netcore/proxy.h`](include/netcore/proxy.h): host sockets on
+`127.0.0.1` (configurable) relayed to lwIP TCP connections through the tunnel.
+Outbound TCP and IPv4 only.
+
+- **SOCKS5** (RFC 1928) `CONNECT`; no authentication by default, optional
+  username/password (RFC 1929). Reply codes: `3` no route via the tunnel (or no
+  DHCP address yet), `4` connect timeout, `5` refused, `7` command other than
+  `CONNECT`, `8` host names (no DNS in the stack) and IPv6. A domain field holding an
+  IPv4 literal is accepted (`socks5h` clients).
+- **Port forwards** `LPORT:IP:RPORT` for players without proxy support (RTSP 554,
+  HTTP 80). RTSP must use RTP over TCP (interleaved); RTP over UDP cannot pass a TCP
+  forward.
+- **Flow control end to end:** a local socket is read only while lwIP has send buffer
+  space; data received from lwIP is acknowledged (window reopened) only after it was
+  written to the local socket. No unbounded buffers; half-close is propagated both
+  ways.
+- Limits: `max_conns` (default 24, bounded by lwIP TCP PCBs), connect timeout 15 s.
+- Any local process can use an unauthenticated proxy on `127.0.0.1` — set
+  `socks_user` / `socks_password` where that matters.
+- TCP-over-TCP: inner connections share one VTun TCP stream; on the bench a single
+  download reaches ~110–140 MiB/s and 8 parallel downloads ~55 MiB/s in total.
 
 ### Android
 
@@ -322,10 +335,12 @@ Layout:
 | `bench/` | Docker test bench |
 | `tools/` | probe script |
 
-`vtesse-cli --config FILE [--seconds N] [--fetch http://IP[:PORT]/PATH]` reads `host`,
+`vtesse-cli --config FILE [--seconds N] [--socks PORT] [--forward LPORT:IP:RPORT]...
+[--listen ADDR] [--fetch http://IP[:PORT]/PATH]` reads `host`,
 `port`, `session` (= device ID, also the MAC), `password` from a key=value file (never
 from the command line), brings the tunnel and the stack up, prints the DHCP address
-and routes and optionally performs one HTTP GET through lwIP. `--debug-ip A.B.C.D/P
+and routes, runs the local proxy and optionally performs one HTTP GET through lwIP.
+Optional `socks_user` / `socks_password` keys enable SOCKS5 authentication. `--debug-ip A.B.C.D/P
 --debug-gw G` replaces DHCP (debugging, `type tun`).
 
 ```
@@ -337,9 +352,17 @@ and routes and optionally performs one HTTP GET through lwIP. `--debug-ip A.B.C.
 ```
 
 Checks: `make test` (also under ASan/UBSan), `ci/test-mips.sh` (big-endian),
-`bench/bench.sh selftest` and `bench/bench.sh cli-test` (stage 1 acceptance on the
+`bench/bench.sh selftest`, `bench/bench.sh cli-test` (stage 1 acceptance on the
 bench: DHCP, routes, HTTP through lwIP, ping from the device, reconnect after a
-`killold` take-over with the same address).
+`killold` take-over with the same address) and `bench/bench.sh proxy-test` (stage 2:
+SOCKS5 reply codes, curl, 20 MiB download and 8 MiB echo with integrity checks, RTSP
+through a forward, 8 parallel downloads, SOCKS5 authentication).
+
+```sh
+vtesse-cli --socks 1080 --forward 8554:10.78.0.10:554
+curl --socks5 127.0.0.1:1080 http://10.78.0.10/
+ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
+```
 
 ## Tools
 
