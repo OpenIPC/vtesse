@@ -28,7 +28,7 @@ FROM debian:bookworm-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        iproute2 bridge-utils dnsmasq-base isc-dhcp-client iputils-ping \
+        iproute2 bridge-utils dnsmasq-base isc-dhcp-client udhcpc iputils-ping \
         tcpdump curl python3 procps \
  && rm -rf /var/lib/apt/lists/*
 

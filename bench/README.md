@@ -65,6 +65,11 @@ and 8 MiB TCP echo through forwards with integrity checks, RTSP `OPTIONS`, 8 par
 downloads, SOCKS5 username/password. The device also serves `/big.bin` (20 MiB,
 sha256 in `/big.sha256`) and a TCP echo on port 7.
 
+`bench.sh tap-test` is the TAP backend acceptance test: it builds `vtesse-cli` with
+`LWIP=0` in a Debian bookworm container (`ci/Dockerfile.native`) and runs it with
+`--tap` in a second privileged container; addressing via `udhcpc` and
+`scripts/vtesse-udhcpc.script`; inbound ping and HTTP from the device to the client.
+
 `selftest.py` checks: 50-byte greeting; `<TeK>`; `ECHO_REQ` as the first frame;
 DHCP OFFER through the tunnel, delayed ≥ 2 s, with option 121; `killold`
 take-over (new login OK, old connection closed); shaper/compression/tun flags;

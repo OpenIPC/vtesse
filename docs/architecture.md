@@ -58,7 +58,7 @@ the tunnel; there is no system network interface.
 
 | Path | Contents |
 |---|---|
-| `include/netcore/`, `netcore/` | `tunnel_ops_t`, poll loop helper, route table, lwIP stack glue, proxy (protocol-agnostic) |
+| `include/netcore/`, `netcore/` | `tunnel_ops_t`, poll loop helper, route table, lwIP stack glue, proxy, TAP backend (protocol-agnostic) |
 | `include/vtesse/`, `vtun/` | VTun wire format helpers and the VTun client |
 | `cli/` | `vtesse-cli` |
 | `port/lwip/` | lwIP configuration (`lwipopts.h`), `arch/cc.h`, hook prototypes |
@@ -67,6 +67,7 @@ the tunnel; there is no system network interface.
 | `bench/` | Docker test bench |
 | `ci/` | big-endian MIPS build and tests under qemu |
 | `tools/` | probe script |
+| `scripts/` | hook and udhcpc scripts for the TAP backend |
 | `docs/` | documentation |
 
 ## Tunnel interface
@@ -153,10 +154,23 @@ User-facing behaviour (reply codes, limits): [usage](usage.md#local-proxy).
 
 ## Backends
 
-The lwIP backend is the default and the only one on Android. An optional TAP/TUN
-backend for Linux targets — frames passed to `/dev/net/tun`, kernel interface,
-addressing and routing, inbound connections possible — is planned
-([#19](https://github.com/compot-dev/vtesse/issues/19)).
+Two consumers of `tunnel_ops_t`:
+
+| | lwIP (default) | TAP ([`tapdev.h`](../include/netcore/tapdev.h)) |
+|---|---|---|
+| Interface in the system | none | `vtesse0` (TAP for `type ether`, TUN for `type tun`) |
+| Who can use the tunnel | the application, programs using its proxy | every program |
+| Inbound connections | no | yes |
+| Addressing | built-in DHCP client (lwIP) | system DHCP client via the hook script |
+| Privileges | none | root or `CAP_NET_ADMIN`, `tun` driver |
+| Platforms | Linux, Android | Linux |
+| Code size (x86_64, `-Os`) | ~107 KiB code + lwIP pools | ~23 KiB (`make LWIP=0`) |
+
+The TAP backend creates the interface on the first tunnel `UP`, keeps it across
+reconnects and switches the carrier off while the tunnel is down
+(`TUNSETCARRIER`; on kernels without it the interface just stays up and the hook
+flushes neighbours). Frames are read in batches and dropped while the tunnel is down
+or its output buffer is full; frames from the tunnel are written non-blocking.
 
 ## Android
 

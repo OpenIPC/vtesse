@@ -2,6 +2,7 @@
 
 - [Building](#building)
 - [vtesse-cli](#vtesse-cli)
+- [TAP backend](#tap-backend)
 - [Configuration file](#configuration-file)
 - [Device ID](#device-id)
 - [Addressing (DHCP)](#addressing-dhcp)
@@ -16,6 +17,7 @@ C99 + POSIX, plain `make`; cross compile with `make CC=<toolchain>-gcc`.
 ```sh
 make            # build/libnetcore.a, build/libvtesse.a, build/vtesse-cli
 make test       # unit tests and client scenarios against a scripted server
+make LWIP=0     # TAP backend only: no userspace stack and proxy (~23 KiB of code)
 ```
 
 ## vtesse-cli
@@ -25,6 +27,7 @@ vtesse-cli [--config FILE] [--seconds N] [-v]
            [--socks PORT] [--forward LPORT:IP:RPORT]... [--listen ADDR]
            [--fetch http://IP[:PORT]/PATH]
            [--debug-ip A.B.C.D/P --debug-gw A.B.C.D]
+vtesse-cli [--config FILE] [--seconds N] --tap [--ifname NAME] [--hook SCRIPT]
 ```
 
 | Option | Meaning |
@@ -36,6 +39,9 @@ vtesse-cli [--config FILE] [--seconds N] [-v]
 | `--listen ADDR` | address of the local listeners, default `127.0.0.1` |
 | `--fetch URL` | one HTTP GET through the stack once an address is bound (diagnostics) |
 | `--debug-ip`, `--debug-gw` | manual IPv4 instead of DHCP (debugging, `type tun`) |
+| `--tap` | [TAP backend](#tap-backend): kernel interface instead of lwIP (Linux, root) |
+| `--ifname NAME` | interface name for `--tap`, default `vtesse%d` |
+| `--hook SCRIPT` | script run on interface events for `--tap` |
 
 The CLI brings the tunnel and the userspace stack up, prints link events, the DHCP
 address and routes, runs the local proxy and prints proxy statistics on exit. Exit
@@ -53,6 +59,41 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 [   3.512]   route 10.78.0.0/24 via 10.77.0.1
 [   3.512]   route 10.79.0.0/24 via 10.77.0.1
 [   3.522] fetch 10.78.0.10:80/: ok, 205 bytes, "HTTP/1.0 200 OK"
+```
+
+## TAP backend
+
+`--tap` passes tunnel frames to a kernel interface (`/dev/net/tun`) instead of the
+userspace stack. Every program on the device then uses the tunnel, including
+**inbound** connections to the device's own services. Requires root or
+`CAP_NET_ADMIN` and the `tun` driver; not available on Android.
+
+- The interface is created on the first tunnel `UP`: TAP for `type ether`, TUN for
+  `type tun`; MAC = device ID, MTU 1500, IPv6 disabled on it.
+- It is kept across reconnects; while the tunnel is down the carrier is off (which
+  also clears the kernel's ARP neighbours, see
+  [protocol](protocol.md#server-behaviour-that-affects-clients)), so addresses and
+  routes survive a reconnect.
+- Addressing is done by the system. `--hook` runs `SCRIPT <event>` with
+  `VTESSE_EVENT`, `VTESSE_IFNAME`, `VTESSE_LINK` (`ether`/`tun`) and
+  `VTESSE_SESSION` in the environment; events: `up` (interface created), `reconnect`,
+  `down`, `stop`.
+
+[`scripts/vtesse-hook.sh`](../scripts/vtesse-hook.sh) starts BusyBox `udhcpc` with
+[`scripts/vtesse-udhcpc.script`](../scripts/vtesse-udhcpc.script), which
+
+- sets the address and installs the option 121 (or 249) routes via the interface;
+- **never touches `/etc/resolv.conf`** — stock DHCP scripts replace the device's
+  resolver with the tunnel DNS, which may be unreachable and breaks resolving the
+  VTun server itself (found on the bench);
+- installs a default route through the tunnel only with `VTESSE_DEFAULT_ROUTE=1` — it
+  would also capture the connection to the VTun server unless a host route to the
+  server exists.
+
+`dhclient` is a fallback in the hook; its stock script has the two problems above.
+
+```sh
+vtesse-cli --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
 ```
 
 ## Configuration file

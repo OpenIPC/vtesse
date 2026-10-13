@@ -1,4 +1,5 @@
 # VTesse build. Cross compile with e.g.: make CC=mipsel-linux-musl-gcc
+# LWIP=0 builds without the userspace stack and proxy (TAP backend only).
 CC      ?= cc
 AR      ?= ar
 CFLAGS  ?= -Os -g
@@ -10,15 +11,22 @@ BASE_CFLAGS := -std=c99 -Wall -Wextra -Wpedantic -Wshadow -D_POSIX_C_SOURCE=2008
 LWIP_CFLAGS := -std=gnu99 -Wall -Wno-unused-parameter -Wno-address $(INCLUDES)
 LDFLAGS ?=
 BUILD   ?= build
+LWIP    ?= 1
 
-NETCORE_SRC := netcore/tunnel.c netcore/loop.c netcore/route.c netcore/stack.c netcore/proxy.c
+NETCORE_SRC := netcore/tunnel.c netcore/loop.c netcore/route.c netcore/tapdev.c
 VTUN_SRC    := vtun/vtun_proto.c vtun/vtun_client.c
 LWIP_SRC    := $(addprefix $(LWIP_DIR)/src/core/, def.c inet_chksum.c init.c ip.c mem.c \
                  memp.c netif.c pbuf.c stats.c sys.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \
                $(addprefix $(LWIP_DIR)/src/core/ipv4/, dhcp.c etharp.c icmp.c ip4.c ip4_addr.c ip4_frag.c) \
                $(LWIP_DIR)/src/netif/ethernet.c
 
+ifeq ($(LWIP),1)
+NETCORE_SRC += netcore/stack.c netcore/proxy.c
 NETCORE_OBJ := $(NETCORE_SRC:%.c=$(BUILD)/%.o) $(LWIP_SRC:%.c=$(BUILD)/%.o)
+else
+BASE_CFLAGS += -DVTESSE_WITH_LWIP=0
+NETCORE_OBJ := $(NETCORE_SRC:%.c=$(BUILD)/%.o)
+endif
 VTUN_OBJ    := $(VTUN_SRC:%.c=$(BUILD)/%.o)
 
 LIBNETCORE := $(BUILD)/libnetcore.a

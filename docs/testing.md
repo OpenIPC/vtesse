@@ -8,6 +8,7 @@
 | Bench self-test | `bench/bench.sh selftest` | server behaviour VTesse relies on (greeting, flags, keepalive, DHCP through the tunnel, `killold`, `ERR` cases, `multi no`) |
 | Stage 1 acceptance | `bench/bench.sh cli-test` | `vtesse-cli`: DHCP address and option 121 routes, option 3 ignored, HTTP through lwIP, ping of the client from the device, reconnect after a take-over with the same address |
 | Stage 2 acceptance | `bench/bench.sh proxy-test` | SOCKS5 reply codes, `curl --socks5`, 20 MiB download and 8 MiB echo with integrity checks, RTSP through a forward, 8 parallel downloads, SOCKS5 authentication |
+| TAP backend | `bench/bench.sh tap-test` | `vtesse-cli --tap` (`LWIP=0` build) in a container: DHCP via udhcpc, option 121 route, no default route, HTTP and a 20 MiB download from any process, **inbound** ping and TCP from the device, reconnect after a take-over keeps interface and address, clean exit |
 | Reference client | `bench/bench.sh stock-test` | the stock `vtund` client + `dhclient` reach the device through the bench |
 
 ## Test bench
@@ -23,6 +24,7 @@ make
 bench/bench.sh selftest
 bench/bench.sh cli-test
 bench/bench.sh proxy-test
+bench/bench.sh tap-test
 bench/bench.sh down
 ```
 

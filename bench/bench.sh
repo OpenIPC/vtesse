@@ -10,6 +10,7 @@
 #   bench.sh selftest        protocol self-test against the running bench
 #   bench.sh cli-test        stage 1 acceptance: build/vtesse-cli (lwIP, DHCP) on the bench
 #   bench.sh proxy-test      stage 2 acceptance: SOCKS5 and port forwards of build/vtesse-cli
+#   bench.sh tap-test        TAP backend acceptance: vtesse-cli --tap (LWIP=0 build) in a container
 set -eu
 
 IMAGE=${BENCH_IMAGE:-vtesse-bench}
@@ -107,6 +108,59 @@ cmd_cli_test() {
     [ "$fails" -eq 0 ]
 }
 
+cmd_tap_test() {
+    repo=$(cd "$HERE/.." && pwd)
+    tapc=vtesse-bench-tapclient
+    fails=0
+    check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails + 1)); fi; }
+    inc() { docker exec "$tapc" sh -c "$1"; }
+    dev() { docker exec "$SERVER" ip netns exec device sh -c "$1"; }
+
+    # build the TAP-only CLI for the bench image (Debian bookworm)
+    docker build -q -t vtesse-ci-native -f "$repo/ci/Dockerfile.native" "$repo/ci" >/dev/null
+    docker run --rm --user "$(id -u):$(id -g)" -v "$repo:/src" -w /src vtesse-ci-native \
+        make -s BUILD=build-bench-tap LWIP=0 all >/dev/null
+
+    docker rm -f "$tapc" >/dev/null 2>&1 || true
+    docker run -d --name "$tapc" --privileged --network "$NET" -v "$repo:/src:ro" "$IMAGE" sh -c "
+        mkdir -p /var/lib/dhcp
+        printf 'host=$SERVER\nport=5000\nsession=$SESSION\npassword=$PASSWORD\n' > /tmp/vtesse.conf
+        python3 -m http.server 8080 --bind 0.0.0.0 --directory /etc >/dev/null 2>&1 &
+        exec /src/build-bench-tap/vtesse-cli --tap --ifname vtesse0 --hook /src/scripts/vtesse-hook.sh --config /tmp/vtesse.conf
+    " >/dev/null
+
+    i=0
+    until inc 'ip -4 addr show vtesse0 2>/dev/null | grep -q "inet 10\.77\.0\."' || [ $i -gt 20 ]; do sleep 1; i=$((i + 1)); done
+    addr=$(inc "ip -4 -o addr show vtesse0" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p')
+    check "tap interface vtesse0 with DHCP address" '[ -n "$addr" ]'
+    check "MAC of vtesse0 is the device ID" 'inc "cat /sys/class/net/vtesse0/address" | grep -qi "^02:be:0c:00:00:01$"'
+    check "option 121 route via the tunnel, no default route through it" \
+        'inc "ip route" | grep -q "10.78.0.0/24 via 10.77.0.1 dev vtesse0" && ! inc "ip route" | grep -q "default.*vtesse0"'
+    check "ping the device from the client" 'inc "ping -c 2 -W 2 10.78.0.10" >/dev/null'
+    check "HTTP to the device from any process (kernel stack)" 'inc "curl -fsS --max-time 5 http://10.78.0.10/" | grep -q "vtesse bench device"'
+    check "inbound: the device pings the client" 'dev "ping -c 2 -W 2 $addr" >/dev/null'
+    check "inbound: the device opens TCP to the client (HTTP :8080)" 'dev "curl -fsS --max-time 5 http://$addr:8080/hostname" >/dev/null'
+    sha=$(docker exec "$SERVER" cat /opt/device/www/big.sha256)
+    check "20 MiB download through the tap, sha256 matches" \
+        '[ "$(inc "curl -fsS --max-time 60 http://10.78.0.10/big.bin | sha256sum | cut -d\" \" -f1")" = "$sha" ]'
+
+    cmd_probe --seconds 1 >/dev/null 2>&1     # take the session over (multi killold)
+    i=0
+    until [ "$(docker logs "$tapc" 2>&1 | grep -c 'carrier on')" -ge 1 ] || [ $i -gt 15 ]; do sleep 1; i=$((i + 1)); done
+    check "reconnect after take-over keeps the interface" 'docker logs "$tapc" 2>&1 | grep -q "carrier on"'
+    sleep 2
+    check "same address after reconnect" 'inc "ip -4 -o addr show vtesse0" | grep -q "inet $addr/"'
+    check "traffic works after reconnect (both directions)" \
+        'inc "ping -c 2 -W 2 10.78.0.10" >/dev/null && dev "ping -c 2 -W 2 $addr" >/dev/null'
+
+    docker stop -t 5 "$tapc" >/dev/null
+    check "clean exit on SIGTERM" 'docker logs "$tapc" 2>&1 | grep -q "frames in"'
+    echo "--- client log"; docker logs "$tapc" 2>&1 | grep -v "^\(Internet\|Listening\|Sending\|Copyright\|For info\|DHCP\|bound\)" | tail -20
+    docker rm -f "$tapc" >/dev/null 2>&1
+    echo "$fails failure(s)"
+    [ "$fails" -eq 0 ]
+}
+
 case "${1:-}" in
     build) cmd_build ;;
     up) cmd_up ;;
@@ -115,7 +169,8 @@ case "${1:-}" in
     stock-test) cmd_stock_test ;;
     probe) shift; cmd_probe "$@" ;;
     cli-test) cmd_cli_test ;;
+    tap-test) cmd_tap_test ;;
     proxy-test) python3 "$HERE/proxy_test.py" "$HERE/../build/vtesse-cli" "$BENCH_PORT" "$SERVER" ;;
     selftest) python3 "$HERE/selftest.py" 127.0.0.1 "$BENCH_PORT" ;;
-    *) sed -n '2,12p' "$0"; exit 1 ;;
+    *) sed -n '2,13p' "$0"; exit 1 ;;
 esac

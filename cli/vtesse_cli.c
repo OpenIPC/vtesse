@@ -1,10 +1,13 @@
 /*
  * vtesse-cli: Linux console client.
  *
- * Connects to a VTun server, runs the userspace stack (lwIP) over the tunnel,
- * obtains address and routes via DHCP (type ether) and reports events.
- * Local proxy: --socks PORT (SOCKS5 CONNECT) and --forward LPORT:IP:RPORT.
- * --fetch performs one HTTP GET through the stack to check TCP end to end.
+ * Two backends:
+ *  - lwIP (default): userspace stack over the tunnel, address and routes via
+ *    DHCP (type ether), local proxy: --socks PORT and --forward LPORT:IP:RPORT;
+ *    --fetch performs one HTTP GET through the stack.
+ *  - TAP (--tap): kernel interface through /dev/net/tun; addressing is done by
+ *    the system (e.g. a DHCP client started from the --hook script).
+ * Build without lwIP: make LWIP=0 (TAP only).
  *
  * Credentials are read from a key=value file, never from the command line.
  * The session name is the device ID and doubles as the client MAC.
@@ -14,14 +17,30 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
+#include "netcore/loop.h"
+#include "netcore/route.h"
+#include "vtesse/vtun_client.h"
+
+#ifndef VTESSE_WITH_LWIP
+#define VTESSE_WITH_LWIP 1
+#endif
+
+#if VTESSE_WITH_LWIP
 #include "lwip/ip4_addr.h"
 #include "lwip/tcp.h"
-#include "netcore/loop.h"
 #include "netcore/proxy.h"
-#include "netcore/route.h"
 #include "netcore/stack.h"
-#include "vtesse/vtun_client.h"
+#endif
+
+#ifdef __linux__
+#define VTESSE_WITH_TAP 1
+#include "netcore/tapdev.h"
+#else
+#define VTESSE_WITH_TAP 0
+#endif
 
 #define DEFAULT_CONFIG "~/.config/vtesse/probe.conf"
 
@@ -48,9 +67,15 @@ static void usage(void)
 {
     fprintf(stderr,
             "usage: vtesse-cli [--config FILE] [--seconds N] [-v]\n"
+#if VTESSE_WITH_LWIP
+            "  lwIP backend (default):\n"
             "                  [--socks PORT] [--forward LPORT:IP:RPORT]... [--listen ADDR]\n"
             "                  [--fetch http://IP[:PORT]/PATH]\n"
             "                  [--debug-ip A.B.C.D/P --debug-gw A.B.C.D]\n"
+#endif
+#if VTESSE_WITH_TAP
+            "  TAP backend:    --tap [--ifname NAME] [--hook SCRIPT]\n"
+#endif
             "  FILE: key=value lines: host, port, session, password, auth (xor),\n"
             "        optional socks_user, socks_password (SOCKS5 user/password auth)\n"
             "        default " DEFAULT_CONFIG "\n");
@@ -134,6 +159,23 @@ static double elapsed(uint64_t t0)
 static uint64_t t_start;
 static vt_t *vt;
 
+static void print_tunnel_event(int tev, int err);
+
+#if VTESSE_WITH_LWIP
+static int parse_ip4(const char *s, uint32_t *out)
+{
+    unsigned a, b, c, d;
+    char tail;
+
+    if (sscanf(s, "%u.%u.%u.%u%c", &a, &b, &c, &d, &tail) != 4 || a > 255 || b > 255 || c > 255 || d > 255)
+        return -1;
+    *out = a << 24 | b << 16 | c << 8 | d;
+    return 0;
+}
+#endif
+
+#if VTESSE_WITH_LWIP
+
 /* ---- --fetch: one HTTP GET through lwIP ---- */
 
 static struct {
@@ -145,17 +187,6 @@ static struct {
     char status[96];
     size_t status_len;
 } fetch;
-
-static int parse_ip4(const char *s, uint32_t *out)
-{
-    unsigned a, b, c, d;
-    char tail;
-
-    if (sscanf(s, "%u.%u.%u.%u%c", &a, &b, &c, &d, &tail) != 4 || a > 255 || b > 255 || c > 255 || d > 255)
-        return -1;
-    *out = a << 24 | b << 16 | c << 8 | d;
-    return 0;
-}
 
 static int parse_url(const char *url)
 {
@@ -314,8 +345,6 @@ static void print_info(void)
 
 static void on_stack_event(void *user, int ev, int tev, int err)
 {
-    char flags[64];
-
     (void)user;
     if (ev == NC_STACK_EV_ADDR_BOUND) {
         print_info();
@@ -323,7 +352,19 @@ static void on_stack_event(void *user, int ev, int tev, int err)
             fetch_start();
     } else if (ev == NC_STACK_EV_ADDR_LOST) {
         printf("[%8.3f] address lost\n", elapsed(t_start));
-    } else if (tev == TUNNEL_EV_UP) {
+    } else {
+        print_tunnel_event(tev, err);
+    }
+    fflush(stdout);
+}
+
+#endif /* VTESSE_WITH_LWIP */
+
+static void print_tunnel_event(int tev, int err)
+{
+    char flags[64];
+
+    if (tev == TUNNEL_EV_UP) {
         vt_flags_format(vt_session_flags(vt), flags, sizeof(flags));
         printf("[%8.3f] up: %s, flags %s\n", elapsed(t_start), vt_greeting(vt), flags);
     } else if (err) {
@@ -333,9 +374,75 @@ static void on_stack_event(void *user, int ev, int tev, int err)
     }
     if (tev == TUNNEL_EV_FAILED)
         loop.stop = 1;
-    fflush(stdout);
 }
 
+#if VTESSE_WITH_TAP
+/* ---- TAP backend: hook script ---- */
+
+static const char *hook;
+static const char *session_name;
+static nc_tap_t *tap;
+
+static void reap_children(void)
+{
+    while (waitpid(-1, NULL, WNOHANG) > 0)
+        ;
+}
+
+/* Runs "$hook <event>" asynchronously with VTESSE_* in the environment. */
+static void run_hook(const char *event)
+{
+    pid_t pid;
+
+    reap_children();
+    if (!hook)
+        return;
+    pid = fork();
+    if (pid == 0) {
+        setenv("VTESSE_EVENT", event, 1);
+        setenv("VTESSE_IFNAME", nc_tap_ifname(tap), 1);
+        setenv("VTESSE_LINK", nc_tap_link(tap) == TUNNEL_LINK_L3 ? "tun" : "ether", 1);
+        setenv("VTESSE_SESSION", session_name, 1);
+        execl("/bin/sh", "sh", hook, event, (char *)NULL);
+        _exit(127);
+    }
+    if (pid < 0)
+        printf("[%8.3f] hook: fork failed: %s\n", elapsed(t_start), strerror(errno));
+}
+
+static void on_tap_event(void *user, int ev, int tev, int err)
+{
+    (void)user;
+    switch (ev) {
+    case NC_TAP_EV_CREATED:
+        printf("[%8.3f] interface %s (%s) created\n", elapsed(t_start), nc_tap_ifname(tap),
+               nc_tap_link(tap) == TUNNEL_LINK_L3 ? "tun" : "tap");
+        if (!hook)
+            printf("[%8.3f] no --hook: configure the address yourself (e.g. udhcpc -i %s)\n",
+                   elapsed(t_start), nc_tap_ifname(tap));
+        run_hook("up");
+        break;
+    case NC_TAP_EV_RECONNECTED:
+        printf("[%8.3f] interface %s: carrier on\n", elapsed(t_start), nc_tap_ifname(tap));
+        run_hook("reconnect");
+        break;
+    case NC_TAP_EV_ERROR:
+        printf("[%8.3f] cannot create the interface: %s%s\n", elapsed(t_start), strerror(err),
+               err == EPERM || err == EACCES ? " (needs root or CAP_NET_ADMIN)" :
+               err == ENOENT || err == ENODEV ? " (no /dev/net/tun: load the tun module)" : "");
+        loop.stop = 1;
+        break;
+    default:
+        print_tunnel_event(tev, err);
+        if (tev == TUNNEL_EV_DOWN && nc_tap_link(tap) != TUNNEL_LINK_NONE)
+            run_hook("down");
+        break;
+    }
+    fflush(stdout);
+}
+#endif /* VTESSE_WITH_TAP */
+
+#if VTESSE_WITH_LWIP
 static int parse_prefix(const char *s, uint32_t *addr, uint32_t *mask)
 {
     char buf[32];
@@ -352,6 +459,7 @@ static int parse_prefix(const char *s, uint32_t *addr, uint32_t *mask)
     *mask = p ? 0xffffffffu << (32 - p) : 0;
     return 0;
 }
+#endif
 
 int main(int argc, char **argv)
 {
@@ -359,15 +467,24 @@ int main(int argc, char **argv)
     double seconds = 0;
     cfg_file_t c;
     vt_cfg_t vc;
+    uint8_t mac[6];
+    tunnel_t t;
+    nc_source_t src;
+    int i, err, rc, use_tap = !VTESSE_WITH_LWIP, lwip_opts = 0;
+#if VTESSE_WITH_LWIP
     nc_stack_cfg_t sc;
     nc_proxy_cfg_t pc;
     nc_proxy_t *px = NULL;
-    tunnel_t t;
-    nc_source_t src;
-    int i, err, rc;
+#endif
+#if VTESSE_WITH_TAP
+    nc_tap_cfg_t tc;
 
+    memset(&tc, 0, sizeof(tc));
+#endif
+#if VTESSE_WITH_LWIP
     memset(&sc, 0, sizeof(sc));
     memset(&pc, 0, sizeof(pc));
+#endif
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--config") && i + 1 < argc)
             config = argv[++i];
@@ -375,12 +492,21 @@ int main(int argc, char **argv)
             seconds = atof(argv[++i]);
         else if (!strcmp(argv[i], "-v"))
             verbose = 1;
+#if VTESSE_WITH_TAP
+        else if (!strcmp(argv[i], "--tap"))
+            use_tap = 1;
+        else if (!strcmp(argv[i], "--ifname") && i + 1 < argc)
+            tc.ifname = argv[++i];
+        else if (!strcmp(argv[i], "--hook") && i + 1 < argc)
+            hook = argv[++i];
+#endif
+#if VTESSE_WITH_LWIP
         else if (!strcmp(argv[i], "--fetch") && i + 1 < argc) {
             if (parse_url(argv[++i]) < 0) {
                 fprintf(stderr, "--fetch: expected http://IPv4[:port]/path\n");
                 return 2;
             }
-            fetch.wanted = 1;
+            fetch.wanted = lwip_opts = 1;
         } else if (!strcmp(argv[i], "--socks") && i + 1 < argc) {
             int p = atoi(argv[++i]);
             if (p <= 0 || p > 65535) {
@@ -388,6 +514,7 @@ int main(int argc, char **argv)
                 return 2;
             }
             pc.socks_port = (uint16_t)p;
+            lwip_opts = 1;
         } else if (!strcmp(argv[i], "--forward") && i + 1 < argc) {
             if (pc.forward_count >= NC_PROXY_MAX_FORWARDS ||
                 parse_forward(argv[++i], &pc.forwards[pc.forward_count]) < 0) {
@@ -395,33 +522,46 @@ int main(int argc, char **argv)
                 return 2;
             }
             pc.forward_count++;
+            lwip_opts = 1;
         } else if (!strcmp(argv[i], "--listen") && i + 1 < argc) {
             pc.listen_addr = argv[++i];
+            lwip_opts = 1;
         } else if (!strcmp(argv[i], "--debug-ip") && i + 1 < argc) {
             if (parse_prefix(argv[++i], &sc.addr, &sc.mask) < 0) {
                 fprintf(stderr, "--debug-ip: expected A.B.C.D/P\n");
                 return 2;
             }
-            sc.static_ip = 1;
+            sc.static_ip = lwip_opts = 1;
         } else if (!strcmp(argv[i], "--debug-gw") && i + 1 < argc) {
             if (parse_ip4(argv[++i], &sc.gw) < 0) {
                 fprintf(stderr, "--debug-gw: expected A.B.C.D\n");
                 return 2;
             }
-        } else {
+            lwip_opts = 1;
+        }
+#endif
+        else {
             usage();
             return 2;
         }
     }
+    if (use_tap && lwip_opts) {
+        fprintf(stderr, "--tap cannot be combined with --socks/--forward/--listen/--fetch/--debug-*\n");
+        return 2;
+    }
+    if (!VTESSE_WITH_TAP && use_tap) {
+        fprintf(stderr, "built without any backend\n");
+        return 2;
+    }
     if (load_config(config, &c) < 0)
         return 2;
-    if (nc_devid_to_mac(c.session, sc.mac) < 0) {
+    if (nc_devid_to_mac(c.session, mac) < 0) {
         /* not a device ID: still usable as a session name, MAC is derived */
         uint8_t h = 0;
         for (i = 0; c.session[i]; i++)
             h = (uint8_t)(h * 31 + (uint8_t)c.session[i]);
-        memcpy(sc.mac, "\x02\x00\x5e\x00\x00\x00", 6);
-        sc.mac[5] = h;
+        memcpy(mac, "\x02\x00\x5e\x00\x00\x00", 6);
+        mac[5] = h;
         fprintf(stderr, "warning: session name is not a device ID (12 x 0-9A-F); using MAC 02:00:5e:00:00:%02x\n", h);
     }
 
@@ -437,51 +577,67 @@ int main(int argc, char **argv)
         fprintf(stderr, "configuration error: %s\n", tunnel_strerror(err));
         return 2;
     }
-
     t = vt_tunnel(vt);
-    if (nc_stack_init(&t, &sc, on_stack_event, NULL) < 0) {
-        fprintf(stderr, "stack initialisation failed\n");
-        return 2;
-    }
-
-    if (pc.socks_port || pc.forward_count) {
-        pc.socks_user = c.socks_user;
-        pc.socks_password = c.socks_password;
-        px = nc_proxy_create(&pc, on_proxy_log, NULL);
-        memset(c.socks_password, 0, sizeof(c.socks_password));
-        if (!px) {
-            fprintf(stderr, "cannot start the local proxy\n");
-            return 2;
-        }
-        if (pc.socks_port)
-            printf("socks5 on %s:%u%s\n", pc.listen_addr ? pc.listen_addr : "127.0.0.1",
-                   (unsigned)pc.socks_port, c.socks_user[0] ? " (user/password)" : "");
-        for (i = 0; i < pc.forward_count; i++) {
-            char ip[16];
-            nc_ip4_format(pc.forwards[i].ip, ip, sizeof(ip));
-            printf("forward %s:%u -> %s:%u\n", pc.listen_addr ? pc.listen_addr : "127.0.0.1",
-                   (unsigned)pc.forwards[i].local_port, ip, (unsigned)pc.forwards[i].port);
-        }
-    }
 
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
     signal(SIGPIPE, SIG_IGN);
-
     nc_loop_init(&loop);
     src = nc_source_from_tunnel(&t);
     nc_loop_add(&loop, &src);
-    src = nc_stack_timer_source();
-    nc_loop_add(&loop, &src);
-    if (px) {
-        src = nc_proxy_source(px);
+
+#if VTESSE_WITH_TAP
+    if (use_tap) {
+        memcpy(tc.mac, mac, 6);
+        session_name = c.session;
+        tap = nc_tap_create(&t, &tc, on_tap_event, NULL);
+        if (!tap) {
+            fprintf(stderr, "out of memory\n");
+            return 2;
+        }
+        src = nc_tap_source(tap);
         nc_loop_add(&loop, &src);
     }
+#endif
+#if VTESSE_WITH_LWIP
+    if (!use_tap) {
+        memcpy(sc.mac, mac, 6);
+        if (nc_stack_init(&t, &sc, on_stack_event, NULL) < 0) {
+            fprintf(stderr, "stack initialisation failed\n");
+            return 2;
+        }
+        src = nc_stack_timer_source();
+        nc_loop_add(&loop, &src);
+        if (pc.socks_port || pc.forward_count) {
+            pc.socks_user = c.socks_user;
+            pc.socks_password = c.socks_password;
+            px = nc_proxy_create(&pc, on_proxy_log, NULL);
+            memset(c.socks_password, 0, sizeof(c.socks_password));
+            if (!px) {
+                fprintf(stderr, "cannot start the local proxy\n");
+                return 2;
+            }
+            if (pc.socks_port)
+                printf("socks5 on %s:%u%s\n", pc.listen_addr ? pc.listen_addr : "127.0.0.1",
+                       (unsigned)pc.socks_port, c.socks_user[0] ? " (user/password)" : "");
+            for (i = 0; i < pc.forward_count; i++) {
+                char ip[16];
+                nc_ip4_format(pc.forwards[i].ip, ip, sizeof(ip));
+                printf("forward %s:%u -> %s:%u\n", pc.listen_addr ? pc.listen_addr : "127.0.0.1",
+                       (unsigned)pc.forwards[i].local_port, ip, (unsigned)pc.forwards[i].port);
+            }
+            src = nc_proxy_source(px);
+            nc_loop_add(&loop, &src);
+        }
+    }
+#endif
 
     t_start = nc_now_ms();
     vt_start(vt);
     nc_loop_run(&loop, seconds > 0 ? t_start + (uint64_t)(seconds * 1000) : 0);
 
+    rc = vt_is_up(vt) ? 0 : 1;
+#if VTESSE_WITH_LWIP
     if (px) {
         nc_proxy_stats_t ps;
         nc_proxy_get_stats(px, &ps);
@@ -489,9 +645,22 @@ int main(int argc, char **argv)
                elapsed(t_start), ps.accepted, ps.connected, ps.failed, ps.rejected, ps.bytes_up, ps.bytes_down);
         nc_proxy_destroy(px);
     }
-    rc = vt_is_up(vt) ? 0 : 1;
     if (fetch.wanted && (!fetch.done || strncmp(fetch.status, "HTTP/", 5) != 0))
         rc = 1;
+#endif
+#if VTESSE_WITH_TAP
+    if (tap) {
+        nc_tap_stats_t ts;
+        nc_tap_get_stats(tap, &ts);
+        printf("[%8.3f] interface %s: frames in %lu, out %lu, dropped %lu\n", elapsed(t_start),
+               nc_tap_ifname(tap), ts.frames_in, ts.frames_out, ts.dropped);
+        if (nc_tap_link(tap) == TUNNEL_LINK_NONE && vt_is_up(vt))
+            rc = 1;     /* interface creation failed */
+        run_hook("stop");
+        nc_tap_destroy(tap);
+        reap_children();
+    }
+#endif
     t.ops->close(vt);
     vt_destroy(vt);
     return rc;

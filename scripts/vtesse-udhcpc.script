@@ -1,0 +1,55 @@
+#!/bin/sh
+# udhcpc script for VTesse tap interfaces (BusyBox udhcpc -s ...).
+#
+# Configures the address and the routes of the tunnel interface only:
+#  - never touches /etc/resolv.conf (the tunnel DNS must not replace the
+#    device's resolver: it may be unreachable and would break resolving the
+#    VTun server itself);
+#  - classless routes (option 121 "staticroutes", or 249 "msstaticroutes")
+#    are installed via the interface; with them the router option is ignored
+#    (RFC 3442);
+#  - a default route through the tunnel is installed only when
+#    VTESSE_DEFAULT_ROUTE=1: it would also capture the connection to the VTun
+#    server unless a host route to the server exists.
+
+STATE=/var/run/vtesse-routes.$interface
+
+routes_del() {
+    [ -f "$STATE" ] || return 0
+    while read -r dst gw; do
+        ip route del "$dst" via "$gw" dev "$interface" 2>/dev/null
+    done < "$STATE"
+    rm -f "$STATE"
+}
+
+routes_add() {
+    : > "$STATE"
+    list=${staticroutes:-$msstaticroutes}
+    if [ -n "$list" ]; then
+        set -- $list
+        while [ $# -ge 2 ]; do
+            ip route add "$1" via "$2" dev "$interface" && echo "$1 $2" >> "$STATE"
+            shift 2
+        done
+    elif [ -n "$router" ] && [ "$VTESSE_DEFAULT_ROUTE" = 1 ]; then
+        set -- $router
+        ip route add default via "$1" dev "$interface" metric 500 && echo "default $1" >> "$STATE"
+    fi
+}
+
+case "$1" in
+    deconfig)
+        routes_del
+        ip -4 addr flush dev "$interface"
+        ip link set "$interface" up
+        ;;
+    bound|renew)
+        if ! ip -4 addr show dev "$interface" | grep -q "inet $ip/"; then
+            ip -4 addr flush dev "$interface"
+            ip addr add "$ip/${mask:-24}" ${broadcast:+broadcast "$broadcast"} dev "$interface"
+        fi
+        routes_del
+        routes_add
+        ;;
+esac
+exit 0
