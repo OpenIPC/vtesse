@@ -149,7 +149,7 @@ Stages and tasks are tracked as [GitHub issues](https://github.com/compot-dev/vt
 | 2. Local proxy: SOCKS5 and port forwarding | ✅ Done | [#10](https://github.com/compot-dev/vtesse/issues/10) ✅ [#11](https://github.com/compot-dev/vtesse/issues/11) ✅ |
 | 3. Embedded Linux: ARM/MIPS cross builds, footprint, CI | 🔄 In progress | [#12](https://github.com/compot-dev/vtesse/issues/12) [#20](https://github.com/compot-dev/vtesse/issues/20) ✅ |
 | 3. TAP/TUN backend (kernel interface instead of lwIP, Linux targets) | ⏸ Deferred | [#19](https://github.com/compot-dev/vtesse/issues/19) |
-| 4. Android app (no VpnService) | 🔄 In progress | [#13](https://github.com/compot-dev/vtesse/issues/13) |
+| 4. Android app (no VpnService) | ✅ Done | [#13](https://github.com/compot-dev/vtesse/issues/13) ✅ |
 | 5. Optional: UDP transport, TLS wrapper, Blowfish auth | ⏸ Deferred | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16) |
 | 6. Reuse of the upper layers for camex | ⏸ Deferred | [#17](https://github.com/compot-dev/vtesse/issues/17) |
 | Cross-cutting: tests, license | 🔄 In progress | [#9](https://github.com/compot-dev/vtesse/issues/9) [#18](https://github.com/compot-dev/vtesse/issues/18) ✅ |
