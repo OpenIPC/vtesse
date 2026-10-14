@@ -9,8 +9,8 @@
 #
 # Static musl binaries (a static glibc binary cannot resolve host names without
 # the NSS libraries of the same glibc on the device). 32-bit ARM uses the OpenIPC
-# firmware toolchain, MIPS (both byte orders) the musl.cc soft-float toolchains
-# (MIPS1, no FPU needed: routers), the rest Bootlin musl toolchains
+# firmware toolchain, MIPS (both byte orders) the OpenWrt toolchains (musl,
+# soft-float: no FPU needed on routers), the rest Bootlin musl toolchains
 # (ci/build-musl.sh).
 #
 # Release: one release only, "latest", replaced by every push to main. Its title

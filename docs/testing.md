@@ -99,7 +99,7 @@ Device configuration was not changed: binaries, scripts and configs ran from `/t
 
 The router run found that hard-float MIPS binaries die with `Illegal instruction` on
 router SoCs without an FPU (no FPU emulation in their kernels): since 1.10 the `mipsel`
-and `mips` releases are soft-float (MIPS1) and run on routers and Ingenic cameras alike
+and `mips` releases are soft-float (OpenWrt toolchains) and run on routers and Ingenic cameras alike
 (checked on the MT7620 router and an Ingenic T23 camera).
 
 Clean-up after device tests: remove the uploaded files (`/tmp/vtesse`), check that no

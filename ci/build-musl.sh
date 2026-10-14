@@ -4,10 +4,10 @@
 #   ci/build-musl.sh <target> [outdir]
 #
 # target: arm32   OpenIPC toolchain (hisilicon-hi3516cv100, arm musleabi) — 32-bit ARM cameras
-#         mipsel | mips   musl.cc soft-float toolchains (mipsel/mips-linux-muslsf), MIPS1
-#                 ISA: run on every MIPS32 core with or without an FPU — Ingenic cameras
-#                 and MediaTek/Atheros routers (MT7620/7621/7628, ath79), whose kernels
-#                 often lack FPU emulation, so hard-float code dies with SIGILL (#30)
+#         mipsel | mips   OpenWrt toolchains (ramips/mt7621, ath79/generic; musl, soft-float):
+#                 run on every MIPS32r2 core with or without an FPU — Ingenic cameras and
+#                 MediaTek/Atheros routers (MT7620/7621/7628, ath79), whose kernels often
+#                 lack FPU emulation, so hard-float code dies with SIGILL (#30)
 #         arm64 | x86_64 | armv5 | armv7   Bootlin musl toolchains
 # Produces <outdir>/vtesse-<target> (lwIP + TAP) and <outdir>/vtesse-tap-<target>
 # (TAP only, LWIP=0), stripped. For x86_64 also <outdir>/vtund-<vtun version>-x86_64:
@@ -25,10 +25,18 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
 OPENIPC=https://github.com/OpenIPC/firmware/releases/download/toolchain
 BOOTLIN=https://toolchains.bootlin.com/downloads/releases/toolchains
+OPENWRT_VERSION=${OPENWRT_VERSION:-23.05.5}
+OPENWRT=https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets
+SUBDIR=     # toolchain directory inside the archive, if not its top level
 case "$TARGET" in
     arm32)   URL=$OPENIPC/toolchain.hisilicon-hi3516cv100.tgz; DIRNAME=arm-openipc-linux-musleabi_sdk-buildroot; QEMU_BIN=qemu-arm ;;
-    mipsel)  URL=https://musl.cc/mipsel-linux-muslsf-cross.tgz; DIRNAME=mipsel-linux-muslsf-cross; QEMU_BIN=qemu-mipsel ;;
-    mips)    URL=https://musl.cc/mips-linux-muslsf-cross.tgz;   DIRNAME=mips-linux-muslsf-cross;   QEMU_BIN=qemu-mips ;;
+    mipsel|mips)
+        # OpenWrt toolchains: musl, soft-float (24kc), as on the routers themselves
+        if [ "$TARGET" = mipsel ]; then OW=ramips/mt7621; OWA=mipsel_24kc; QEMU_BIN=qemu-mipsel
+        else OW=ath79/generic; OWA=mips_24kc; QEMU_BIN=qemu-mips; fi
+        DIRNAME=openwrt-toolchain-$OPENWRT_VERSION-$(echo $OW | tr / -)_gcc-12.3.0_musl.Linux-x86_64
+        URL=$OPENWRT/$OW/$DIRNAME.tar.xz
+        SUBDIR=/toolchain-${OWA}_gcc-12.3.0_musl ;;
     *)
         case "$TARGET" in
             x86_64) TC=x86-64;       QEMU_BIN=qemu-x86_64 ;;
@@ -41,7 +49,7 @@ case "$TARGET" in
         URL=$BOOTLIN/$TC/tarballs/$DIRNAME.tar.xz ;;
 esac
 
-DIR=$CACHE/$DIRNAME
+DIR=$CACHE/$DIRNAME$SUBDIR
 if [ ! -d "$DIR/bin" ]; then
     mkdir -p "$CACHE"
     echo "downloading $URL"
@@ -53,6 +61,7 @@ if [ ! -d "$DIR/bin" ]; then
     [ -x "$DIR/relocate-sdk.sh" ] && "$DIR/relocate-sdk.sh" >/dev/null 2>&1 || true
 fi
 GCC=$(ls "$DIR"/bin/*-linux-musl*-gcc | head -1)
+export STAGING_DIR="$DIR"     # OpenWrt's gcc wrapper warns without it
 CROSS=${GCC%gcc}
 
 # lwIP memory profile (#12): medium for cameras and routers (32-bit ARM, MIPS),

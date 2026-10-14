@@ -7,7 +7,7 @@ from every push to `main`; this file is the change history.
 ## 1.10 — 2026-10-14
 
 - MIPS releases are soft-float (#30): `vtesse-mipsel` and `vtesse-mips` are built with
-  the musl.cc soft-float toolchains (MIPS1 ISA). The previous hard-float builds died
+  the OpenWrt 23.05 toolchains (ramips/mt7621, ath79/generic; musl, soft-float). The previous hard-float builds died
   with `Illegal instruction` on routers without an FPU (OpenWrt, MediaTek MT7620);
   the new ones run on routers and on Ingenic cameras alike. `ci/build-musl.sh` starts
   each build from a clean directory.
