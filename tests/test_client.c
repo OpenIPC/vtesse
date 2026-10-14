@@ -468,6 +468,50 @@ static void test_reconnect(void)
     server_status(pid);
 }
 
+static void script_network_change(int lfd)
+{
+    int fd = accept(lfd, NULL, NULL), fd2;
+
+    srv_handshake(fd, "OK FLAGS: <TeK>\n");
+    /* the first connection stays open on our side: the client drops it itself */
+    fd2 = accept(lfd, NULL, NULL);
+    srv_handshake(fd2, "OK FLAGS: <TeK>\n");
+    sleep_ms(1000);
+    close(fd2);
+    close(fd);
+}
+
+static void test_network_changed(void)
+{
+    uint16_t port;
+    pid_t pid = start_server(script_network_change, &port);
+    rec_t r;
+    vt_t *vt = make_client(port, &r, 0);
+    uint64_t t0;
+    int i, downs = 0;
+
+    vt_start(vt);
+    CHECK(run_until(vt, pred_up, &r, 2000));
+    t0 = nc_now_ms();
+    vt_network_changed(vt);
+    CHECK(!vt_is_up(vt));
+    CHECK(run_until(vt, pred_ups2, &r, 2000));
+    /* well before the keepalive timeout (600 ms) could explain a reconnect */
+    CHECK(nc_now_ms() - t0 < 500);
+    for (i = 0; i < r.nev; i++)
+        if (r.events[i] == TUNNEL_EV_DOWN) {
+            downs++;
+            CHECK_EQ_INT(r.errs[i], TUNNEL_ERR_NETWORK);
+        }
+    CHECK_EQ_INT(downs, 1);
+    vt_tunnel(vt).ops->close(vt);
+    vt_network_changed(vt);             /* stopped: no effect */
+    CHECK(!vt_is_up(vt));
+    vt_destroy(vt);
+    kill(pid, SIGTERM);
+    server_status(pid);
+}
+
 static void test_config_validation(void)
 {
     vt_cfg_t cfg;
@@ -491,6 +535,7 @@ int main(void)
     signal(SIGPIPE, SIG_IGN);
     RUN(test_config_validation);
     RUN(test_happy_path);
+    RUN(test_network_changed);
     RUN(test_auth_error_is_final);
     RUN(test_compression_refused);
     RUN(test_bad_greeting);

@@ -47,6 +47,12 @@ int   vt_start(vt_t *vt);
 const tunnel_ops_t *vt_tunnel_ops(void);
 tunnel_t vt_tunnel(vt_t *vt);
 
+/* The host's network changed (e.g. Wi-Fi <-> mobile on Android): the current
+ * connection is bound to the old network, so drop it (TUNNEL_EV_DOWN with
+ * TUNNEL_ERR_NETWORK) and reconnect at once with the back-off reset; a pending
+ * retry is brought forward. No effect on a stopped tunnel. */
+void  vt_network_changed(vt_t *vt);
+
 /* Diagnostics. */
 const char       *vt_greeting(const vt_t *vt);     /* last server greeting, "" if none */
 const vt_flags_t *vt_session_flags(const vt_t *vt); /* flags of the last session */

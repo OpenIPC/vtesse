@@ -133,6 +133,29 @@ jobs:
         if: always()
         run: docker logs vtesse-bench-server 2>&1 | tail -100 || true
 
+  # ---------------------------------------------------------------- android
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache Gradle
+        uses: actions/cache@v6
+        with:
+          path: android/.gradle-cache
+          key: gradle-${{ hashFiles('android/**/*.kts', 'android/gradle.properties') }}
+
+      - name: Build APKs (Docker, ci/Dockerfile.android)
+        run: android/build.sh assembleDebug assembleRelease
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: vtesse-android
+          path: android/app/build/outputs/apk/*/*.apk
+          if-no-files-found: error
+
   # ---------------------------------------------------------------- release
   release:
     name: Release

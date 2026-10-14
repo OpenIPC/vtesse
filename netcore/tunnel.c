@@ -19,6 +19,7 @@ const char *tunnel_strerror(int err)
     case TUNNEL_ERR_COMPRESSION:            return "compression is enabled on the server";
     case TUNNEL_ERR_ENCRYPTION:             return "encryption is enabled on the server";
     case TUNNEL_ERR_CLOSED:                 return "closed";
+    case TUNNEL_ERR_NETWORK:                return "local network changed, reconnecting";
     default:                                return "unknown error";
     }
 }

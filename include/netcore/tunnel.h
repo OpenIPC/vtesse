@@ -41,7 +41,8 @@ enum tunnel_err {
     TUNNEL_ERR_UNSUPPORTED_TRANSPORT,
     TUNNEL_ERR_COMPRESSION,
     TUNNEL_ERR_ENCRYPTION,
-    TUNNEL_ERR_CLOSED            /* closed locally */
+    TUNNEL_ERR_CLOSED,           /* closed locally */
+    TUNNEL_ERR_NETWORK           /* local network changed: reconnecting at once */
 };
 
 const char *tunnel_strerror(int err);

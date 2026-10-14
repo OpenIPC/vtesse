@@ -656,6 +656,16 @@ int vt_start(vt_t *vt)
     return 0;
 }
 
+void vt_network_changed(vt_t *vt)
+{
+    if (vt->state == ST_STOPPED)
+        return;
+    vt->backoff_ms = vt->cfg.reconnect_min_ms;
+    if (vt->state != ST_WAIT_RECONNECT)
+        fail(vt, TUNNEL_ERR_NETWORK);
+    vt->reconnect_at = nc_now_ms();
+}
+
 const char *vt_greeting(const vt_t *vt)
 {
     return vt->greeting;
