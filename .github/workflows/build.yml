@@ -135,6 +135,9 @@ jobs:
       - name: UDP relay acceptance (RTP from cameras)
         run: bench/bench.sh udp-test
 
+      - name: Failure scenarios (link loss, server restart, no option 121, lease renewal)
+        run: bench/bench.sh fault-test
+
       - name: Server log
         if: always()
         run: docker logs vtesse-bench-server 2>&1 | tail -100 || true

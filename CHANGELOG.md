@@ -4,6 +4,15 @@ The version lives in `include/vtesse/version.h`. Binaries are published only as 
 [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) release, rebuilt
 from every push to `main`; this file is the change history.
 
+## 1.09 — 2026-10-14
+
+- Build-time module selection (#29): `make SOCKS=0`, `UDP_RELAY=0`, `TAP=0` (and
+  `LWIP=0`, the TAP-only build); a disabled feature is refused with a clear message,
+  `--version` lists the modules. CI builds and tests the minimal variant.
+- Bench `fault-test` (#9): link loss, server restart, a DHCP server without option
+  121, lease renewal with 2-minute leases; unit test for the refusal of encrypted
+  sessions. The bench entrypoint survives `docker restart`.
+
 ## 1.08 — 2026-10-14
 
 - lwIP memory profiles (#12): `make LWIP_PROFILE=large|medium|small`. Release builds

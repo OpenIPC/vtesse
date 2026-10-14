@@ -12,6 +12,7 @@
 | Stage 2 acceptance | `bench/bench.sh proxy-test` | SOCKS5 reply codes, `curl --socks5`, 20 MiB download and 8 MiB echo with integrity checks, RTSP through a forward, 8 parallel downloads, SOCKS5 authentication |
 | type tun | `bench/bench.sh tun-test` | `type tun` session with manual IPv4 (`ip`/`gw`/`route`): lwIP — HTTP to the device and inbound ping of the client; `--tap` — TUN interface configured by the hook, ping/HTTP to the device, inbound ping, no default route |
 | UDP relay | `bench/bench.sh udp-test` | the device behind the server sends 500 numbered 1200-byte datagrams and one 4000-byte (fragmented) datagram to the tunnel address; all arrive at `127.0.0.1:1559` in order and intact; relay statistics |
+| Failures | `bench/bench.sh fault-test` | link loss (server frozen past the keepalive timeout): DOWN, reconnect, same address; server restart: reconnect, same address; no option 121: option 3 becomes the default route; 2-minute leases: renewed at T1, address kept after expiry; dnsmasq restored (~4 min) |
 | TAP backend | `bench/bench.sh tap-test` | `vtesse-cli --tap` (`LWIP=0` build) in a container: DHCP via udhcpc, option 121 route, no default route, HTTP and a 20 MiB download from any process, **inbound** ping and TCP from the device, reconnect after a take-over keeps interface and address, clean exit |
 | Reference client | `bench/bench.sh stock-test` | the stock `vtund` client + `dhclient` reach the device through the bench |
 
@@ -24,7 +25,7 @@ and pull request:
 |---|---|
 | `tests` | `make test`, the same under ASan/UBSan, the `LWIP=0` build |
 | `build` (arm32, mipsel, arm64, mips, x86_64) | static musl binaries with `ci/build-musl.sh` (`vtesse`, `vtesse-tap`; patched `vtund` in the x86_64 job), unit tests and a `vtund -h` smoke test under qemu-user, artifacts |
-| `bench` | the Docker test bench (vtund built with our patches): `selftest`, `cli-test`, `proxy-test`, `tap-test`, `tun-test`, `udp-test` |
+| `bench` | the Docker test bench (vtund built with our patches): `selftest`, `cli-test`, `proxy-test`, `tap-test`, `tun-test`, `udp-test`, `fault-test` |
 | `android` | the APKs in Docker (`android/build.sh`, `ci/Dockerfile.android`); the release APK is signed with the key from the repository secrets |
 | `release` | push to `main`: replaces the `latest` release; binaries, `vtund-<VTun version>-x86_64`, hook scripts, service scripts, `SHA256SUMS` |
 

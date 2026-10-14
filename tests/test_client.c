@@ -390,6 +390,22 @@ static void test_compression_refused(void)
     expect_failure(script_compress, TUNNEL_ERR_COMPRESSION, 0);
 }
 
+/* A server built with OpenSSL can switch encryption on for a session; the bench
+ * server (--disable-ssl) cannot, so this synthetic one stands in (#9). */
+static void script_encrypt(int lfd)
+{
+    int fd = accept(lfd, NULL, NULL);
+
+    srv_handshake(fd, "OK FLAGS: <TeKE1>\n");
+    sleep_ms(100);
+    close(fd);
+}
+
+static void test_encryption_refused(void)
+{
+    expect_failure(script_encrypt, TUNNEL_ERR_ENCRYPTION, 0);
+}
+
 static void test_bad_greeting(void)
 {
     expect_failure(script_bad_greeting, TUNNEL_ERR_PROTOCOL, 0);
@@ -538,6 +554,7 @@ int main(void)
     RUN(test_network_changed);
     RUN(test_auth_error_is_final);
     RUN(test_compression_refused);
+    RUN(test_encryption_refused);
     RUN(test_bad_greeting);
     RUN(test_handshake_timeout);
     RUN(test_keepalive_timeout);

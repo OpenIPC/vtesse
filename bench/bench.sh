@@ -13,6 +13,7 @@
 #   bench.sh tap-test        TAP backend acceptance: vtesse-cli --tap (LWIP=0 build) in a container
 #   bench.sh tun-test        type tun session (#8): manual IPv4, lwIP and --tap (TUN interface)
 #   bench.sh udp-test        UDP relay (#28): datagrams from the device to the tunnel address -> 127.0.0.1
+#   bench.sh fault-test      failures (#9): link loss, server restart, no option 121, lease renewal (~6 min)
 set -eu
 
 IMAGE=${BENCH_IMAGE:-vtesse-bench}
@@ -289,6 +290,88 @@ s.sendto(bytes(range(256)) * 15 + bytes(range(160)), ('$addr', 1559))
     [ "$fails" -eq 0 ]
 }
 
+# Failure scenarios (#9) with vtesse-cli (lwIP backend) on the host:
+#   link loss      the server is frozen (docker pause) longer than the keepalive
+#                  timeout (10 s x 5): DOWN (keepalive), reconnect, same address
+#   server restart docker restart: DOWN, reconnect with back-off, same address
+#   no option 121  dnsmasq without classless routes: option 3 becomes the default
+#                  route through the tunnel, the device is reached through it
+#   lease renewal  dnsmasq with 2-minute leases (its minimum): the client renews
+#                  (DHCPREQUEST/ACK at T1) and still has the address after expiry
+# dnsmasq is restored to the bench configuration at the end.
+cmd_fault_test() {
+    cli="$HERE/../build/vtesse-cli"
+    [ -x "$cli" ] || { echo "build the CLI first: make"; exit 1; }
+    fails=0
+    check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails + 1)); fi; }
+    dev() { docker exec "$SERVER" ip netns exec device sh -c "$1"; }
+    wait_log() {    # wait_log FILE PATTERN SECONDS [COUNT]
+        _i=0
+        until [ "$(grep -c -- "$2" "$1")" -ge "${4:-1}" ] || [ $_i -ge "$3" ]; do sleep 1; _i=$((_i + 1)); done
+        [ "$(grep -c -- "$2" "$1")" -ge "${4:-1}" ]
+    }
+    dnsmasq_orig=$(docker exec "$SERVER" sh -c 'tr "\0" " " < /proc/$(pidof dnsmasq)/cmdline')
+    dnsmasq_with() {    # replace the bench dnsmasq: dnsmasq_with SED-EXPRESSION (log to /tmp/dnsmasq-fault.log)
+        args=$(echo "$dnsmasq_orig" | sed "$1; s|--log-facility=-|--log-facility=/tmp/dnsmasq-fault.log|")
+        docker exec "$SERVER" sh -c "kill \$(pidof dnsmasq); sleep 0.5; rm -f /tmp/dnsmasq-fault.log; $args"
+    }
+    conf=$(mktemp) log=$(mktemp)
+    printf 'host=127.0.0.1\nport=%s\nsession=%s\npassword=%s\n' "$BENCH_PORT" "$SESSION" "$PASSWORD" >"$conf"
+
+    # --- link loss and server restart (one client)
+    "$cli" --config "$conf" >"$log" 2>&1 &
+    pid=$!
+    wait_log "$log" "\] address " 20
+    addr=$(sed -n 's/^\[.*\] address \([0-9.]*\) .*/\1/p' "$log" | head -1)
+    check "bound $addr" '[ -n "$addr" ]'
+    docker pause "$SERVER" >/dev/null
+    check "link loss: DOWN by keepalive within 60 s" 'wait_log "$log" "down: no response from server (keepalive)" 65'
+    docker unpause "$SERVER" >/dev/null
+    check "link loss: reconnected" 'wait_log "$log" "\] up: " 40 2'
+    sleep 2
+    check "link loss: same address, the device pings it" 'dev "ping -c 2 -W 2 $addr" >/dev/null'
+
+    docker restart -t 2 "$SERVER" >/dev/null
+    check "server restart: DOWN" 'wait_log "$log" "\] down: " 30 2'
+    check "server restart: reconnected" 'wait_log "$log" "\] up: " 60 3'
+    sleep 5
+    check "server restart: same address, the device pings it" 'dev "ping -c 2 -W 3 $addr" >/dev/null'
+    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    echo "--- client log (link loss, restart)"; grep -v "route " "$log"
+    dnsmasq_orig=$(docker exec "$SERVER" sh -c 'tr "\0" " " < /proc/$(pidof dnsmasq)/cmdline')
+
+    # --- no option 121: option 3 is the default route
+    dnsmasq_with 's|--dhcp-option=121,[^ ]*||'
+    "$cli" --config "$conf" --seconds 25 --fetch http://10.78.0.10/ >"$log" 2>&1 &
+    pid=$!
+    wait_log "$log" "fetch 10.78.0.10" 20
+    check "no option 121: option 3 used as the default route" 'grep -q "option 3 10.77.0.1 (default route)" "$log"'
+    check "no option 121: HTTP to the device through the default route" 'grep -q "fetch 10.78.0.10:80/: ok" "$log"'
+    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+
+    # --- lease renewal: 2-minute leases
+    dnsmasq_with 's|,infinite|,2m|'
+    "$cli" --config "$conf" --seconds 170 >"$log" 2>&1 &
+    pid=$!
+    wait_log "$log" "\] address " 20
+    addr=$(sed -n 's/^\[.*\] address \([0-9.]*\) .*/\1/p' "$log" | head -1)
+    echo "waiting 150 s for renewal and lease expiry..."
+    sleep 150
+    acks=$(docker exec "$SERVER" grep -c "DHCPACK" /tmp/dnsmasq-fault.log)
+    check "lease renewal: renewed before expiry (DHCPACK x$acks)" '[ "$acks" -ge 2 ]'
+    check "lease renewal: still bound after the first lease expired, the device pings it" \
+        '! grep -q "address lost" "$log" && dev "ping -c 2 -W 2 $addr" >/dev/null'
+    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+
+    # the bench configuration again
+    docker exec "$SERVER" sh -c "kill \$(pidof dnsmasq); sleep 0.5; $dnsmasq_orig" >/dev/null 2>&1
+    dnsmasq_now=$(docker exec "$SERVER" sh -c 'tr "\0" " " < /proc/$(pidof dnsmasq)/cmdline')
+    check "dnsmasq restored to the bench configuration" 'echo "$dnsmasq_now" | grep -q ",infinite .*--dhcp-option=121"'
+    rm -f "$conf" "$log"
+    echo "$fails failure(s)"
+    [ "$fails" -eq 0 ]
+}
+
 case "${1:-}" in
     build) cmd_build ;;
     up) cmd_up ;;
@@ -300,7 +383,8 @@ case "${1:-}" in
     tap-test) cmd_tap_test ;;
     tun-test) cmd_tun_test ;;
     udp-test) cmd_udp_test ;;
+    fault-test) cmd_fault_test ;;
     proxy-test) python3 "$HERE/proxy_test.py" "$HERE/../build/vtesse-cli" "$BENCH_PORT" "$SERVER" ;;
     selftest) python3 "$HERE/selftest.py" 127.0.0.1 "$BENCH_PORT" ;;
-    *) sed -n '2,15p' "$0"; exit 1 ;;
+    *) sed -n '2,16p' "$0"; exit 1 ;;
 esac

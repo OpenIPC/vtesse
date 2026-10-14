@@ -28,6 +28,9 @@ start_syslog() {
 
 setup_segment() {
     sysctl -qw net.ipv4.ip_forward=1
+    # docker restart keeps the container's files: leftovers of the previous run
+    ip netns del device 2>/dev/null || true
+    rm -f /var/run/vtund.pid /var/lock/vtund/* 2>/dev/null || true
 
     ip link add br-vtesse type bridge
     ip addr add 10.77.0.1/24 dev br-vtesse

@@ -86,6 +86,10 @@ device, inbound ping, no default route.
 `udp_relay=1559`; the device sends 500 numbered datagrams and a fragmented 4000-byte
 one to the client's tunnel address; all must arrive at `127.0.0.1:1559` in order.
 
+`bench.sh fault-test` covers failures (#9): link loss (`docker pause` past the keepalive
+timeout), server restart, a DHCP server without option 121 and 2-minute leases
+(renewal); it restores dnsmasq at the end. The entrypoint is restart-safe.
+
 `selftest.py` checks: 50-byte greeting; `<TeK>`; `ECHO_REQ` as the first frame;
 DHCP OFFER through the tunnel, delayed ≥ 2 s, with option 121; `killold`
 take-over (new login OK, old connection closed); shaper/compression/tun flags;
