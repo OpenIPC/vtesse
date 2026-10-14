@@ -55,6 +55,9 @@ jobs:
       - name: TAP-only build (LWIP=0)
         run: make -j"$(nproc)" BUILD=build-tap LWIP=0 all
 
+      - name: Minimal lwIP build (SOCKS=0 UDP_RELAY=0 TAP=0) and its tests
+        run: make -j"$(nproc)" BUILD=build-min SOCKS=0 UDP_RELAY=0 TAP=0 test
+
   # ------------------------------------------------------------------ cross
   build:
     name: Build ${{ matrix.target }} (musl static)

@@ -3,7 +3,8 @@
 #   make LWIP=0                                       TAP backend only (no stack, no proxy)
 #   make LWIP_PROFILE=medium                          lwIP memory profile: large (default),
 #                                                     medium (cameras, routers), small
-#   (use a separate BUILD=... directory per profile: objects are not rebuilt on a change)
+#   make SOCKS=0 UDP_RELAY=0 TAP=0                   leave out optional modules (default 1)
+#   (use a separate BUILD=... directory per variant: objects are not rebuilt on a change)
 CROSS_COMPILE ?=
 ifneq ($(CROSS_COMPILE),)
 CC      := $(CROSS_COMPILE)gcc
@@ -31,8 +32,18 @@ LWIP    ?= 1
 # lwIP memory profile (port/lwip/lwipopts.h): large (PCs, Android), medium (cameras,
 # routers), small
 LWIP_PROFILE ?= large
+# optional modules of the lwIP build (1 = in, 0 = out): SOCKS5 server, UDP relay,
+# TAP/TUN backend (kernel interface; Linux only)
+SOCKS     ?= 1
+UDP_RELAY ?= 1
+TAP       ?= 1
 
-NETCORE_SRC := netcore/tunnel.c netcore/loop.c netcore/route.c netcore/tapdev.c
+NETCORE_SRC := netcore/tunnel.c netcore/loop.c netcore/route.c
+ifeq ($(TAP),1)
+NETCORE_SRC += netcore/tapdev.c
+else
+BASE_CFLAGS += -DVTESSE_WITH_TAP=0
+endif
 VTUN_SRC    := vtun/vtun_proto.c vtun/vtun_client.c
 LWIP_SRC    := $(addprefix $(LWIP_DIR)/src/core/, def.c inet_chksum.c init.c ip.c mem.c \
                  memp.c netif.c pbuf.c stats.c sys.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \
@@ -44,7 +55,13 @@ BASE_CFLAGS += -DVTESSE_LWIP_PROFILE=$(LWIP_PROFILE_NUM)
 LWIP_CFLAGS += -DVTESSE_LWIP_PROFILE=$(LWIP_PROFILE_NUM)
 
 ifeq ($(LWIP),1)
-NETCORE_SRC += netcore/stack.c netcore/proxy.c netcore/udprelay.c
+NETCORE_SRC += netcore/stack.c netcore/proxy.c
+BASE_CFLAGS += -DNC_WITH_SOCKS=$(SOCKS)
+ifeq ($(UDP_RELAY),1)
+NETCORE_SRC += netcore/udprelay.c
+else
+BASE_CFLAGS += -DVTESSE_WITH_UDP_RELAY=0
+endif
 NETCORE_OBJ := $(NETCORE_SRC:%.c=$(BUILD)/%.o) $(LWIP_SRC:%.c=$(BUILD)/%.o)
 else
 BASE_CFLAGS += -DVTESSE_WITH_LWIP=0

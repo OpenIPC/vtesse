@@ -20,6 +20,7 @@ make            # build/libnetcore.a, build/libvtesse.a, build/vtesse-cli
 make test       # unit tests and client scenarios against a scripted server
 make LWIP=0     # TAP backend only: no userspace stack and proxy
 make LWIP_PROFILE=medium   # lwIP memory profile: large (default), medium, small
+make SOCKS=0 UDP_RELAY=0 TAP=0   # leave out optional modules (default: all in)
 make CROSS_COMPILE=mipsel-linux-musl- STATIC=1      # cross compile, static binary
 ```
 
@@ -37,6 +38,18 @@ QEMU=1 ci/build-musl.sh arm32 dist     # downloads the toolchain, runs the tests
 | `arm64` | Bootlin aarch64 musl | 64-bit ARM |
 | `mips` | Bootlin mips32 musl | big-endian MIPS routers |
 | `x86_64` | Bootlin x86-64 musl | PCs, servers |
+
+Optional modules (#29), `vtesse-cli --version` lists what a binary contains:
+
+| Switch | Leaves out | arm32/x86_64 code saved |
+|---|---|---|
+| `LWIP=0` | lwIP stack, port forwards, SOCKS5, UDP relay (TAP/TUN backend only) | ~75 % |
+| `SOCKS=0` | SOCKS5 server (port forwards stay) | ~1.7 KB |
+| `UDP_RELAY=0` | UDP relay | ~2 KB |
+| `TAP=0` | TAP/TUN backend (kernel interface) | ~5 KB |
+
+A disabled feature is refused with a clear message (`--socks: built without SOCKS5`).
+Release binaries contain everything; `vtesse-tap-<arch>` is the `LWIP=0` build.
 
 Each target gives `vtesse-<target>` (lwIP + TAP) and `vtesse-tap-<target>` (TAP
 only); x86_64 also `vtund-3.0.2-x86_64`, the VTun server with our patches

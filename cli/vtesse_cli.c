@@ -37,11 +37,47 @@
 #endif
 #include "netcore/udprelay.h"   /* limits only; the relay itself needs lwIP */
 
+/* optional modules (make SOCKS=0 UDP_RELAY=0 TAP=0) */
+#ifndef NC_WITH_SOCKS
+#define NC_WITH_SOCKS VTESSE_WITH_LWIP
+#endif
+#ifndef VTESSE_WITH_UDP_RELAY
+#define VTESSE_WITH_UDP_RELAY VTESSE_WITH_LWIP
+#endif
+#ifndef VTESSE_WITH_TAP
 #ifdef __linux__
 #define VTESSE_WITH_TAP 1
-#include "netcore/tapdev.h"
 #else
 #define VTESSE_WITH_TAP 0
+#endif
+#endif
+#if VTESSE_WITH_TAP
+#include "netcore/tapdev.h"
+#endif
+
+#if VTESSE_WITH_LWIP && !VTESSE_WITH_UDP_RELAY
+/* built without the UDP relay (udprelay.c not linked): the options are refused */
+int nc_udp_relay_parse(const char *s, uint16_t *port, uint16_t *local_port)
+{
+    (void)s; (void)port; (void)local_port;
+    return -1;
+}
+nc_udp_relay_t *nc_udp_relay_create(uint16_t port, const char *dst_addr, uint16_t dst_port,
+                                    char *err, size_t err_size)
+{
+    (void)port; (void)dst_addr; (void)dst_port;
+    snprintf(err, err_size, "built without the UDP relay (make UDP_RELAY=0)");
+    return NULL;
+}
+void nc_udp_relay_get_stats(const nc_udp_relay_t *r, nc_udp_relay_stats_t *st)
+{
+    (void)r;
+    memset(st, 0, sizeof(*st));
+}
+void nc_udp_relay_destroy(nc_udp_relay_t *r)
+{
+    (void)r;
+}
 #endif
 
 #define DEFAULT_CONFIG "~/.config/vtesse/probe.conf"
@@ -569,8 +605,12 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--id-from") && i + 1 < argc)
             id_from = argv[++i];
         else if (!strcmp(argv[i], "--version")) {
-            printf("vtesse-cli %s (%s)\n", VTESSE_VERSION,
-                   VTESSE_WITH_LWIP ? "lwip+tap" : "tap");
+            printf("vtesse-cli %s (%s%s%s%s%s)\n", VTESSE_VERSION,
+                   VTESSE_WITH_LWIP ? "lwip, forwards" : "",
+                   VTESSE_WITH_LWIP && NC_WITH_SOCKS ? ", socks5" : "",
+                   VTESSE_WITH_LWIP && VTESSE_WITH_UDP_RELAY ? ", udp-relay" : "",
+                   VTESSE_WITH_LWIP && VTESSE_WITH_TAP ? ", " : "",
+                   VTESSE_WITH_TAP ? "tap" : "");
             return 0;
         }
 #if VTESSE_WITH_TAP
@@ -580,6 +620,11 @@ int main(int argc, char **argv)
             tc.ifname = argv[++i];
         else if (!strcmp(argv[i], "--hook") && i + 1 < argc)
             hook = argv[++i];
+#else
+        else if (!strcmp(argv[i], "--tap") || !strcmp(argv[i], "--ifname") || !strcmp(argv[i], "--hook")) {
+            fprintf(stderr, "%s: built without the TAP/TUN backend (make TAP=0)\n", argv[i]);
+            return 2;
+        }
 #endif
 #if VTESSE_WITH_LWIP
         else if (!strcmp(argv[i], "--fetch") && i + 1 < argc) {
@@ -588,6 +633,9 @@ int main(int argc, char **argv)
                 return 2;
             }
             fetch.wanted = lwip_opts = 1;
+        } else if (!strcmp(argv[i], "--socks") && i + 1 < argc && !NC_WITH_SOCKS) {
+            fprintf(stderr, "--socks: built without SOCKS5 (make SOCKS=0)\n");
+            return 2;
         } else if (!strcmp(argv[i], "--socks") && i + 1 < argc) {
             int p = atoi(argv[++i]);
             if (p <= 0 || p > 65535) {
@@ -604,6 +652,9 @@ int main(int argc, char **argv)
             }
             pc.forward_count++;
             lwip_opts = 1;
+        } else if (!strcmp(argv[i], "--udp-relay") && !VTESSE_WITH_UDP_RELAY) {
+            fprintf(stderr, "--udp-relay: built without the UDP relay (make UDP_RELAY=0)\n");
+            return 2;
         } else if (!strcmp(argv[i], "--udp-relay") && i + 1 < argc) {
             if (nrelays >= NC_UDP_RELAY_MAX ||
                 nc_udp_relay_parse(argv[++i], &relays[nrelays].port, &relays[nrelays].local) < 0) {
@@ -636,7 +687,11 @@ int main(int argc, char **argv)
     }
     if (load_config(config, &c) < 0)
         return 2;
-    if (c.udp_relay_count && (use_tap || !VTESSE_WITH_LWIP)) {
+    if (c.udp_relay_count && !(VTESSE_WITH_LWIP && VTESSE_WITH_UDP_RELAY)) {
+        fprintf(stderr, "%s: udp_relay: built without the UDP relay\n", config);
+        return 2;
+    }
+    if (c.udp_relay_count && use_tap) {
         fprintf(stderr, "%s: udp_relay needs the lwIP backend (with --tap the kernel receives UDP itself)\n", config);
         return 2;
     }

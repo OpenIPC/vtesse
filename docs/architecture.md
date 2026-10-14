@@ -48,9 +48,9 @@ the tunnel; there is no system network interface.
   lwIP (`NO_SYS=1`, raw API, IPv4 only).
 - **Explicit byte order** everywhere (frame headers, DHCP options); tests also run on
   big-endian MIPS.
-- **Small footprint:** `-Os`, strip; lwIP memory profiles (see below); finer
-  build-time module selection is deferred
-  ([#29](https://github.com/compot-dev/vtesse/issues/29)).
+- **Small footprint:** `-Os`, strip; lwIP memory profiles (see below); optional
+  modules `LWIP=0`, `SOCKS=0`, `UDP_RELAY=0`, `TAP=0`
+  ([#29](https://github.com/compot-dev/vtesse/issues/29), [usage](usage.md#building)).
 - **Protocol-agnostic upper layers.** Everything above the transport talks to
   `tunnel_ops_t` only, so the stack, proxy and Android layers can later serve another
   tunnel protocol (e.g. [camex](https://github.com/openipc/camex)).

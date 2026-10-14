@@ -16,6 +16,10 @@
 #include "netcore/route.h"
 #include "netcore/stack.h"
 
+#ifndef NC_WITH_SOCKS
+#define NC_WITH_SOCKS 1     /* make SOCKS=0 leaves out the SOCKS5 server */
+#endif
+
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
 #endif
@@ -321,6 +325,7 @@ static void start_connect(conn_t *c)
     }
 }
 
+#if NC_WITH_SOCKS
 /* ---- SOCKS5 handshake ---- */
 
 static void consume(conn_t *c, size_t n)
@@ -464,6 +469,13 @@ static void read_handshake(conn_t *c)
     if (!c->dead && c->state < C_CONNECTING && c->hs_len == sizeof(c->hs))
         c->dead = c->abort = 1;     /* oversized handshake */
 }
+#else
+/* built without SOCKS5 (make SOCKS=0): no SOCKS listener is ever opened */
+static void read_handshake(conn_t *c)
+{
+    c->dead = c->abort = 1;
+}
+#endif
 
 /* ---- connection table ---- */
 
@@ -725,6 +737,12 @@ nc_proxy_t *nc_proxy_create(const nc_proxy_cfg_t *cfg, nc_proxy_log_cb log, void
     px->conns = calloc((size_t)px->cfg.max_conns, sizeof(*px->conns));
     if (!px->conns)
         goto fail;
+#if !NC_WITH_SOCKS
+    if (cfg->socks_port) {
+        logf_(px, "built without SOCKS5 (make SOCKS=0)");
+        goto fail;
+    }
+#endif
     if (cfg->socks_port && (px->lfd[0] = open_listener(px, cfg->socks_port)) < 0)
         goto fail;
     for (i = 0; i < px->cfg.forward_count; i++)

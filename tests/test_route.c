@@ -4,7 +4,10 @@
 #ifndef VTESSE_WITH_LWIP
 #define VTESSE_WITH_LWIP 1
 #endif
-#if VTESSE_WITH_LWIP
+#ifndef VTESSE_WITH_UDP_RELAY
+#define VTESSE_WITH_UDP_RELAY VTESSE_WITH_LWIP
+#endif
+#if VTESSE_WITH_UDP_RELAY
 #include "netcore/udprelay.h"
 #endif
 
@@ -119,7 +122,7 @@ static void test_devid_from_mac(void)
     CHECK_EQ_INT(nc_devid_from_mac_str(NULL, id), -1);
 }
 
-#if VTESSE_WITH_LWIP
+#if VTESSE_WITH_UDP_RELAY
 static void test_udp_relay_parse(void)
 {
     uint16_t p = 0, l = 0;
@@ -147,7 +150,7 @@ int main(void)
     RUN(test_lookup_none);
     RUN(test_devid);
     RUN(test_devid_from_mac);
-#if VTESSE_WITH_LWIP
+#if VTESSE_WITH_UDP_RELAY
     RUN(test_udp_relay_parse);
 #endif
     return UNIT_SUMMARY();
