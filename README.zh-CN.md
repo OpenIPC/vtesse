@@ -151,7 +151,7 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 | 1. Linux 命令行原型：TCP + `type ether` + 基于 lwIP 的 DHCP | ✅ 已完成 | [#2](https://github.com/compot-dev/vtesse/issues/2) ✅ [#3](https://github.com/compot-dev/vtesse/issues/3) ✅ [#4](https://github.com/compot-dev/vtesse/issues/4) ✅ [#5](https://github.com/compot-dev/vtesse/issues/5) ✅ [#6](https://github.com/compot-dev/vtesse/issues/6) ✅ [#7](https://github.com/compot-dev/vtesse/issues/7) ✅ [#8](https://github.com/compot-dev/vtesse/issues/8) ✅ |
 | 2. 本地代理：SOCKS5 与端口转发 | ✅ 已完成 | [#10](https://github.com/compot-dev/vtesse/issues/10) ✅ [#11](https://github.com/compot-dev/vtesse/issues/11) ✅ |
 | 3. 嵌入式 Linux：ARM/MIPS 交叉编译、体积与内存、CI | 🔄 进行中 | [#12](https://github.com/compot-dev/vtesse/issues/12) [#20](https://github.com/compot-dev/vtesse/issues/20) ✅ |
-| 3. TAP/TUN 后端（用内核接口代替 lwIP，Linux 平台） | ⏸ 已推迟 | [#19](https://github.com/compot-dev/vtesse/issues/19) |
+| 3. TAP/TUN 后端（用内核接口代替 lwIP，Linux 平台） | ✅ 已完成 | [#19](https://github.com/compot-dev/vtesse/issues/19) ✅ |
 | 4. Android 应用（不使用 VpnService） | ✅ 已完成 | [#13](https://github.com/compot-dev/vtesse/issues/13) ✅ |
 | 5. 可选：UDP 传输、TLS 封装、Blowfish 认证 | ⏸ 已推迟 | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16) |
 | 6. 在 camex 中复用上层模块 | ⏸ 已推迟 | [#17](https://github.com/compot-dev/vtesse/issues/17) |
