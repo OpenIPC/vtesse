@@ -4,6 +4,16 @@ The version lives in `include/vtesse/version.h`. Binaries are published only as 
 [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) release, rebuilt
 from every push to `main`; this file is the change history.
 
+## 1.07 — 2026-10-14
+
+- UDP relay (#28): datagrams sent to the client's tunnel address on a port are relayed
+  unchanged to `127.0.0.1` on the device — for RTP pushed by cameras (OpenIPC
+  Majestic `outgoing`) and players listening on `udp://@:PORT` (OpenIPC Decoder).
+  `vtesse-cli --udp-relay PORT[:LOCAL_PORT]` / `udp_relay=` in the config (lwIP
+  backend, up to 3); Android: per-server option on port S559 (1559, 2559, 3559), the
+  status shows the camera and player settings and counters. Bench `udp-test`
+  (500 numbered datagrams in order, a fragmented 4000-byte one) in CI.
+
 ## 1.06 — 2026-10-14
 
 - Android: servers with cameras (#27). Each of the three servers has up to 8

@@ -11,8 +11,8 @@
  * stop.
  *
  * Configuration: the key=value lines of the vtesse-cli config file (host, port,
- * session, password, ip, gw, route) plus socks_port, forward=LPORT:IP:RPORT
- * (repeatable) and listen.
+ * session, password, ip, gw, route, udp_relay) plus socks_port,
+ * forward=LPORT:IP:RPORT (repeatable) and listen.
  */
 #include <jni.h>
 
@@ -30,6 +30,7 @@
 #include "netcore/proxy.h"
 #include "netcore/route.h"
 #include "netcore/stack.h"
+#include "netcore/udprelay.h"
 #include "vtesse/version.h"
 #include "vtesse/vtun_client.h"
 
@@ -51,6 +52,7 @@ static struct {
     char flags[32];
     char error[128];
     nc_proxy_stats_t ps;
+    nc_udp_relay_stats_t us[NC_UDP_RELAY_MAX];
     char log[LOG_LINES][LOG_LINE_MAX];
     int log_next, log_count;
 } S = { .mu = PTHREAD_MUTEX_INITIALIZER };
@@ -62,6 +64,7 @@ static int cmd_pipe[2] = { -1, -1 };
 static nc_loop_t loop;
 static vt_t *vt;
 static nc_proxy_t *px;
+static nc_udp_relay_t *relay[NC_UDP_RELAY_MAX];
 static uint64_t t_start, next_stats;
 
 static void logf_(int prio, const char *fmt, ...)
@@ -198,11 +201,13 @@ static void stats_on_timer(void *ctx)
 {
     (void)ctx;
     next_stats = nc_now_ms() + 1000;
-    if (px) {
-        pthread_mutex_lock(&S.mu);
+    pthread_mutex_lock(&S.mu);
+    if (px)
         nc_proxy_get_stats(px, &S.ps);
-        pthread_mutex_unlock(&S.mu);
-    }
+    for (int i = 0; i < NC_UDP_RELAY_MAX; i++)
+        if (relay[i])
+            nc_udp_relay_get_stats(relay[i], &S.us[i]);
+    pthread_mutex_unlock(&S.mu);
 }
 
 static void *loop_main(void *arg)
@@ -217,6 +222,10 @@ static void *loop_main(void *arg)
     if (px)
         nc_proxy_destroy(px);
     px = NULL;
+    for (int i = 0; i < NC_UDP_RELAY_MAX; i++) {
+        nc_udp_relay_destroy(relay[i]);
+        relay[i] = NULL;
+    }
     vt_destroy(vt);
     vt = NULL;
     set_state(ST_STOPPED, 0);
@@ -277,6 +286,8 @@ static char *trim(char *s)
 typedef struct app_cfg {
     char host[256], session[64], password[128], listen[64];
     int port, socks_port;
+    uint16_t relay_port[NC_UDP_RELAY_MAX], relay_local[NC_UDP_RELAY_MAX];
+    int nrelays;
     vt_cfg_t vc;
     nc_stack_cfg_t sc;
     nc_proxy_cfg_t pc;
@@ -319,6 +330,13 @@ static const char *parse_config(char *text)
                 return msg;
             }
             cfg.pc.forward_count++;
+        } else if (!strcmp(k, "udp_relay")) {
+            if (cfg.nrelays >= NC_UDP_RELAY_MAX ||
+                nc_udp_relay_parse(v, &cfg.relay_port[cfg.nrelays], &cfg.relay_local[cfg.nrelays]) < 0) {
+                snprintf(msg, sizeof(msg), "bad udp_relay '%s' (PORT[:LOCAL_PORT], max %d)", v, NC_UDP_RELAY_MAX);
+                return msg;
+            }
+            cfg.nrelays++;
         } else if (!strcmp(k, "ip")) {
             int p;
 
@@ -345,8 +363,8 @@ static const char *parse_config(char *text)
         return "password is required";
     if (cfg.socks_port < 0 || cfg.socks_port > 65535)
         return "bad SOCKS5 port";
-    if (!cfg.socks_port && !cfg.pc.forward_count)
-        return "enable the SOCKS5 proxy or add a port forward";
+    if (!cfg.socks_port && !cfg.pc.forward_count && !cfg.nrelays)
+        return "nothing to do: no SOCKS5, port forward or UDP relay";
     /* routes added before gw= is known: set their gateway now */
     {
         int i;
@@ -411,15 +429,32 @@ Java_org_openipc_vtesse_Native_start(JNIEnv *env, jclass cls, jstring jconfig)
     src = nc_stack_timer_source();
     nc_loop_add(&loop, &src);
 
+    {
+        int i;
+        char rmsg[128];
+
+        for (i = 0; i < cfg.nrelays; i++) {
+            relay[i] = nc_udp_relay_create(cfg.relay_port[i], NULL, cfg.relay_local[i], rmsg, sizeof(rmsg));
+            if (!relay[i]) {
+                vt_destroy(vt);
+                return jerr(env, rmsg);
+            }
+            logf_(ANDROID_LOG_INFO, "udp relay :%u -> 127.0.0.1:%u", (unsigned)cfg.relay_port[i],
+                  (unsigned)cfg.relay_local[i]);
+        }
+    }
+
     cfg.pc.listen_addr = cfg.listen[0] ? cfg.listen : "127.0.0.1";
     cfg.pc.socks_port = (uint16_t)cfg.socks_port;
-    px = nc_proxy_create(&cfg.pc, on_proxy_log, NULL);
-    if (!px) {
-        vt_destroy(vt);
-        return jerr(env, "cannot open the local ports (in use?)");
+    if (cfg.socks_port || cfg.pc.forward_count) {
+        px = nc_proxy_create(&cfg.pc, on_proxy_log, NULL);
+        if (!px) {
+            vt_destroy(vt);
+            return jerr(env, "cannot open the local ports (in use?)");
+        }
+        src = nc_proxy_source(px);
+        nc_loop_add(&loop, &src);
     }
-    src = nc_proxy_source(px);
-    nc_loop_add(&loop, &src);
 
     if (pipe(cmd_pipe) < 0) {
         nc_proxy_destroy(px);
@@ -509,6 +544,10 @@ Java_org_openipc_vtesse_Native_status(JNIEnv *env, jclass cls)
         PUT("error=%s\n", S.error);
     PUT("accepted=%lu\nactive=%lu\nfailed=%lu\nrejected=%lu\nup=%llu\ndown=%llu\n",
         S.ps.accepted, S.ps.active, S.ps.failed, S.ps.rejected, S.ps.bytes_up, S.ps.bytes_down);
+    /* udp=PORT,LOCAL_PORT,datagrams,bytes,dropped */
+    for (i = 0; i < cfg.nrelays && i < NC_UDP_RELAY_MAX; i++)
+        PUT("udp=%u,%u,%lu,%llu,%lu\n", (unsigned)cfg.relay_port[i], (unsigned)cfg.relay_local[i],
+            S.us[i].datagrams, S.us[i].bytes, S.us[i].dropped);
     for (i = 0; i < S.log_count; i++)
         PUT("log=%s\n", S.log[(S.log_next - S.log_count + i + LOG_LINES) % LOG_LINES]);
     pthread_mutex_unlock(&S.mu);

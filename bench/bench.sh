@@ -12,6 +12,7 @@
 #   bench.sh proxy-test      stage 2 acceptance: SOCKS5 and port forwards of build/vtesse-cli
 #   bench.sh tap-test        TAP backend acceptance: vtesse-cli --tap (LWIP=0 build) in a container
 #   bench.sh tun-test        type tun session (#8): manual IPv4, lwIP and --tap (TUN interface)
+#   bench.sh udp-test        UDP relay (#28): datagrams from the device to the tunnel address -> 127.0.0.1
 set -eu
 
 IMAGE=${BENCH_IMAGE:-vtesse-bench}
@@ -228,6 +229,65 @@ cmd_tun_test() {
     [ "$fails" -eq 0 ]
 }
 
+# UDP relay (#28): the "device" behind the server pushes numbered RTP-like
+# datagrams to the client's tunnel address; vtesse-cli --udp-relay relays them to
+# a listener on 127.0.0.1. Checks count, order, content and a fragmented datagram.
+cmd_udp_test() {
+    cli="$HERE/../build/vtesse-cli"
+    [ -x "$cli" ] || { echo "build the CLI first: make"; exit 1; }
+    conf=$(mktemp) log=$(mktemp) got=$(mktemp)
+    fails=0
+    check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails + 1)); fi; }
+    printf 'host=127.0.0.1\nport=%s\nsession=%s\npassword=%s\nudp_relay=1559\n' \
+        "$BENCH_PORT" "$SESSION" "$PASSWORD" >"$conf"
+
+    # receiver on the client side: 127.0.0.1:1559, stops 3 s after the last datagram
+    python3 -c '
+import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 << 20)
+s.bind(("127.0.0.1", 1559)); s.settimeout(25)
+seqs, big, bad = [], 0, 0
+try:
+    while True:
+        d, _ = s.recvfrom(65535)
+        s.settimeout(3)
+        if len(d) == 4000 and d == bytes(range(256)) * 15 + bytes(range(160)): big += 1; continue
+        n = int.from_bytes(d[:4], "big")
+        if d[4:] != bytes([n & 255]) * (len(d) - 4): bad += 1
+        seqs.append(n)
+except socket.timeout: pass
+print(len(seqs), int(seqs == sorted(seqs)), bad, big)
+' >"$got" &
+    rpid=$!
+    "$cli" --config "$conf" --seconds 40 >"$log" 2>&1 &
+    pid=$!
+    i=0
+    until grep -q "udp relay 10\.77\." "$log" || [ $i -gt 15 ]; do sleep 1; i=$((i + 1)); done
+    addr=$(sed -n 's/^\[.*\]   udp relay \([0-9.]*\):1559 .*/\1/p' "$log" | head -1)
+    check "relay listening on the tunnel address" '[ -n "$addr" ]'
+    sleep 1
+    # sender behind the server: 500 x 1200 B (~2 ms apart, ~4.8 Mbit/s) + one 4000 B datagram
+    docker exec "$SERVER" ip netns exec device python3 -c "
+import socket, time
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+for n in range(500):
+    s.sendto(n.to_bytes(4, 'big') + bytes([n & 255]) * 1196, ('$addr', 1559)); time.sleep(0.002)
+s.sendto(bytes(range(256)) * 15 + bytes(range(160)), ('$addr', 1559))
+"
+    wait "$rpid"
+    read -r count ordered bad big <"$got"
+    check "500 datagrams relayed to 127.0.0.1:1559 (got $count)" '[ "$count" = 500 ]'
+    check "in order, content intact" '[ "$ordered" = 1 ] && [ "$bad" = 0 ]'
+    check "4000-byte datagram (IP fragments) reassembled and relayed" '[ "$big" = 1 ]'
+    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    check "relay statistics at exit" 'grep -q "udp relay :1559: datagrams 501" "$log"'
+    echo "--- client log"; grep -v "route " "$log"
+    rm -f "$conf" "$log" "$got"
+    echo "$fails failure(s)"
+    [ "$fails" -eq 0 ]
+}
+
 case "${1:-}" in
     build) cmd_build ;;
     up) cmd_up ;;
@@ -238,7 +298,8 @@ case "${1:-}" in
     cli-test) cmd_cli_test ;;
     tap-test) cmd_tap_test ;;
     tun-test) cmd_tun_test ;;
+    udp-test) cmd_udp_test ;;
     proxy-test) python3 "$HERE/proxy_test.py" "$HERE/../build/vtesse-cli" "$BENCH_PORT" "$SERVER" ;;
     selftest) python3 "$HERE/selftest.py" 127.0.0.1 "$BENCH_PORT" ;;
-    *) sed -n '2,14p' "$0"; exit 1 ;;
+    *) sed -n '2,15p' "$0"; exit 1 ;;
 esac

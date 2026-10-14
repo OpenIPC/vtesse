@@ -17,7 +17,7 @@ set(LWIP_SRC
 
 set(CORE_SRC
     ${ROOT}/netcore/tunnel.c ${ROOT}/netcore/loop.c ${ROOT}/netcore/route.c
-    ${ROOT}/netcore/stack.c ${ROOT}/netcore/proxy.c
+    ${ROOT}/netcore/stack.c ${ROOT}/netcore/proxy.c ${ROOT}/netcore/udprelay.c
     ${ROOT}/vtun/vtun_proto.c ${ROOT}/vtun/vtun_client.c)
 
 add_library(vtesse SHARED vtesse_jni.c ${CORE_SRC} ${LWIP_SRC})

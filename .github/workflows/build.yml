@@ -129,6 +129,9 @@ jobs:
       - name: type tun acceptance (manual IPv4, lwIP and TAP)
         run: bench/bench.sh tun-test
 
+      - name: UDP relay acceptance (RTP from cameras)
+        run: bench/bench.sh udp-test
+
       - name: Server log
         if: always()
         run: docker logs vtesse-bench-server 2>&1 | tail -100 || true

@@ -1,6 +1,13 @@
 #include "netcore/route.h"
 #include "unit.h"
 
+#ifndef VTESSE_WITH_LWIP
+#define VTESSE_WITH_LWIP 1
+#endif
+#if VTESSE_WITH_LWIP
+#include "netcore/udprelay.h"
+#endif
+
 #define IP(a, b, c, d) (((uint32_t)(a) << 24) | ((uint32_t)(b) << 16) | ((uint32_t)(c) << 8) | (uint32_t)(d))
 
 static void test_parse_121(void)
@@ -112,6 +119,26 @@ static void test_devid_from_mac(void)
     CHECK_EQ_INT(nc_devid_from_mac_str(NULL, id), -1);
 }
 
+#if VTESSE_WITH_LWIP
+static void test_udp_relay_parse(void)
+{
+    uint16_t p = 0, l = 0;
+
+    CHECK_EQ_INT(nc_udp_relay_parse("1559", &p, &l), 0);
+    CHECK(p == 1559 && l == 1559);
+    CHECK_EQ_INT(nc_udp_relay_parse("5600:1559", &p, &l), 0);
+    CHECK(p == 5600 && l == 1559);
+    CHECK_EQ_INT(nc_udp_relay_parse("0", &p, &l), -1);
+    CHECK_EQ_INT(nc_udp_relay_parse("65536", &p, &l), -1);
+    CHECK_EQ_INT(nc_udp_relay_parse("1559x", &p, &l), -1);
+    CHECK_EQ_INT(nc_udp_relay_parse("1559:", &p, &l), -1);
+    CHECK_EQ_INT(nc_udp_relay_parse("1559:0", &p, &l), -1);
+    CHECK_EQ_INT(nc_udp_relay_parse(":1559", &p, &l), -1);
+    CHECK_EQ_INT(nc_udp_relay_parse("-1", &p, &l), -1);
+    CHECK_EQ_INT(nc_udp_relay_parse("", &p, &l), -1);
+}
+#endif
+
 int main(void)
 {
     RUN(test_parse_121);
@@ -120,5 +147,8 @@ int main(void)
     RUN(test_lookup_none);
     RUN(test_devid);
     RUN(test_devid_from_mac);
+#if VTESSE_WITH_LWIP
+    RUN(test_udp_relay_parse);
+#endif
     return UNIT_SUMMARY();
 }

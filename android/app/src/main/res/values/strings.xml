@@ -13,6 +13,8 @@
     <string name="svc_http">HTTP S80N</string>
     <string name="svc_ssh">SSH S22N</string>
     <string name="svc_socks">SOCKS5 :%1$d</string>
+    <string name="svc_udp">Receive RTP/UDP from cameras on port %1$d (camera: outgoing udp://&lt;tunnel address&gt;:%1$d, player: udp://@:%1$d)</string>
+    <string name="udp_hint">RTP/UDP: camera → udp://%1$s:%2$d · player → udp://@:%3$d · %4$d datagrams, %5$d dropped</string>
     <string name="camera_name_hint">Camera %1$d</string>
     <string name="camera_ip_hint">IP address</string>
     <string name="camera_name_desc">Camera %1$d name</string>

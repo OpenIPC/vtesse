@@ -22,9 +22,14 @@ launcher banner, no touchscreen required).
   | SOCKS5 | — | 1080 | 2080 | 3080 |
 
   Camera 3 of server 1 in a player: `rtsp://user:pass@127.0.0.1:1553/stream=0`; its
-  web UI: `http://127.0.0.1:1803/`. Port 9 of each block (S559) is reserved for
-  RTP/UDP from cameras (#28). Anything else goes into *Other forwards*
+  web UI: `http://127.0.0.1:1803/`. Anything else goes into *Other forwards*
   (`LPORT:IP:RPORT`).
+- RTP/UDP from cameras (#28): with *Receive RTP/UDP* checked, datagrams sent to the
+  device's tunnel address on port **S559** (1559, 2559, 3559 — "camera 9" of the RTSP
+  block) are relayed to `127.0.0.1:S559`. The status shows what to configure: on the
+  camera `outgoing` → `udp://<tunnel address>:1559` (majestic.yaml), in the player
+  `udp://@:1559` (OpenIPC Decoder: a `udp://` slot). The tunnel address stays the same
+  across reconnects.
 - Device ID: generated once (random locally administered unicast MAC, second
   character `2`, `6`, `A` or `E`) and kept; it can be replaced by hand. Add it as a
   session on the VTun server (long press copies it).

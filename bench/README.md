@@ -82,6 +82,10 @@ manual IPv4 (`ip=10.76.0.2/32`, `gw=10.76.0.1`, `route=10.78.0.0/24`); lwIP: HTT
 device and inbound ping; `--tap`: a TUN interface addressed by the hook, ping/HTTP to the
 device, inbound ping, no default route.
 
+`bench.sh udp-test` is the UDP relay acceptance test (#28): `vtesse-cli` with
+`udp_relay=1559`; the device sends 500 numbered datagrams and a fragmented 4000-byte
+one to the client's tunnel address; all must arrive at `127.0.0.1:1559` in order.
+
 `selftest.py` checks: 50-byte greeting; `<TeK>`; `ECHO_REQ` as the first frame;
 DHCP OFFER through the tunnel, delayed ≥ 2 s, with option 121; `killold`
 take-over (new login OK, old connection closed); shaper/compression/tun flags;

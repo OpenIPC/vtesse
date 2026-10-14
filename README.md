@@ -17,6 +17,7 @@ A resource access microsystem: a client for existing **VTun** servers (`vtund -s
 - **No VPN:** no root, no `/dev/net/tun`, no Android `VpnService` (no VPN icon)
 - **VTun:** 3.0.x servers, TCP transport, `type ether` and `type tun` sessions, XOR challenge response, keepalive, automatic reconnection with exponential back-off
 - **Network:** address and routes via DHCP through the tunnel (option 121, RFC 3442), IPv4, outbound connections only
+- **UDP relay:** RTP pushed by cameras to the tunnel address reaches a local player (`--udp-relay`)
 - **Local proxy:** SOCKS5 `CONNECT` with optional username/password, static TCP port forwards (e.g. RTSP over TCP for video players)
 - **Targets:** embedded Linux (IP cameras, routers; ARM and MIPS, including big-endian, uClibc/musl), Android, and later an embeddable communication module
 - **Library first:** C99 + POSIX, single-threaded, no own main loop — easy to embed

@@ -45,6 +45,7 @@ class MainActivity : Activity() {
     private lateinit var svcHttp: CheckBox
     private lateinit var svcSsh: CheckBox
     private lateinit var svcSocks: CheckBox
+    private lateinit var svcUdp: CheckBox
     private lateinit var cameraRows: List<CameraRow>
     private lateinit var forwards: EditText
     private lateinit var toggle: Button
@@ -84,6 +85,7 @@ class MainActivity : Activity() {
         svcHttp = findViewById(R.id.svc_http)
         svcSsh = findViewById(R.id.svc_ssh)
         svcSocks = findViewById(R.id.svc_socks)
+        svcUdp = findViewById(R.id.svc_udp)
         forwards = findViewById(R.id.forwards)
         toggle = findViewById(R.id.toggle)
         state = findViewById(R.id.state)
@@ -194,6 +196,7 @@ class MainActivity : Activity() {
         svcHttp.isChecked = s.http
         svcSsh.isChecked = s.ssh
         svcSocks.isChecked = s.socks
+        svcUdp.isChecked = s.udp
         s.cameras.forEachIndexed { i, c ->
             cameraRows[i].name.setText(c.name)
             cameraRows[i].ip.setText(c.ip)
@@ -209,6 +212,7 @@ class MainActivity : Activity() {
         svcHttp.text = "HTTP ${server}80N"
         svcSsh.text = "SSH ${server}22N"
         svcSocks.text = getString(R.string.svc_socks, Settings.socksPort(server))
+        svcUdp.text = getString(R.string.svc_udp, Settings.udpPort(server))
         cameraRows.forEachIndexed { i, r ->
             val n = i + 1
             val list = buildList {
@@ -257,6 +261,7 @@ class MainActivity : Activity() {
         http = svcHttp.isChecked,
         ssh = svcSsh.isChecked,
         socks = svcSocks.isChecked,
+        udp = svcUdp.isChecked,
         extraForwards = forwards.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() },
     )
 
@@ -321,7 +326,7 @@ class MainActivity : Activity() {
         }
         state.text = if (pendingSwitch != 0) getString(R.string.switching, pendingSwitch.toString()) else st.summary(this)
         toggle.setText(if (running) R.string.stop else R.string.start)
-        val editable = listOf<View>(serverName, host, port, deviceId, password, svcRtsp, svcHttp, svcSsh, svcSocks, forwards) +
+        val editable = listOf<View>(serverName, host, port, deviceId, password, svcRtsp, svcHttp, svcSsh, svcSocks, svcUdp, forwards) +
             cameraRows.flatMap { listOf(it.name, it.ip) }
         editable.forEach { it.isEnabled = !running }
         details.text = buildString {
@@ -330,6 +335,9 @@ class MainActivity : Activity() {
                 st.routes.forEach { append("route ").append(it).append('\n') }
             }
             st.flags?.let { append("flags ").append(it).append('\n') }
+            st.udp.forEach {
+                append(getString(R.string.udp_hint, st.addr ?: "?", it.port, it.local, it.datagrams, it.dropped)).append('\n')
+            }
             if (running) append("connections ").append(st.active)
                 .append(", up ").append(st.bytesUp).append(" B, down ").append(st.bytesDown).append(" B\n")
             if (st.log.isNotEmpty()) {

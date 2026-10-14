@@ -35,6 +35,7 @@
 #include "netcore/proxy.h"
 #include "netcore/stack.h"
 #endif
+#include "netcore/udprelay.h"   /* limits only; the relay itself needs lwIP */
 
 #ifdef __linux__
 #define VTESSE_WITH_TAP 1
@@ -51,6 +52,8 @@ typedef struct cfg_file {
     char id_from[32];       /* interface whose MAC is the device ID */
     char ip[32], gw[32];    /* manual IPv4 (type tun, or instead of DHCP) */
     char route[16][32];     /* NET/P, repeatable */
+    char udp_relay[NC_UDP_RELAY_MAX][16];   /* PORT[:LOCAL_PORT], repeatable */
+    int udp_relay_count;
     int route_count;
     char password[128];
     char auth[16];
@@ -75,7 +78,7 @@ static void usage(void)
 #if VTESSE_WITH_LWIP
             "  lwIP backend (default):\n"
             "                  [--socks PORT] [--forward LPORT:IP:RPORT]... [--listen ADDR]\n"
-            "                  [--fetch http://IP[:PORT]/PATH]\n"
+            "                  [--fetch http://IP[:PORT]/PATH] [--udp-relay PORT[:LOCAL_PORT]]...\n"
             "                  [--ip A.B.C.D/P [--gw A.B.C.D]]   (manual IPv4 instead of DHCP)\n"
 #endif
 #if VTESSE_WITH_TAP
@@ -85,6 +88,7 @@ static void usage(void)
             "  FILE: key=value lines: host, port, session, password, auth (xor),\n"
             "        optional id_from (instead of session: MAC of that interface),\n"
             "        ip=A.B.C.D/P, gw=A.B.C.D, route=NET/P (repeatable): manual IPv4\n"
+            "        udp_relay=PORT[:LOCAL_PORT] (repeatable): UDP to the tunnel address -> 127.0.0.1\n"
             "        (needed for type tun; with --tap passed to the hook),\n"
             "        socks_user, socks_password (SOCKS5 user/password auth)\n"
             "        default " DEFAULT_CONFIG "\n");
@@ -143,7 +147,14 @@ static int load_config(const char *path, cfg_file_t *c)
             snprintf(c->ip, sizeof(c->ip), "%s", v);
         else if (!strcmp(k, "gw"))
             snprintf(c->gw, sizeof(c->gw), "%s", v);
-        else if (!strcmp(k, "route")) {
+        else if (!strcmp(k, "udp_relay")) {
+            if (c->udp_relay_count >= NC_UDP_RELAY_MAX) {
+                fprintf(stderr, "%s: at most %d udp_relay lines\n", full, NC_UDP_RELAY_MAX);
+                fclose(f);
+                return -1;
+            }
+            snprintf(c->udp_relay[c->udp_relay_count++], sizeof(c->udp_relay[0]), "%s", v);
+        } else if (!strcmp(k, "route")) {
             if (c->route_count >= (int)(sizeof(c->route) / sizeof(c->route[0]))) {
                 fprintf(stderr, "%s: too many route lines\n", full);
                 fclose(f);
@@ -389,6 +400,13 @@ static int parse_forward(const char *s, nc_forward_t *f)
 /* ---- events ---- */
 
 static int manual_ip;   /* ip= / --ip: no DHCP */
+#if VTESSE_WITH_LWIP
+static struct {
+    uint16_t port, local;
+    nc_udp_relay_t *r;
+} relays[NC_UDP_RELAY_MAX];
+static int nrelays;
+#endif
 
 static void print_info(void)
 {
@@ -410,6 +428,9 @@ static void print_info(void)
         nc_route_format(&in.routes.r[i], r, sizeof(r));
         printf("[%8.3f]   route %s\n", elapsed(t_start), r);
     }
+    for (i = 0; i < nrelays; i++)
+        printf("[%8.3f]   udp relay %s:%u -> 127.0.0.1:%u\n", elapsed(t_start), a,
+               (unsigned)relays[i].port, (unsigned)relays[i].local);
 }
 
 static void on_stack_event(void *user, int ev, int tev, int err)
@@ -583,6 +604,14 @@ int main(int argc, char **argv)
             }
             pc.forward_count++;
             lwip_opts = 1;
+        } else if (!strcmp(argv[i], "--udp-relay") && i + 1 < argc) {
+            if (nrelays >= NC_UDP_RELAY_MAX ||
+                nc_udp_relay_parse(argv[++i], &relays[nrelays].port, &relays[nrelays].local) < 0) {
+                fprintf(stderr, "--udp-relay: expected PORT[:LOCAL_PORT] (max %d)\n", NC_UDP_RELAY_MAX);
+                return 2;
+            }
+            nrelays++;
+            lwip_opts = 1;
         } else if (!strcmp(argv[i], "--listen") && i + 1 < argc) {
             pc.listen_addr = argv[++i];
             lwip_opts = 1;
@@ -598,7 +627,7 @@ int main(int argc, char **argv)
         }
     }
     if (use_tap && lwip_opts) {
-        fprintf(stderr, "--tap cannot be combined with --socks/--forward/--listen/--fetch\n");
+        fprintf(stderr, "--tap cannot be combined with --socks/--forward/--listen/--fetch/--udp-relay\n");
         return 2;
     }
     if (!VTESSE_WITH_TAP && use_tap) {
@@ -607,6 +636,10 @@ int main(int argc, char **argv)
     }
     if (load_config(config, &c) < 0)
         return 2;
+    if (c.udp_relay_count && (use_tap || !VTESSE_WITH_LWIP)) {
+        fprintf(stderr, "%s: udp_relay needs the lwIP backend (with --tap the kernel receives UDP itself)\n", config);
+        return 2;
+    }
     if (id_from)
         snprintf(c.id_from, sizeof(c.id_from), "%s", id_from);
     if (c.id_from[0]) {
@@ -726,6 +759,25 @@ int main(int argc, char **argv)
         }
         src = nc_stack_timer_source();
         nc_loop_add(&loop, &src);
+        /* UDP relays from the file come after the command line ones */
+        for (i = 0; i < c.udp_relay_count; i++) {
+            if (nrelays >= NC_UDP_RELAY_MAX ||
+                nc_udp_relay_parse(c.udp_relay[i], &relays[nrelays].port, &relays[nrelays].local) < 0) {
+                fprintf(stderr, "%s: udp_relay: expected PORT[:LOCAL_PORT] (max %d)\n", config, NC_UDP_RELAY_MAX);
+                return 2;
+            }
+            nrelays++;
+        }
+        for (i = 0; i < nrelays; i++) {
+            char msg[128];
+
+            relays[i].r = nc_udp_relay_create(relays[i].port, NULL, relays[i].local, msg, sizeof(msg));
+            if (!relays[i].r) {
+                fprintf(stderr, "%s\n", msg);
+                return 2;
+            }
+            printf("udp relay :%u -> 127.0.0.1:%u\n", (unsigned)relays[i].port, (unsigned)relays[i].local);
+        }
         if (pc.socks_port || pc.forward_count) {
             pc.socks_user = c.socks_user;
             pc.socks_password = c.socks_password;
@@ -765,6 +817,14 @@ int main(int argc, char **argv)
     }
     if (fetch.wanted && (!fetch.done || strncmp(fetch.status, "HTTP/", 5) != 0))
         rc = 1;
+    for (i = 0; i < nrelays; i++) {
+        nc_udp_relay_stats_t us;
+
+        nc_udp_relay_get_stats(relays[i].r, &us);
+        printf("[%8.3f] udp relay :%u: datagrams %lu, %llu B, dropped %lu\n", elapsed(t_start),
+               (unsigned)relays[i].port, us.datagrams, us.bytes, us.dropped);
+        nc_udp_relay_destroy(relays[i].r);
+    }
 #endif
 #if VTESSE_WITH_TAP
     if (tap) {

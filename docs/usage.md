@@ -7,6 +7,7 @@
 - [Device ID](#device-id)
 - [Addressing (DHCP)](#addressing-dhcp)
 - [Local proxy](#local-proxy)
+- [UDP relay (RTP from cameras)](#udp-relay-rtp-from-cameras)
 - [Errors](#errors)
 - [Probe tool](#probe-tool)
 
@@ -48,7 +49,7 @@ from every push to `main`).
 ```
 vtesse-cli [--config FILE] [--seconds N] [-v]
            [--socks PORT] [--forward LPORT:IP:RPORT]... [--listen ADDR]
-           [--fetch http://IP[:PORT]/PATH]
+           [--fetch http://IP[:PORT]/PATH] [--udp-relay PORT[:LOCAL_PORT]]...
            [--ip A.B.C.D/P [--gw A.B.C.D]]
 vtesse-cli [--config FILE] [--seconds N] --tap [--ifname NAME] [--hook SCRIPT]
 ```
@@ -61,6 +62,7 @@ vtesse-cli [--config FILE] [--seconds N] --tap [--ifname NAME] [--hook SCRIPT]
 | `--socks PORT` | SOCKS5 server on `LISTEN:PORT` |
 | `--forward LPORT:IP:RPORT` | TCP forward `LISTEN:LPORT → IP:RPORT` through the tunnel (repeatable, up to 16) |
 | `--listen ADDR` | address of the local listeners, default `127.0.0.1` |
+| `--udp-relay PORT[:LOCAL_PORT]` | [UDP relay](#udp-relay-rtp-from-cameras): datagrams to the tunnel address on `PORT` go to `127.0.0.1:LOCAL_PORT` (default the same port); repeatable, up to 3 |
 | `--fetch URL` | one HTTP GET through the stack once an address is bound (diagnostics) |
 | `--ip A.B.C.D/P`, `--gw A.B.C.D` | [manual IPv4](#manual-ipv4-type-tun) instead of DHCP; override `ip`/`gw` of the file (`--debug-ip`/`--debug-gw` are accepted as old names) |
 | `--tap` | [TAP backend](#tap-backend): kernel interface instead of lwIP (Linux, root) |
@@ -137,6 +139,7 @@ never from the command line; keep it outside the repository with mode 600.
 | `port` | VTun server TCP port |
 | `session` | session name = [device ID](#device-id) |
 | `id_from` | instead of `session`: take the device ID from the MAC of this interface, e.g. `eth0` |
+| `udp_relay` | `PORT[:LOCAL_PORT]`, repeatable: [UDP relay](#udp-relay-rtp-from-cameras) (lwIP backend) |
 | `ip`, `gw`, `route` | [manual IPv4](#manual-ipv4-type-tun): `ip=A.B.C.D/P`, optional `gw=A.B.C.D`, `route=NET/P` (repeatable, up to 16); required for `type tun` |
 | `password` | session password |
 | `auth` | challenge response, `xor` (default; servers built without OpenSSL) |
@@ -226,6 +229,43 @@ tunnel. Outbound TCP and IPv4 only.
   are accepted and closed.
 - Any local process can use an unauthenticated proxy on `127.0.0.1` — set
   `socks_user` / `socks_password` where that matters.
+
+## UDP relay (RTP from cameras)
+
+A camera can push its video as RTP over UDP instead of being asked over RTSP (OpenIPC
+Majestic `outgoing`). The port forwards are TCP only, so VTesse has a separate UDP
+relay (#28): datagrams sent to the client's **tunnel address** on a port are passed,
+unchanged, to `127.0.0.1` on the device, where a player listens.
+
+```sh
+vtesse-cli --config /etc/vtesse.conf --udp-relay 1559
+#   address 10.77.0.169 ...
+#   udp relay 10.77.0.169:1559 -> 127.0.0.1:1559
+```
+
+On the camera (`/etc/majestic.yaml`, then restart Majestic), with the tunnel address the
+client printed:
+
+```yaml
+outgoing:
+  servers:
+    - udp://10.77.0.169:1559
+```
+
+Player: `udp://@:1559` (OpenIPC Decoder: a `udp://` slot or its U cell with port 5600
+via `--udp-relay 1559:5600`).
+
+- One direction only; nothing is sent back to the camera. Up to 3 relays.
+- Inside the TCP tunnel datagrams arrive reliably and in order (TCP retransmits);
+  one is dropped only if the local socket's buffer is full. Large datagrams arrive
+  as IP fragments and are reassembled.
+- The tunnel address is stable: the DHCP lease is kept and requested again after a
+  reconnect, so the camera's setting stays valid.
+- lwIP backend only: with `--tap` the kernel receives UDP on the interface itself.
+- Statistics at exit: `udp relay :1559: datagrams N, B bytes, dropped D`.
+- Android: per-server option on port S559 (1559, 2559, 3559), see
+  [android/README.md](../android/README.md).
+- Acceptance: `bench/bench.sh udp-test`.
 
 ## Errors
 

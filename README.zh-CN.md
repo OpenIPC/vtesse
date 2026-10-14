@@ -17,6 +17,7 @@
 - **无需 VPN：** 不需要 root、`/dev/net/tun` 或 Android `VpnService`（不显示 VPN 图标）
 - **VTun：** 3.0.x 服务器，TCP 传输，`type ether` 与 `type tun` 会话，XOR 质询应答，keepalive，按指数退避自动重连
 - **网络：** 通过隧道内的 DHCP 获取地址和路由（选项 121，RFC 3442），IPv4，仅出站连接
+- **UDP 中继：** 摄像机推送到隧道地址的 RTP 可送达本地播放器（`--udp-relay`）
 - **本地代理：** 支持可选用户名/密码认证的 SOCKS5 `CONNECT`，静态 TCP 端口转发（例如为视频播放器提供基于 TCP 的 RTSP）
 - **目标平台：** 嵌入式 Linux（IP 摄像机、路由器；ARM 与 MIPS，含大端序，uClibc/musl）、Android，后续还将提供可嵌入的通信模块
 - **库优先：** C99 + POSIX，单线程，不自带主循环——易于嵌入

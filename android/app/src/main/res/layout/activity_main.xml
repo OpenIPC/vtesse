@@ -135,6 +135,11 @@
             <CheckBox android:id="@+id/svc_socks" android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:singleLine="true" />
         </LinearLayout>
+        <!-- RTP over UDP pushed by cameras (#28) -->
+        <CheckBox
+            android:id="@+id/svc_udp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
 
         <!-- 8 rows filled by MainActivity -->
         <LinearLayout

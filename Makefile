@@ -34,7 +34,7 @@ LWIP_SRC    := $(addprefix $(LWIP_DIR)/src/core/, def.c inet_chksum.c init.c ip.
                $(LWIP_DIR)/src/netif/ethernet.c
 
 ifeq ($(LWIP),1)
-NETCORE_SRC += netcore/stack.c netcore/proxy.c
+NETCORE_SRC += netcore/stack.c netcore/proxy.c netcore/udprelay.c
 NETCORE_OBJ := $(NETCORE_SRC:%.c=$(BUILD)/%.o) $(LWIP_SRC:%.c=$(BUILD)/%.o)
 else
 BASE_CFLAGS += -DVTESSE_WITH_LWIP=0

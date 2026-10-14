@@ -14,10 +14,11 @@
 
 ```
  app / video player
-        │  TCP to 127.0.0.1:<port>   (SOCKS5 or port forward)
+        │  TCP to 127.0.0.1:<port> (SOCKS5 or port forward), UDP from the relay
         ▼
  ┌──────────────────────────┐
- │ local proxy              │  netcore/proxy.c   SOCKS5 (CONNECT) / port forwarding
+ │ local proxy, UDP relay   │  netcore/proxy.c   SOCKS5 (CONNECT) / port forwarding
+ │                          │  netcore/udprelay.c   UDP to the tunnel address -> 127.0.0.1
  ├──────────────────────────┤
  │ userspace TCP/IP (lwIP)  │  netcore/stack.c   IPv4, TCP, UDP, ICMP, ARP, DHCP client
  ├──────────────────────────┤
@@ -154,6 +155,15 @@ TCP connections.
   download reaches ~110–140 MiB/s and 8 parallel downloads ~55 MiB/s in total.
 
 User-facing behaviour (reply codes, limits): [usage](usage.md#local-proxy).
+
+## UDP relay
+
+[`include/netcore/udprelay.h`](../include/netcore/udprelay.h) (#28): an lwIP UDP PCB
+bound to a port of the client's tunnel address; its receive callback (running in the
+loop thread, inside lwIP input) copies each datagram to a connected, non-blocking host
+UDP socket (`127.0.0.1:LOCAL_PORT`). No loop source of its own; a full local buffer
+drops the datagram instead of stalling the tunnel. One direction only (camera →
+device), for RTP pushed by cameras. User-facing: [usage](usage.md#udp-relay-rtp-from-cameras).
 
 ## Backends
 

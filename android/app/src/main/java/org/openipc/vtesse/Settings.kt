@@ -22,6 +22,7 @@ data class Settings(
     val http: Boolean,
     val ssh: Boolean,
     val socks: Boolean,
+    val udp: Boolean,                   // RTP/UDP relay on port S559 (#28)
     val extraForwards: List<String>,    // free-form LPORT:IP:RPORT
 ) {
     /** key=value text for [Native.start] (same keys as the vtesse-cli config). */
@@ -39,6 +40,7 @@ data class Settings(
             if (ssh) append("forward=${port(server, SSH, n)}:${c.ip}:22\n")
         }
         extraForwards.forEach { append("forward=").append(it).append('\n') }
+        if (udp) append("udp_relay=${udpPort(server)}\n")
     }
 
     /** "Server 2 · Office" (or the host) for buttons and the notification. */
@@ -60,6 +62,7 @@ data class Settings(
             .putBoolean(p + K_HTTP, http)
             .putBoolean(p + K_SSH, ssh)
             .putBoolean(p + K_SOCKS_ON, socks)
+            .putBoolean(p + K_UDP, udp)
             .putString(p + K_FORWARDS, extraForwards.joinToString("\n"))
         cameras.forEachIndexed { i, c ->
             e.putString("${p}cam${i + 1}_name", c.name).putString("${p}cam${i + 1}_ip", c.ip)
@@ -86,6 +89,10 @@ data class Settings(
         /** SOCKS5 port of a server: 1080, 2080, 3080. */
         fun socksPort(server: Int) = server * 1000 + 80
 
+        /** RTP/UDP relay port ("camera 9" of the RTSP block): 1559, 2559, 3559 (#28).
+         *  The same number on the tunnel address and on 127.0.0.1. */
+        fun udpPort(server: Int) = port(server, RTSP, 9)
+
         private const val K_NAME = "name"
         private const val K_HOST = "host"
         private const val K_PORT = "port"
@@ -96,6 +103,7 @@ data class Settings(
         private const val K_RTSP = "rtsp"
         private const val K_HTTP = "http"
         private const val K_SSH = "ssh"
+        private const val K_UDP = "udp"
         private const val K_FORWARDS = "forwards"       // 1.05 forwards become extra forwards
         private const val K_ACTIVE = "active_profile"
 
@@ -132,6 +140,7 @@ data class Settings(
                 ssh = sp.getBoolean(p + K_SSH, false),
                 socks = if (sp.contains(p + K_SOCKS_ON)) sp.getBoolean(p + K_SOCKS_ON, true)
                         else sp.getInt(p + K_SOCKS, 1080) != 0,
+                udp = sp.getBoolean(p + K_UDP, false),
                 extraForwards = (sp.getString(p + K_FORWARDS, "") ?: "").lines().map { it.trim() }.filter { it.isNotEmpty() },
             )
         }
