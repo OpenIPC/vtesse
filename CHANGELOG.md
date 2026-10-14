@@ -12,8 +12,9 @@ from every push to `main`; this file is the change history.
 - `vtun-3.0.2-denied-log.patch`: a refused login is logged with the session name
   (device ID) and the reason — wrong password, unknown session, `multi no`, no session
   name (#22).
-- Releases carry `vtund-3.0.2-<arch>`, the patched VTun 3.0.2 server, static musl,
-  for arm32, mipsel, mips, arm64 and x86_64.
+- Releases carry `vtund-3.0.2-x86_64`, the patched VTun 3.0.2 server for PCs and
+  servers, static musl; for cameras and routers vtund is built in the OpenIPC
+  environment when needed.
 - Releases: only `latest`, titled with the version; no versioned releases.
 
 ## 1.00 — 2026-10-13

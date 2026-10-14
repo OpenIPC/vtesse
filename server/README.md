@@ -19,12 +19,20 @@ challenge response), no LZO, no zlib. Requirements: a C compiler, `bison`, `flex
 
 ## Releases
 
-CI builds a static musl vtund for every target (`ci/build-musl.sh`) and attaches it
-to the [releases](https://github.com/compot-dev/vtesse/releases) as
-`vtund-<VTun version>-<arch>`, e.g. `vtund-3.0.2-x86_64`. The name carries the
+CI builds a static musl vtund for PCs and servers only (x86_64, `ci/build-musl.sh`)
+and attaches it to the [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest)
+release as `vtund-<VTun version>-x86_64`, e.g. `vtund-3.0.2-x86_64`. The name carries the
 original VTun version, not the VTesse version; the applied patches are listed below.
 The binary reports itself as upstream does (`VTun ver 3.X <build date>`),
 and the protocol is unchanged, so stock and patched servers and clients mix freely.
+
+Cameras and routers: vtund is not released for them; when needed it is built in the
+OpenIPC environment with the same patches, e.g. with the OpenIPC toolchain:
+
+```sh
+server/build-vtund.sh --cross /path/to/toolchain/bin/arm-openipc-linux-musleabi- --static vtund
+VTUND=1 ci/build-musl.sh arm32      # or together with VTesse, OpenIPC toolchain downloaded by the script
+```
 
 ## Patches
 

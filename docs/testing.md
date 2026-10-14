@@ -5,7 +5,7 @@
 | Unit tests | `make test` | `test_proto` (wire format, stock-client reference vector), `test_route` (option 121/249 parser, lookup, device ID), `test_client` (client scenarios against a scripted server: happy path, `ERR`, compression, bad greeting, handshake and keepalive timeouts, reconnect after take-over) |
 | Sanitizers | `make BUILD=build-asan CFLAGS="-O1 -g -fsanitize=address,undefined" LDFLAGS="-fsanitize=address,undefined" test` | memory errors, undefined behaviour, leaks |
 | Big-endian | `ci/test-mips.sh` | static MIPS BE build in Docker, all unit tests under `qemu-mips` |
-| Cross targets | `QEMU=1 ci/build-musl.sh <target>` | static musl build for a camera/router target (VTesse and the patched vtund), unit tests under qemu-user |
+| Cross targets | `QEMU=1 ci/build-musl.sh <target>` | static musl build for a camera/router target (VTesse; the patched vtund for x86_64 or with `VTUND=1`), unit tests under qemu-user |
 | Bench self-test | `bench/bench.sh selftest` | server behaviour VTesse relies on (greeting, flags, keepalive, DHCP through the tunnel, `killold`, `ERR` cases, `multi no`) |
 | Stage 1 acceptance | `bench/bench.sh cli-test` | `vtesse-cli`: DHCP address and option 121 routes, option 3 ignored, HTTP through lwIP, ping of the client from the device, reconnect after a take-over with the same address |
 | Stage 2 acceptance | `bench/bench.sh proxy-test` | SOCKS5 reply codes, `curl --socks5`, 20 MiB download and 8 MiB echo with integrity checks, RTSP through a forward, 8 parallel downloads, SOCKS5 authentication |
@@ -20,9 +20,9 @@ and pull request:
 | Job | What it does |
 |---|---|
 | `tests` | `make test`, the same under ASan/UBSan, the `LWIP=0` build |
-| `build` (arm32, mipsel, arm64, mips, x86_64) | static musl binaries with `ci/build-musl.sh` (`vtesse`, `vtesse-tap`, patched `vtund`), unit tests and a `vtund -h` smoke test under qemu-user, artifacts |
+| `build` (arm32, mipsel, arm64, mips, x86_64) | static musl binaries with `ci/build-musl.sh` (`vtesse`, `vtesse-tap`; patched `vtund` in the x86_64 job), unit tests and a `vtund -h` smoke test under qemu-user, artifacts |
 | `bench` | the Docker test bench (vtund built with our patches): `selftest`, `cli-test`, `proxy-test`, `tap-test` |
-| `release` | push to `main`: replaces the `latest` release; binaries, `vtund-<VTun version>-<arch>`, hook scripts, service scripts, `SHA256SUMS` |
+| `release` | push to `main`: replaces the `latest` release; binaries, `vtund-<VTun version>-x86_64`, hook scripts, service scripts, `SHA256SUMS` |
 
 ### Versions and releases
 
@@ -35,7 +35,7 @@ The version lives in one place, `include/vtesse/version.h`:
 - Its title is `VTesse MAJOR.MM`; the notes are one short line. The change history is
   [CHANGELOG.md](../CHANGELOG.md), the patch list [server/README.md](../server/README.md).
 - File names are stable: `vtesse-<arch>`, `vtesse-tap-<arch>`, and
-  `vtund-<VTun version>-<arch>` (e.g. `vtund-3.0.2-arm64`) for the VTun server.
+  `vtund-<VTun version>-x86_64` (e.g. `vtund-3.0.2-x86_64`) for the VTun server, PCs only.
 - A new version: bump `VTESSE_VERSION` and add a `CHANGELOG.md` entry in the same commit.
 
 ## Test bench

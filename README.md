@@ -35,7 +35,7 @@ Static binaries (no dependencies) are on the [releases page](https://github.com/
 
 Two binaries per platform: `vtesse-ARCH` (lwIP and TAP backends: SOCKS5 / port forwards without root, or a kernel interface with `--tap`) and `vtesse-tap-ARCH` (TAP only, about half the size). The TAP backend needs root and the `tun` driver (`/dev/net/tun`), and the hook scripts `vtesse-hook.sh` and `vtesse-udhcpc.script`.
 
-The releases also carry the VTun server for the same platforms, `vtund-3.0.2-ARCH`: the original VTun 3.0.2 with our patches (a refused login is logged with the device ID and the reason), see [server/README.md](server/README.md).
+The releases also carry the VTun server for PCs and servers, `vtund-3.0.2-x86_64`: the original VTun 3.0.2 with our patches (a refused login is logged with the device ID and the reason), see [server/README.md](server/README.md). For cameras and routers vtund is built in the OpenIPC environment when needed.
 
 ### Configuration
 

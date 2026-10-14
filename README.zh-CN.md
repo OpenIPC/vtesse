@@ -35,7 +35,7 @@
 
 每个平台提供两个二进制文件：`vtesse-ARCH`（lwIP 与 TAP 两种后端：无需 root 的 SOCKS5 / 端口转发，或使用 `--tap` 的内核接口）和 `vtesse-tap-ARCH`（仅 TAP，体积约为一半）。TAP 后端需要 root、`tun` 驱动（`/dev/net/tun`）以及钩子脚本 `vtesse-hook.sh` 和 `vtesse-udhcpc.script`。
 
-发布页还提供同样平台的 VTun 服务器 `vtund-3.0.2-ARCH`：原版 VTun 3.0.2 加上我们的补丁（登录被拒时日志会记录设备 ID 和原因），详见 [server/README.md](server/README.md)。
+发布页还提供面向 PC 和服务器的 VTun 服务器 `vtund-3.0.2-x86_64`：原版 VTun 3.0.2 加上我们的补丁（登录被拒时日志会记录设备 ID 和原因），详见 [server/README.md](server/README.md)。摄像头和路由器如需 vtund，请在 OpenIPC 环境中构建。
 
 ### 配置
 

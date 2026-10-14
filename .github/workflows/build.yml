@@ -2,8 +2,10 @@
 # build.yml — VTesse CI: tests, static musl builds for camera/router targets,
 # the Docker test bench, releases.
 #
-# The VTun server (vtund) is built in the same job with our patches
-# (server/build-vtund.sh, server/patches) and released as vtund-<vtun version>-<arch>.
+# The VTun server (vtund) is built with our patches (server/build-vtund.sh,
+# server/patches) for PCs/servers only, in the x86_64 job, and released as
+# vtund-<vtun version>-x86_64. Cameras and routers build it in the OpenIPC
+# environment when needed.
 #
 # Static musl binaries (a static glibc binary cannot resolve host names without
 # the NSS libraries of the same glibc on the device). 32-bit ARM and MIPSEL use
@@ -69,7 +71,9 @@ jobs:
       - name: Install qemu-user and the vtund build tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-user bison flex autotools-dev
+          sudo apt-get install -y -qq qemu-user
+          # vtund (x86_64 job only)
+          if [ "${{ matrix.target }}" = x86_64 ]; then sudo apt-get install -y -qq bison flex autotools-dev; fi
 
       - name: Cache toolchain
         uses: actions/cache@v6
@@ -78,6 +82,7 @@ jobs:
           key: toolchain-${{ matrix.target }}-${{ hashFiles('ci/build-musl.sh') }}
 
       - name: Cache vtun sources
+        if: matrix.target == 'x86_64'
         uses: actions/cache@v6
         with:
           path: ~/.cache/vtesse-vtun
@@ -151,7 +156,7 @@ jobs:
           mkdir release
           # artifacts keep their directory layout (dist/...)
           find artifacts -type f \( -name 'vtesse-*' -o -name 'vtund-*' \) -exec cp {} release/ \;
-          [ -n "$(ls release/vtund-* 2>/dev/null)" ] || { echo "::error::no vtund binaries"; exit 1; }
+          [ -f "release/vtund-$(server/build-vtund.sh --version)-x86_64" ] || { echo "::error::no vtund x86_64 binary"; exit 1; }
           cp scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse scripts/vtesse.init release/
           (cd release && sha256sum * > SHA256SUMS)
           ls -l release
@@ -167,4 +172,4 @@ jobs:
             --latest \
             --title "VTesse ${VER}" \
             --target "${GITHUB_SHA}" \
-            --notes "VTesse ${VER} (${GITHUB_SHA::7}): static musl builds of vtesse-cli and of the VTun ${VTUN} server with our patches (vtund-${VTUN}-<arch>) for arm32, mipsel, mips, arm64 and x86_64. Changes: CHANGELOG.md; installation: README.md."
+            --notes "VTesse ${VER} (${GITHUB_SHA::7}): static musl builds of vtesse-cli for arm32, mipsel, mips, arm64 and x86_64, and the VTun ${VTUN} server with our patches for PCs (vtund-${VTUN}-x86_64). Changes: CHANGELOG.md; installation: README.md."

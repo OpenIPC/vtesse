@@ -1,5 +1,5 @@
 #!/bin/sh
-# Static musl build of vtesse-cli and of the patched vtund server for one target.
+# Static musl build of vtesse-cli for one target (and of the patched vtund server for x86_64).
 #
 #   ci/build-musl.sh <target> [outdir]
 #
@@ -8,8 +8,9 @@
 #         arm64 | mips | x86_64 | armv5 | armv7   Bootlin musl toolchains
 #         (mips = big-endian MIPS32)
 # Produces <outdir>/vtesse-<target> (lwIP + TAP) and <outdir>/vtesse-tap-<target>
-# (TAP only, LWIP=0), stripped, and <outdir>/vtund-<vtun version>-<target>: the VTun
-# server with our patches (server/build-vtund.sh). With QEMU=1 the unit tests are run under
+# (TAP only, LWIP=0), stripped. For x86_64 also <outdir>/vtund-<vtun version>-x86_64:
+# the VTun server with our patches (server/build-vtund.sh), a PC/server binary only;
+# VTUND=1 builds it for another target too, VTUND=0 skips it. With QEMU=1 the unit tests are run under
 # qemu-user as well. musl is used because a static glibc binary cannot resolve
 # host names without the NSS libraries of the same glibc on the device.
 set -eu
@@ -62,8 +63,14 @@ for variant in full tap; do
     echo "$bin: $(wc -c < "$OUT/$bin") bytes"
 done
 
-VTUND=vtund-$("$ROOT/server/build-vtund.sh" --version)-$TARGET
-"$ROOT/server/build-vtund.sh" --cross "$CROSS" --static "$OUT/$VTUND"
+# vtund: PC/server only by default; for cameras and routers it is built in the OpenIPC
+# environment when needed (server/README.md)
+[ "$TARGET" = x86_64 ] && VTUND_DEFAULT=1 || VTUND_DEFAULT=0
+VTUND_BIN=
+if [ "${VTUND:-$VTUND_DEFAULT}" = 1 ]; then
+    VTUND_BIN=vtund-$("$ROOT/server/build-vtund.sh" --version)-$TARGET
+    "$ROOT/server/build-vtund.sh" --cross "$CROSS" --static "$OUT/$VTUND_BIN"
+fi
 
 if [ "${QEMU:-0}" = 1 ]; then
     for t in test_proto test_route test_client; do
@@ -73,5 +80,5 @@ if [ "${QEMU:-0}" = 1 ]; then
     "$QEMU_BIN" "$OUT/vtesse-$TARGET" --version
     "$QEMU_BIN" "$OUT/vtesse-tap-$TARGET" --version
     # vtund has no --version; -h prints "VTun ver ..." and the usage, exit code 1
-    "$QEMU_BIN" "$OUT/$VTUND" -h 2>&1 | grep "^VTun ver"
+    [ -z "$VTUND_BIN" ] || "$QEMU_BIN" "$OUT/$VTUND_BIN" -h 2>&1 | grep "^VTun ver"
 fi
