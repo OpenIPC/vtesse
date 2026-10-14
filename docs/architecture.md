@@ -48,9 +48,9 @@ the tunnel; there is no system network interface.
   lwIP (`NO_SYS=1`, raw API, IPv4 only).
 - **Explicit byte order** everywhere (frame headers, DHCP options); tests also run on
   big-endian MIPS.
-- **Small footprint:** `-Os`; a small lwIP profile (`VTESSE_LWIP_SMALL`) for cameras
-  and routers; build-time module selection is planned
-  ([#12](https://github.com/compot-dev/vtesse/issues/12)).
+- **Small footprint:** `-Os`, strip; lwIP memory profiles (see below); finer
+  build-time module selection is deferred
+  ([#29](https://github.com/compot-dev/vtesse/issues/29)).
 - **Protocol-agnostic upper layers.** Everything above the transport talks to
   `tunnel_ops_t` only, so the stack, proxy and Android layers can later serve another
   tunnel protocol (e.g. [camex](https://github.com/openipc/camex)).
@@ -136,8 +136,17 @@ See [`include/netcore/tunnel.h`](../include/netcore/tunnel.h).
 - On every tunnel `UP` the ARP cache is flushed (the bridge MAC may have changed).
 - After a reconnect the link comes up again and lwIP requests the previous address
   (DHCP INIT-REBOOT); the lease is never released.
-- `port/lwip/lwipopts.h`: default and `VTESSE_LWIP_SMALL` profiles, `MEM_ALIGNMENT`
+- `port/lwip/lwipopts.h`: memory profiles (`make LWIP_PROFILE=…`, #12), `MEM_ALIGNMENT`
   follows the pointer size, system byte-order functions.
+
+  | Profile | TCP window | Static pools (arm32 bss) | Peak RSS on a camera | Use |
+  |---|---|---|---|---|
+  | large (default) | ~125 KiB, window scaling | ~1.3 MiB | ~1 MiB | PCs, Android, arm64 |
+  | medium | 64 KiB | ~250 KiB | ~400 KiB | cameras, routers (arm32, mipsel, mips releases) |
+  | small | 4 × MSS | ~95 KiB | — | very tight devices; ~1 Mbit/s at 50 ms |
+
+  One connection carries at most window / RTT: medium gives ~3.4 Mbit/s at 150 ms and
+  ~8.9 Mbit/s was measured at 48 ms on an OpenIPC camera (SigmaStar SSC337, 27 MiB RAM).
 
 ## Local proxy
 

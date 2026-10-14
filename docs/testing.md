@@ -5,6 +5,7 @@
 | Unit tests | `make test` | `test_proto` (wire format, stock-client reference vector), `test_route` (option 121/249 parser, lookup, device ID), `test_client` (client scenarios against a scripted server: happy path, `ERR`, compression, bad greeting, handshake and keepalive timeouts, reconnect after take-over) |
 | Sanitizers | `make BUILD=build-asan CFLAGS="-O1 -g -fsanitize=address,undefined" LDFLAGS="-fsanitize=address,undefined" test` | memory errors, undefined behaviour, leaks |
 | Big-endian | `ci/test-mips.sh` | static MIPS BE build in Docker, all unit tests under `qemu-mips` |
+| Real devices | `BENCH_BIND=<LAN address> bench/bench.sh up` | the bench listens on a LAN address so cameras/routers can connect to it instead of a production server |
 | Cross targets | `QEMU=1 ci/build-musl.sh <target>` | static musl build for a camera/router target (VTesse; the patched vtund for x86_64 or with `VTUND=1`), unit tests under qemu-user |
 | Bench self-test | `bench/bench.sh selftest` | server behaviour VTesse relies on (greeting, flags, keepalive, DHCP through the tunnel, `killold`, `ERR` cases, `multi no`) |
 | Stage 1 acceptance | `bench/bench.sh cli-test` | `vtesse-cli`: DHCP address and option 121 routes, option 3 ignored, HTTP through lwIP, ping of the client from the device, reconnect after a take-over with the same address |

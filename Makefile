@@ -1,6 +1,9 @@
 # VTesse build.
 #   make CROSS_COMPILE=mipsel-linux-musl- STATIC=1   cross compile, static binary
 #   make LWIP=0                                       TAP backend only (no stack, no proxy)
+#   make LWIP_PROFILE=medium                          lwIP memory profile: large (default),
+#                                                     medium (cameras, routers), small
+#   (use a separate BUILD=... directory per profile: objects are not rebuilt on a change)
 CROSS_COMPILE ?=
 ifneq ($(CROSS_COMPILE),)
 CC      := $(CROSS_COMPILE)gcc
@@ -25,6 +28,9 @@ LWIP_CFLAGS := -std=gnu99 -Wall -Wno-unused-parameter -Wno-address \
 LDFLAGS ?=
 BUILD   ?= build
 LWIP    ?= 1
+# lwIP memory profile (port/lwip/lwipopts.h): large (PCs, Android), medium (cameras,
+# routers), small
+LWIP_PROFILE ?= large
 
 NETCORE_SRC := netcore/tunnel.c netcore/loop.c netcore/route.c netcore/tapdev.c
 VTUN_SRC    := vtun/vtun_proto.c vtun/vtun_client.c
@@ -32,6 +38,10 @@ LWIP_SRC    := $(addprefix $(LWIP_DIR)/src/core/, def.c inet_chksum.c init.c ip.
                  memp.c netif.c pbuf.c stats.c sys.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \
                $(addprefix $(LWIP_DIR)/src/core/ipv4/, dhcp.c etharp.c icmp.c ip4.c ip4_addr.c ip4_frag.c) \
                $(LWIP_DIR)/src/netif/ethernet.c
+
+LWIP_PROFILE_NUM := $(if $(filter small,$(LWIP_PROFILE)),0,$(if $(filter medium,$(LWIP_PROFILE)),1,2))
+BASE_CFLAGS += -DVTESSE_LWIP_PROFILE=$(LWIP_PROFILE_NUM)
+LWIP_CFLAGS += -DVTESSE_LWIP_PROFILE=$(LWIP_PROFILE_NUM)
 
 ifeq ($(LWIP),1)
 NETCORE_SRC += netcore/stack.c netcore/proxy.c netcore/udprelay.c

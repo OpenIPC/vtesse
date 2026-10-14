@@ -4,6 +4,18 @@ The version lives in `include/vtesse/version.h`. Binaries are published only as 
 [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) release, rebuilt
 from every push to `main`; this file is the change history.
 
+## 1.08 — 2026-10-14
+
+- lwIP memory profiles (#12): `make LWIP_PROFILE=large|medium|small`. Release builds
+  for cameras and routers (arm32, mipsel, mips) use **medium** (64 KiB TCP window,
+  ~250 KiB static pools), arm64 and x86_64 keep **large** (~125 KiB window with
+  scaling, ~1.3 MiB). Measured on OpenIPC cameras (SigmaStar SSC337, 27 MiB RAM,
+  11–13 MiB available next to Majestic) against the bench over a 48 ms path: medium
+  peaks at ~400 KiB RSS and downloads at ~8.9 Mbit/s through a forward, large at
+  ~1 MiB and ~12–13 Mbit/s, small is limited to ~0.9 Mbit/s by its window.
+- `bench.sh up` can listen on a LAN address (`BENCH_BIND=…`) to test real devices
+  against the bench instead of a production server.
+
 ## 1.07 — 2026-10-14
 
 - UDP relay (#28): datagrams sent to the client's tunnel address on a port are relayed

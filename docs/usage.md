@@ -19,6 +19,7 @@ C99 + POSIX, plain `make`.
 make            # build/libnetcore.a, build/libvtesse.a, build/vtesse-cli
 make test       # unit tests and client scenarios against a scripted server
 make LWIP=0     # TAP backend only: no userspace stack and proxy
+make LWIP_PROFILE=medium   # lwIP memory profile: large (default), medium, small
 make CROSS_COMPILE=mipsel-linux-musl- STATIC=1      # cross compile, static binary
 ```
 

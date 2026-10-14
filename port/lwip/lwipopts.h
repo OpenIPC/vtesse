@@ -16,13 +16,25 @@
 #define LWIP_HOOK_DHCP_PARSE_OPTION(netif, dhcp, state, msg, msg_type, option, len, pbuf, offset) \
     nc_hook_dhcp_parse_option(netif, dhcp, state, msg, msg_type, option, len, pbuf, offset)
 
-/* ---- memory ---- */
-#ifndef VTESSE_LWIP_SMALL
-/* Throughput of one connection is at most window / RTT, and the RTT to a VTun
- * server is often 100-200 ms: a 16 x MSS window gave ~1.3 Mbit/s at 140 ms, too
- * little for a 1080p camera stream (the camera dropped frames, #24). ~125 KiB with
- * window scaling allows ~7 Mbit/s at 140 ms. The proxy acknowledges data only
- * after writing it locally, so pbufs pile up only while a local reader is slow. */
+/* ---- memory ----
+ * Profiles (#12), chosen with VTESSE_LWIP_PROFILE (make LWIP_PROFILE=...):
+ *   2 large  (default; PCs, Android): ~125 KiB window with scaling, ~7 Mbit/s per
+ *            connection at 140 ms RTT (#24); ~1.4 MiB of static pools.
+ *   1 medium (cameras, routers): 64 KiB window, ~3.4 Mbit/s at 150 ms, a few
+ *            parallel streams; ~0.3 MiB.
+ *   0 small  (tight devices; also -DVTESSE_LWIP_SMALL): 4 x MSS window; ~0.1 MiB.
+ * Throughput of one connection is at most window / RTT. The proxy acknowledges
+ * data only after writing it locally, so pbufs pile up only while a local reader
+ * is slow. */
+#ifndef VTESSE_LWIP_PROFILE
+#ifdef VTESSE_LWIP_SMALL
+#define VTESSE_LWIP_PROFILE             0
+#else
+#define VTESSE_LWIP_PROFILE             2
+#endif
+#endif
+
+#if VTESSE_LWIP_PROFILE >= 2
 #define MEM_SIZE                        (512 * 1024)
 #define PBUF_POOL_SIZE                  512
 #define MEMP_NUM_PBUF                   64
@@ -32,7 +44,15 @@
 #define TCP_WND                         (88 * TCP_MSS)
 #define TCP_SND_BUF                     (64 * TCP_MSS)
 #define MEMP_NUM_TCP_SEG                512
-#else   /* cameras / routers */
+#elif VTESSE_LWIP_PROFILE == 1
+#define MEM_SIZE                        (96 * 1024)
+#define PBUF_POOL_SIZE                  96
+#define MEMP_NUM_PBUF                   32
+#define MEMP_NUM_TCP_PCB                16
+#define TCP_WND                         (44 * TCP_MSS)      /* 64240: no window scaling */
+#define TCP_SND_BUF                     (16 * TCP_MSS)
+#define MEMP_NUM_TCP_SEG                128
+#else
 #define MEM_SIZE                        (48 * 1024)
 #define PBUF_POOL_SIZE                  24
 #define MEMP_NUM_PBUF                   16

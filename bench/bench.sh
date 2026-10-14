@@ -20,6 +20,7 @@ NET=${BENCH_NET:-vtesse-bench}
 SERVER=vtesse-bench-server
 CLIENT=vtesse-bench-client
 BENCH_PORT=${BENCH_PORT:-15000}
+BENCH_BIND=${BENCH_BIND:-127.0.0.1}  # e.g. a LAN address to test real devices against the bench
 HERE=$(cd "$(dirname "$0")" && pwd)
 
 # Bench-only test sessions (see vtund.conf).
@@ -35,8 +36,8 @@ cmd_up() {
     docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null
     docker rm -f "$SERVER" >/dev/null 2>&1 || true
     docker run -d --name "$SERVER" --hostname bench-server --privileged \
-        --network "$NET" -p "127.0.0.1:$BENCH_PORT:5000" "$IMAGE" server >/dev/null
-    echo "server: $SERVER, 127.0.0.1:$BENCH_PORT"
+        --network "$NET" -p "$BENCH_BIND:$BENCH_PORT:5000" "$IMAGE" server >/dev/null
+    echo "server: $SERVER, $BENCH_BIND:$BENCH_PORT"
 }
 
 cmd_down() {

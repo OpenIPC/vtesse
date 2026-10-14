@@ -34,7 +34,8 @@ cc -std=c99 -D_POSIX_C_SOURCE=200809L \
 
 Code that uses lwIP directly (its own TCP connections instead of the proxy) needs
 the same include paths; `port/lwip/lwipopts.h` must be the configuration lwIP was
-built with. For small devices build everything with `-DVTESSE_LWIP_SMALL`.
+built with. Memory profile: `make LWIP_PROFILE=large|medium|small` (or
+`-DVTESSE_LWIP_PROFILE=2|1|0` for everything, including your code that uses lwIP).
 
 ## Setup
 

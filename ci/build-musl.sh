@@ -53,14 +53,21 @@ fi
 GCC=$(ls "$DIR"/bin/*-linux-musl*-gcc | head -1)
 CROSS=${GCC%gcc}
 
+# lwIP memory profile (#12): medium for cameras and routers (32-bit ARM, MIPS),
+# large for arm64 boards and PCs
+case "$TARGET" in
+    arm64|x86_64) PROFILE=${LWIP_PROFILE:-large} ;;
+    *)            PROFILE=${LWIP_PROFILE:-medium} ;;
+esac
+
 mkdir -p "$OUT"
 cd "$ROOT"
 for variant in full tap; do
     if [ $variant = full ]; then lwip=1; bin=vtesse-$TARGET; else lwip=0; bin=vtesse-tap-$TARGET; fi
     build=build-$TARGET-$variant
-    make -s BUILD="$build" CROSS_COMPILE="$CROSS" STATIC=1 LWIP=$lwip CFLAGS=-Os all tests
+    make -s BUILD="$build" CROSS_COMPILE="$CROSS" STATIC=1 LWIP=$lwip LWIP_PROFILE=$PROFILE CFLAGS=-Os all tests
     "${CROSS}strip" --strip-unneeded -o "$OUT/$bin" "$build/vtesse-cli"
-    echo "$bin: $(wc -c < "$OUT/$bin") bytes"
+    echo "$bin: $(wc -c < "$OUT/$bin") bytes (lwIP profile $PROFILE)"
 done
 
 # vtund: PC/server only by default; for cameras and routers it is built in the OpenIPC
