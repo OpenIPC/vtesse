@@ -34,9 +34,13 @@ QEMU=1 ci/build-musl.sh arm32 dist     # downloads the toolchain, runs the tests
 | Target | Toolchain | Devices |
 |---|---|---|
 | `arm32` | OpenIPC `hisilicon-hi3516cv100` (arm musleabi) | 32-bit ARM cameras |
-| `mipsel` | OpenIPC `ingenic-t31` (mipsel musl) | Ingenic cameras, MIPS routers |
+| `mipsel` | musl.cc `mipsel-linux-muslsf` (soft-float, MIPS1) | Ingenic cameras, little-endian MIPS routers (MediaTek MT7620/7621/7628) |
 | `arm64` | Bootlin aarch64 musl | 64-bit ARM |
-| `mips` | Bootlin mips32 musl | big-endian MIPS routers |
+| `mips` | musl.cc `mips-linux-muslsf` (soft-float, MIPS1) | big-endian MIPS routers (Atheros ath79 and others) |
+
+MIPS builds are soft-float: router SoCs have no FPU and their kernels often lack FPU
+emulation, so hard-float binaries end with `Illegal instruction` there (found on an
+OpenWrt MT7620 router, #30).
 | `x86_64` | Bootlin x86-64 musl | PCs, servers |
 
 Optional modules (#29), `vtesse-cli --version` lists what a binary contains:

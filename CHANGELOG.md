@@ -4,6 +4,17 @@ The version lives in `include/vtesse/version.h`. Binaries are published only as 
 [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) release, rebuilt
 from every push to `main`; this file is the change history.
 
+## 1.10 — 2026-10-14
+
+- MIPS releases are soft-float (#30): `vtesse-mipsel` and `vtesse-mips` are built with
+  the musl.cc soft-float toolchains (MIPS1 ISA). The previous hard-float builds died
+  with `Illegal instruction` on routers without an FPU (OpenWrt, MediaTek MT7620);
+  the new ones run on routers and on Ingenic cameras alike. `ci/build-musl.sh` starts
+  each build from a clean directory.
+- Acceptance on an OpenWrt router (MT7620): TAP backend with udhcpc, inbound access to
+  the router's web UI, take-over, `vtesse.init` under procd (respawn), lwIP backend
+  with forwards, SOCKS5, UDP relay and link loss; results in docs/testing.md.
+
 ## 1.09 — 2026-10-14
 
 - Build-time module selection (#29): `make SOCKS=0`, `UDP_RELAY=0`, `TAP=0` (and

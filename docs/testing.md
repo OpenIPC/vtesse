@@ -85,13 +85,22 @@ clients; `02BE0C000006` is `type tun`). Faults are injected on the bench side:
 `docker pause` (link loss past the keepalive timeout), `docker restart` (server
 restart), a second login with the same session (take-over).
 
-Results of 2026-10-14 (v1.09, #19, #30), all against the bench over a ~47 ms path:
+Results of 2026-10-14 (v1.09–1.10, #19, #30), all against the bench over a ~47 ms path.
+Device configuration was not changed: binaries, scripts and configs ran from `/tmp`
+(service scripts as copies with their paths pointed there) and were removed afterwards.
 
 | Device | Backend | Checked |
 |---|---|---|
 | 2 × OpenIPC camera, SigmaStar SSC337 (armv7, 27 MiB RAM), `vtesse-arm32` / `vtesse-tap-arm32` | TAP (`--tap`, hook + udhcpc) | interface with MAC = device ID, DHCP address, option 121 routes, no default route; ping/HTTP to the device; 20 MiB at ~10 Mbit/s on both at once; **inbound**: the device opens the cameras' own web UI over the tunnel; take-over (reconnect ~2 s, same address); `type tun` with `ip=`/`route=`; clean stop; `S99vtesse` start/status/restart/stop; peak RSS ~148 KiB |
 | same cameras | lwIP (medium profile) | DHCP + 121; HTTP and RTSP forwards; SOCKS5 used from the LAN (`--listen 0.0.0.0`); UDP relay (all datagrams arrive); take-over; link loss (DOWN by keepalive, reconnect); peak RSS ~412 KiB |
+| OpenWrt 15.05 router, MediaTek MT7620 (MIPS 24KEc, no FPU, 61 MiB RAM), `vtesse-mipsel` / `vtesse-tap-mipsel` (soft-float) | TAP | MAC = device ID, DHCP, option 121 routes, no default route, `resolv.conf` untouched; ping/HTTP to the device; 20 MiB at ~16 Mbit/s; **inbound**: the device opens the router's web UI over the tunnel; take-over (~2 s, same address); clean stop; `vtesse.init` under procd: start, respawn after `kill -9`, stop, output in the system log; peak RSS ~188 KiB |
+| same router | lwIP (medium profile) | DHCP + 121; HTTP/RTSP forwards; 20 MiB at ~9 Mbit/s; SOCKS5 from the LAN; UDP relay; link loss 65 s (DOWN by keepalive, reconnect); peak RSS ~468 KiB |
 | Android 10 TV box (Amlogic, armv7) | app (large profile) | server profile with a camera: RTSP/HTTP forwards on the scheme ports, SOCKS5, 20 MiB with sha256 check, UDP relay counters, link loss and server restart recovered by themselves, switching back to another server |
+
+The router run found that hard-float MIPS binaries die with `Illegal instruction` on
+router SoCs without an FPU (no FPU emulation in their kernels): since 1.10 the `mipsel`
+and `mips` releases are soft-float (MIPS1) and run on routers and Ingenic cameras alike
+(checked on the MT7620 router and an Ingenic T23 camera).
 
 Clean-up after device tests: remove the uploaded files (`/tmp/vtesse`), check that no
 `vtesse*`/`vtun*` interface is left, and `bench/bench.sh up` again (localhost only).

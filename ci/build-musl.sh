@@ -4,9 +4,11 @@
 #   ci/build-musl.sh <target> [outdir]
 #
 # target: arm32   OpenIPC toolchain (hisilicon-hi3516cv100, arm musleabi) — 32-bit ARM cameras
-#         mipsel  OpenIPC toolchain (ingenic-t31, mipsel musl) — Ingenic cameras
-#         arm64 | mips | x86_64 | armv5 | armv7   Bootlin musl toolchains
-#         (mips = big-endian MIPS32)
+#         mipsel | mips   musl.cc soft-float toolchains (mipsel/mips-linux-muslsf), MIPS1
+#                 ISA: run on every MIPS32 core with or without an FPU — Ingenic cameras
+#                 and MediaTek/Atheros routers (MT7620/7621/7628, ath79), whose kernels
+#                 often lack FPU emulation, so hard-float code dies with SIGILL (#30)
+#         arm64 | x86_64 | armv5 | armv7   Bootlin musl toolchains
 # Produces <outdir>/vtesse-<target> (lwIP + TAP) and <outdir>/vtesse-tap-<target>
 # (TAP only, LWIP=0), stripped. For x86_64 also <outdir>/vtund-<vtun version>-x86_64:
 # the VTun server with our patches (server/build-vtund.sh), a PC/server binary only;
@@ -25,14 +27,14 @@ OPENIPC=https://github.com/OpenIPC/firmware/releases/download/toolchain
 BOOTLIN=https://toolchains.bootlin.com/downloads/releases/toolchains
 case "$TARGET" in
     arm32)   URL=$OPENIPC/toolchain.hisilicon-hi3516cv100.tgz; DIRNAME=arm-openipc-linux-musleabi_sdk-buildroot; QEMU_BIN=qemu-arm ;;
-    mipsel)  URL=$OPENIPC/toolchain.ingenic-t31.tgz;           DIRNAME=mipsel-openipc-linux-musl_sdk-buildroot; QEMU_BIN=qemu-mipsel ;;
+    mipsel)  URL=https://musl.cc/mipsel-linux-muslsf-cross.tgz; DIRNAME=mipsel-linux-muslsf-cross; QEMU_BIN=qemu-mipsel ;;
+    mips)    URL=https://musl.cc/mips-linux-muslsf-cross.tgz;   DIRNAME=mips-linux-muslsf-cross;   QEMU_BIN=qemu-mips ;;
     *)
         case "$TARGET" in
             x86_64) TC=x86-64;       QEMU_BIN=qemu-x86_64 ;;
             armv5)  TC=armv5-eabi;   QEMU_BIN=qemu-arm ;;
             armv7)  TC=armv7-eabihf; QEMU_BIN=qemu-arm ;;
             arm64)  TC=aarch64;      QEMU_BIN=qemu-aarch64 ;;
-            mips)   TC=mips32;       QEMU_BIN=qemu-mips ;;
             *) echo "unknown target: $TARGET" >&2; exit 2 ;;
         esac
         DIRNAME=$TC--musl--$BOOTLIN_VERSION
@@ -65,6 +67,7 @@ cd "$ROOT"
 for variant in full tap; do
     if [ $variant = full ]; then lwip=1; bin=vtesse-$TARGET; else lwip=0; bin=vtesse-tap-$TARGET; fi
     build=build-$TARGET-$variant
+    rm -rf "$build"     # objects of another toolchain or profile are never rebuilt by make
     make -s BUILD="$build" CROSS_COMPILE="$CROSS" STATIC=1 LWIP=$lwip LWIP_PROFILE=$PROFILE CFLAGS=-Os all tests
     "${CROSS}strip" --strip-unneeded -o "$OUT/$bin" "$build/vtesse-cli"
     echo "$bin: $(wc -c < "$OUT/$bin") bytes (lwIP profile $PROFILE)"
