@@ -12,6 +12,9 @@ from every push to `main`; this file is the change history.
 - Bench `fault-test` (#9): link loss, server restart, a DHCP server without option
   121, lease renewal with 2-minute leases; unit test for the refusal of encrypted
   sessions. The bench entrypoint survives `docker restart`.
+- Real-device tests against the bench over the LAN (#19, #30): two OpenIPC cameras
+  (TAP and lwIP backends, `S99vtesse`) and the Android TV box; bench sessions
+  `02BE0C000007/8` for more devices; results in docs/testing.md.
 
 ## 1.08 — 2026-10-14
 

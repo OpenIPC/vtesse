@@ -76,3 +76,22 @@ Use a dedicated test session (a production session name gets kicked off with
 tools/vtun_probe.py --config ~/.config/vtesse/probe.conf --dhcp
 build/vtesse-cli --config ~/.config/vtesse/probe.conf --seconds 60
 ```
+
+## Real devices
+
+Devices on the LAN connect to the bench instead of a production server:
+`BENCH_BIND=<LAN address> bench/bench.sh up` (sessions `02BE0C000001/2/7/8` are ether
+clients; `02BE0C000006` is `type tun`). Faults are injected on the bench side:
+`docker pause` (link loss past the keepalive timeout), `docker restart` (server
+restart), a second login with the same session (take-over).
+
+Results of 2026-10-14 (v1.09, #19, #30), all against the bench over a ~47 ms path:
+
+| Device | Backend | Checked |
+|---|---|---|
+| 2 × OpenIPC camera, SigmaStar SSC337 (armv7, 27 MiB RAM), `vtesse-arm32` / `vtesse-tap-arm32` | TAP (`--tap`, hook + udhcpc) | interface with MAC = device ID, DHCP address, option 121 routes, no default route; ping/HTTP to the device; 20 MiB at ~10 Mbit/s on both at once; **inbound**: the device opens the cameras' own web UI over the tunnel; take-over (reconnect ~2 s, same address); `type tun` with `ip=`/`route=`; clean stop; `S99vtesse` start/status/restart/stop; peak RSS ~148 KiB |
+| same cameras | lwIP (medium profile) | DHCP + 121; HTTP and RTSP forwards; SOCKS5 used from the LAN (`--listen 0.0.0.0`); UDP relay (all datagrams arrive); take-over; link loss (DOWN by keepalive, reconnect); peak RSS ~412 KiB |
+| Android 10 TV box (Amlogic, armv7) | app (large profile) | server profile with a camera: RTSP/HTTP forwards on the scheme ports, SOCKS5, 20 MiB with sha256 check, UDP relay counters, link loss and server restart recovered by themselves, switching back to another server |
+
+Clean-up after device tests: remove the uploaded files (`/tmp/vtesse`), check that no
+`vtesse*`/`vtun*` interface is left, and `bench/bench.sh up` again (localhost only).

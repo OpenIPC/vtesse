@@ -43,6 +43,7 @@ logged with the session name and the reason, e.g.
 | `02BE0C000004` | `compress zlib:9` (client must refuse) | `<TeC9K>` |
 | `02BE0C000005` | `multi no` (second login → `ERR`) | `<TeK>` |
 | `02BE0C000006` | `type tun`, manual addressing (`10.76.0.1` ↔ `10.76.0.2`) | `<TuK>` |
+| `02BE0C000007`, `02BE0C000008` | more ether clients for real devices on the LAN (`BENCH_BIND`) | `<TeK>` |
 
 Passwords are in `vtund.conf`.
 
