@@ -65,6 +65,7 @@ the tunnel; there is no system network interface.
 | `third_party/lwip/` | vendored lwIP 2.2.1, unmodified subset |
 | `tests/` | unit tests and client scenarios |
 | `bench/` | Docker test bench |
+| `android/` | Android app: Gradle project, JNI bridge, foreground service ([android/README.md](../android/README.md)) |
 | `server/` | vtund build script and our VTun server patches (bench and release builds) |
 | `ci/` | cross builds (`build-musl.sh`), build containers, big-endian MIPS tests under qemu |
 | `.github/workflows/` | CI: tests, cross builds, test bench, releases |

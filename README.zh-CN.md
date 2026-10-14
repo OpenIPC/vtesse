@@ -102,6 +102,10 @@ curl -fsSL -o ~/.local/bin/vtesse https://github.com/compot-dev/vtesse/releases/
 ~/.local/bin/vtesse --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
 
+### Android
+
+Android 5.0 及以上（包括电视盒子）：[`vtesse-android.apk`](https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-android.apk)。无需 VPN 权限、没有 VPN 图标——带普通通知的服务维持隧道，并在 `127.0.0.1` 上提供 SOCKS5 和端口转发；播放器（如 VLC）即可打开 `rtsp://127.0.0.1:8554/...`。设备 ID 在首次启动时生成（长按可复制），需要在服务器上添加为会话。详见 [android/README.md](android/README.md)。
+
 ## 从源码构建
 
 ```sh
@@ -143,16 +147,16 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 | 阶段 | 状态 | Issues |
 |---|---|---|
 | 0. 测试台（Docker 中的 VTun 3.0.2、网桥、带选项 121 的 DHCP） | ✅ 已完成 | [#1](https://github.com/compot-dev/vtesse/issues/1) ✅ |
-| 1. Linux 命令行原型：TCP + `type ether` + 基于 lwIP 的 DHCP | ✅ 已完成 | [#2](https://github.com/compot-dev/vtesse/issues/2) ✅ [#3](https://github.com/compot-dev/vtesse/issues/3) ✅ [#4](https://github.com/compot-dev/vtesse/issues/4) ✅ [#5](https://github.com/compot-dev/vtesse/issues/5) [#6](https://github.com/compot-dev/vtesse/issues/6) [#7](https://github.com/compot-dev/vtesse/issues/7) ✅ [#8](https://github.com/compot-dev/vtesse/issues/8) |
+| 1. Linux 命令行原型：TCP + `type ether` + 基于 lwIP 的 DHCP | ✅ 已完成 | [#2](https://github.com/compot-dev/vtesse/issues/2) ✅ [#3](https://github.com/compot-dev/vtesse/issues/3) ✅ [#4](https://github.com/compot-dev/vtesse/issues/4) ✅ [#5](https://github.com/compot-dev/vtesse/issues/5) ✅ [#6](https://github.com/compot-dev/vtesse/issues/6) ✅ [#7](https://github.com/compot-dev/vtesse/issues/7) ✅ [#8](https://github.com/compot-dev/vtesse/issues/8) ✅ |
 | 2. 本地代理：SOCKS5 与端口转发 | ✅ 已完成 | [#10](https://github.com/compot-dev/vtesse/issues/10) ✅ [#11](https://github.com/compot-dev/vtesse/issues/11) ✅ |
 | 3. 嵌入式 Linux：ARM/MIPS 交叉编译、体积与内存、CI | 🔄 进行中 | [#12](https://github.com/compot-dev/vtesse/issues/12) [#20](https://github.com/compot-dev/vtesse/issues/20) ✅ |
-| 3. TAP/TUN 后端（用内核接口代替 lwIP，Linux 平台） | 🔄 进行中 | [#19](https://github.com/compot-dev/vtesse/issues/19) |
-| 4. Android 应用（不使用 VpnService） | ⏳ 计划中 | [#13](https://github.com/compot-dev/vtesse/issues/13) |
-| 5. 可选：UDP 传输、TLS 封装、Blowfish 认证 | ⏳ 计划中 | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16) |
-| 6. 在 camex 中复用上层模块 | ⏳ 计划中 | [#17](https://github.com/compot-dev/vtesse/issues/17) |
+| 3. TAP/TUN 后端（用内核接口代替 lwIP，Linux 平台） | ⏸ 已推迟 | [#19](https://github.com/compot-dev/vtesse/issues/19) |
+| 4. Android 应用（不使用 VpnService） | 🔄 进行中 | [#13](https://github.com/compot-dev/vtesse/issues/13) |
+| 5. 可选：UDP 传输、TLS 封装、Blowfish 认证 | ⏸ 已推迟 | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16) |
+| 6. 在 camex 中复用上层模块 | ⏸ 已推迟 | [#17](https://github.com/compot-dev/vtesse/issues/17) |
 | 通用：测试、许可证 | 🔄 进行中 | [#9](https://github.com/compot-dev/vtesse/issues/9) [#18](https://github.com/compot-dev/vtesse/issues/18) ✅ |
 
-✅ — 已关闭的 issue。
+✅ — 已关闭的 issue。 ⏸ — 已推迟。
 
 ## 许可证
 

@@ -147,7 +147,20 @@ jobs:
           key: gradle-${{ hashFiles('android/**/*.kts', 'android/gradle.properties') }}
 
       - name: Build APKs (Docker, ci/Dockerfile.android)
-        run: android/build.sh assembleDebug assembleRelease
+        env:
+          KEYSTORE_BASE64: ${{ secrets.VTESSE_KEYSTORE_BASE64 }}
+          VTESSE_KEYSTORE_PASSWORD: ${{ secrets.VTESSE_KEYSTORE_PASSWORD }}
+          VTESSE_KEY_ALIAS: ${{ secrets.VTESSE_KEY_ALIAS }}
+          VTESSE_KEY_PASSWORD: ${{ secrets.VTESSE_KEY_PASSWORD }}
+        run: |
+          # release signing key from the repository secrets (absent in forks: unsigned)
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            mkdir -p "$RUNNER_TEMP/keys"
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/keys/vtesse-release.jks"
+            export VTESSE_KEYSTORE="$RUNNER_TEMP/keys/vtesse-release.jks"
+          fi
+          android/build.sh assembleDebug assembleRelease
+          rm -rf "$RUNNER_TEMP/keys"
 
       - name: Upload APKs
         uses: actions/upload-artifact@v7
@@ -159,7 +172,7 @@ jobs:
   # ---------------------------------------------------------------- release
   release:
     name: Release
-    needs: [tests, build, bench]
+    needs: [tests, build, bench, android]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -183,6 +196,10 @@ jobs:
           # artifacts keep their directory layout (dist/...)
           find artifacts -type f \( -name 'vtesse-*' -o -name 'vtund-*' \) -exec cp {} release/ \;
           [ -f "release/vtund-$(server/build-vtund.sh --version)-x86_64" ] || { echo "::error::no vtund x86_64 binary"; exit 1; }
+          # Android: the signed release APK only (an unsigned one is app-release-unsigned.apk)
+          apk=$(find artifacts -type f -name app-release.apk | head -1)
+          [ -n "$apk" ] || { echo "::error::no signed release APK"; exit 1; }
+          cp "$apk" release/vtesse-android.apk
           cp scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse scripts/vtesse.init release/
           (cd release && sha256sum * > SHA256SUMS)
           ls -l release
@@ -198,4 +215,4 @@ jobs:
             --latest \
             --title "VTesse ${VER}" \
             --target "${GITHUB_SHA}" \
-            --notes "VTesse ${VER} (${GITHUB_SHA::7}): static musl builds of vtesse-cli for arm32, mipsel, mips, arm64 and x86_64, and the VTun ${VTUN} server with our patches for PCs (vtund-${VTUN}-x86_64). Changes: CHANGELOG.md; installation: README.md."
+            --notes "VTesse ${VER} (${GITHUB_SHA::7}): static musl builds of vtesse-cli for arm32, mipsel, mips, arm64 and x86_64, the Android app (vtesse-android.apk, Android 5.0+) and the VTun ${VTUN} server with our patches for PCs (vtund-${VTUN}-x86_64). Changes: CHANGELOG.md; installation: README.md."

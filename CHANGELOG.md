@@ -4,6 +4,19 @@ The version lives in `include/vtesse/version.h`. Binaries are published only as 
 [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) release, rebuilt
 from every push to `main`; this file is the change history.
 
+## 1.03 — 2026-10-14
+
+- Android app (#13): `vtesse-android.apk` in the release, Android 5.0+ including
+  Android TV boxes. Foreground service without `VpnService` (no VPN icon) in its own
+  process, SOCKS5 and port forwards on `127.0.0.1`, generated device ID, status and
+  log screen, reconnect on network changes, release signing (key in repository
+  secrets). Verified on an Android 10 TV box against a production server: DHCP and
+  classless routes, HTTP and RTSP to a camera through the forwards, VLC opening the
+  camera stream from `127.0.0.1` (RTSP session, ~1.1 Mbit/s), disconnect and
+  reconnect.
+- `vt_network_changed()`: drop a connection bound to the old network and reconnect
+  at once (`TUNNEL_ERR_NETWORK`).
+
 ## 1.02 — 2026-10-14
 
 - Device ID from the device's own MAC: `id_from=eth0` in the config or `--id-from eth0`
