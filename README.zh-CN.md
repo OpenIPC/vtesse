@@ -23,7 +23,7 @@
 
 ## 下载
 
-静态二进制文件（无依赖）发布在 [Releases 页面](https://github.com/compot-dev/vtesse/releases)：[`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) 随 `main` 的每次推送重新构建（文件名固定，下文使用）；带版本号的发布（如 [`v1.01`](https://github.com/compot-dev/vtesse/releases/tag/v1.01)）的文件名包含版本号（`vtesse-1.01-arm32`）。VTun 服务器 `vtund-3.0.2-ARCH` 在两种发布中都以 VTun 原始版本号命名（自 v1.01 起）。
+静态二进制文件（无依赖）发布在 [Releases 页面](https://github.com/compot-dev/vtesse/releases)：[`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) 随 `main` 的每次推送重新构建（文件名固定，下文使用）。发布标题中注明 VTesse 版本；变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 | 平台 | `ARCH` |
 |---|---|

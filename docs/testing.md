@@ -20,9 +20,9 @@ and pull request:
 | Job | What it does |
 |---|---|
 | `tests` | `make test`, the same under ASan/UBSan, the `LWIP=0` build |
-| `build` (arm32, mipsel, arm64, mips, x86_64) | static musl binaries with `ci/build-musl.sh` (`vtesse`, `vtesse-tap`, patched `vtund`), unit tests and a `vtund -h` smoke test under qemu-user, size report, artifacts |
+| `build` (arm32, mipsel, arm64, mips, x86_64) | static musl binaries with `ci/build-musl.sh` (`vtesse`, `vtesse-tap`, patched `vtund`), unit tests and a `vtund -h` smoke test under qemu-user, artifacts |
 | `bench` | the Docker test bench (vtund built with our patches): `selftest`, `cli-test`, `proxy-test`, `tap-test` |
-| `release` | push to `main`: rolling `latest` pre-release and, for a new version, release `vMAJOR.MM`; binaries, `vtund-<VTun version>-<arch>`, hook scripts, `SHA256SUMS` |
+| `release` | push to `main`: replaces the `latest` release; binaries, `vtund-<VTun version>-<arch>`, hook scripts, service scripts, `SHA256SUMS` |
 
 ### Versions and releases
 
@@ -30,15 +30,13 @@ The version lives in one place, `include/vtesse/version.h`:
 `#define VTESSE_VERSION "MAJOR.MM"` (two-digit minor: `1.00`, `1.01`, …; shown by
 `vtesse-cli --version`).
 
-- Every push to `main` rebuilds the `latest` pre-release (moved to that commit).
-- The first build of a version that has no release yet also publishes release
-  `vMAJOR.MM` at the built commit, with release notes since the previous `v1.*`
-  release. A push without a version bump (docs, CI) updates only `latest`.
-- File names: `vtesse-<arch>` in `latest`, `vtesse-MAJOR.MM-<arch>` in `vMAJOR.MM`; the
-  VTun server is `vtund-<VTun version>-<arch>` (e.g. `vtund-3.0.2-arm64`) in both, and
-  the notes list the VTun version and the applied patches
-  ([server/README.md](../server/README.md)).
-- To release: bump `VTESSE_VERSION` in a commit to `main`; no manual tags.
+- There is one release, `latest`: every push to `main` replaces it (tag moved to that
+  commit). No versioned releases are kept.
+- Its title is `VTesse MAJOR.MM`; the notes are one short line. The change history is
+  [CHANGELOG.md](../CHANGELOG.md), the patch list [server/README.md](../server/README.md).
+- File names are stable: `vtesse-<arch>`, `vtesse-tap-<arch>`, and
+  `vtund-<VTun version>-<arch>` (e.g. `vtund-3.0.2-arm64`) for the VTun server.
+- A new version: bump `VTESSE_VERSION` and add a `CHANGELOG.md` entry in the same commit.
 
 ## Test bench
 

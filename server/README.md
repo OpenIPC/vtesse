@@ -21,10 +21,9 @@ challenge response), no LZO, no zlib. Requirements: a C compiler, `bison`, `flex
 
 CI builds a static musl vtund for every target (`ci/build-musl.sh`) and attaches it
 to the [releases](https://github.com/compot-dev/vtesse/releases) as
-`vtund-<VTun version>-<arch>`, e.g. `vtund-3.0.2-x86_64`, in `latest` and in the
-versioned releases from v1.01 on. The name carries the
-original VTun version, not the VTesse version; the release notes list the applied
-patches. The binary reports itself as upstream does (`VTun ver 3.X <build date>`),
+`vtund-<VTun version>-<arch>`, e.g. `vtund-3.0.2-x86_64`. The name carries the
+original VTun version, not the VTesse version; the applied patches are listed below.
+The binary reports itself as upstream does (`VTun ver 3.X <build date>`),
 and the protocol is unchanged, so stock and patched servers and clients mix freely.
 
 ## Patches
@@ -43,5 +42,5 @@ Denied connection from 172.28.0.1:40112: no session name received
 ```
 
 A new patch: `patches/vtun-<version>-<topic>.patch`, `-p1` against the unpacked
-tarball, with a first line that summarises it (used in the release notes), and a row
-in the table above.
+tarball, with a first line that summarises it, a row in the table above and an entry
+in [CHANGELOG.md](../CHANGELOG.md).

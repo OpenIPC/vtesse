@@ -10,12 +10,10 @@
 # the OpenIPC firmware toolchains, the rest Bootlin musl toolchains
 # (ci/build-musl.sh).
 #
-# Releases (as in openipc/decoder): the version lives in one place,
-# include/vtesse/version.h (VTESSE_VERSION "MAJOR.MM"). Every push to main
-# refreshes the rolling "latest" pre-release; the first build of a version
-# that has no release yet also publishes release vMAJOR.MM at the built commit
-# with notes since the previous v1.* release. A push without a version bump
-# (docs, CI) only updates "latest".
+# Release: one release only, "latest", replaced by every push to main. Its title
+# carries the version from include/vtesse/version.h (VTESSE_VERSION "MAJOR.MM")
+# and its notes are one short line; the change history lives in CHANGELOG.md.
+# No versioned releases are kept.
 #
 
 name: VTesse CI
@@ -88,19 +86,11 @@ jobs:
       - name: Build and run the unit tests under qemu
         run: QEMU=1 ci/build-musl.sh ${{ matrix.target }} dist
 
-      - name: Report size
-        run: |
-          for f in dist/*; do
-            echo "| $(basename "$f") | $(wc -c < "$f") |"
-          done | tee sizes-${{ matrix.target }}.md
-
       - name: Upload binaries
         uses: actions/upload-artifact@v7
         with:
           name: vtesse-${{ matrix.target }}
-          path: |
-            dist/*
-            sizes-${{ matrix.target }}.md
+          path: dist/*
           if-no-files-found: error
 
   # ------------------------------------------------------------------ bench
@@ -145,8 +135,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - uses: actions/download-artifact@v8
         with:
@@ -159,86 +147,24 @@ jobs:
           VER=$(sed -n 's/^#define VTESSE_VERSION "\(.*\)"/\1/p' include/vtesse/version.h)
           if [ -z "$VER" ]; then echo "::error::no VTESSE_VERSION found"; exit 1; fi
           echo "ver=$VER" >> "$GITHUB_OUTPUT"
-          VTUN=$(server/build-vtund.sh --version)
-          echo "vtun=$VTUN" >> "$GITHUB_OUTPUT"
-          mkdir latest versioned
+          echo "vtun=$(server/build-vtund.sh --version)" >> "$GITHUB_OUTPUT"
+          mkdir release
           # artifacts keep their directory layout (dist/...)
-          for f in $(find artifacts -type f -name 'vtesse-*' ! -name '*.md' | sort); do
-            name=$(basename "$f")
-            arch=${name##*-}
-            base=${name%-*}
-            cp "$f" "latest/$name"
-            cp "$f" "versioned/${base}-${VER}-${arch}"
-          done
-          # vtund carries the original VTun version in its name, in both releases
-          for f in $(find artifacts -type f -name "vtund-${VTUN}-*" | sort); do
-            cp "$f" latest/
-            cp "$f" versioned/
-          done
-          [ -n "$(ls latest/vtund-* 2>/dev/null)" ] || { echo "::error::no vtund binaries"; exit 1; }
-          {
-            echo "\`vtund-${VTUN}-<arch>\`: VTun server **${VTUN}** (original upstream version), static musl,"
-            echo "built without OpenSSL/LZO/zlib (XOR challenge response) with our patches from \`server/patches\`:"
-            for p in server/patches/vtun-${VTUN}-*.patch; do
-              echo "- \`$(basename "$p")\` — $(head -1 "$p")"
-            done
-          } > vtund.md
-          cat vtund.md
-          for d in latest versioned; do
-            cp scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse scripts/vtesse.init "$d/"
-            (cd "$d" && sha256sum * > SHA256SUMS)
-          done
-          {
-            echo "| File | Size, bytes |"
-            echo "|---|---|"
-            for f in $(ls latest/vtesse-* latest/vtund-* | grep -v "\.sh$\|\.script$\|\.init$"); do echo "| $(basename "$f") | $(wc -c < "$f") |"; done
-          } > sizes.md
-          cat sizes.md
+          find artifacts -type f \( -name 'vtesse-*' -o -name 'vtund-*' \) -exec cp {} release/ \;
+          [ -n "$(ls release/vtund-* 2>/dev/null)" ] || { echo "::error::no vtund binaries"; exit 1; }
+          cp scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse scripts/vtesse.init release/
+          (cd release && sha256sum * > SHA256SUMS)
+          ls -l release
 
-      - name: Rolling "latest" pre-release
+      - name: Publish "latest"
         env:
           GH_TOKEN: ${{ github.token }}
           VER: ${{ steps.vars.outputs.ver }}
+          VTUN: ${{ steps.vars.outputs.vtun }}
         run: |
           gh release delete latest --cleanup-tag --yes 2>/dev/null || true
-          gh release create latest latest/* \
-            --prerelease \
-            --title "Development build" \
+          gh release create latest release/* \
+            --latest \
+            --title "VTesse ${VER}" \
             --target "${GITHUB_SHA}" \
-            --notes "Automated build of ${GITHUB_SHA::7} from main (version ${VER}).
-
-          Static musl binaries: \`vtesse-<arch>\` (lwIP + TAP backends), \`vtesse-tap-<arch>\` (TAP only, smaller).
-          arm32 / mipsel are built with the OpenIPC firmware toolchains (hisilicon-hi3516cv100, ingenic-t31).
-
-          $(cat vtund.md)
-
-          $(cat sizes.md)"
-
-      - name: Versioned release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VER: ${{ steps.vars.outputs.ver }}
-        run: |
-          TAG="v${VER}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG exists: only latest was updated"
-            exit 0
-          fi
-          # the previous version by number, not by date
-          TAGS=$(gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" -q '.[].tag_name')
-          PREV=$(printf '%s\n' "$TAGS" | grep '^v1\.' | sed 's/^v//' | { cat; echo "$VER"; } \
-            | sort -V -u | grep -B1 -x "$VER" | grep -v -x "$VER" || true)
-          if [ -n "$PREV" ]; then
-            # --notes goes first, the generated changelog is appended after it
-            NOTES=(--generate-notes --notes-start-tag "v$PREV" --notes "$(cat vtund.md)
-
-          $(cat sizes.md)")
-          else
-            NOTES=(--notes "First release of the 1.xx line.
-
-          $(cat vtund.md)
-
-          $(cat sizes.md)")
-          fi
-          gh release create "$TAG" versioned/* --target "${GITHUB_SHA}" \
-            --title "VTesse ${VER}" "${NOTES[@]}"
+            --notes "VTesse ${VER} (${GITHUB_SHA::7}): static musl builds of vtesse-cli and of the VTun ${VTUN} server with our patches (vtund-${VTUN}-<arch>) for arm32, mipsel, mips, arm64 and x86_64. Changes: CHANGELOG.md; installation: README.md."

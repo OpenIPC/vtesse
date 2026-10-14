@@ -1,7 +1,8 @@
 #ifndef VTESSE_VERSION_H
 #define VTESSE_VERSION_H
 
-/* MAJOR.MM. Bumping it in a push to main publishes release vMAJOR.MM (CI). */
+/* MAJOR.MM. Shown by --version and in the title of the "latest" release (CI);
+ * record each bump in CHANGELOG.md. */
 #define VTESSE_VERSION "1.01"
 
 #endif

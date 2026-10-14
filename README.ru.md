@@ -23,7 +23,7 @@
 
 ## Скачивание
 
-Статические бинарники (без зависимостей) — на [странице релизов](https://github.com/compot-dev/vtesse/releases): [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) пересобирается при каждом push в `main` (постоянные имена файлов, используются ниже); у версионных релизов, например [`v1.01`](https://github.com/compot-dev/vtesse/releases/tag/v1.01), версия входит в имя файла (`vtesse-1.01-arm32`). Сервер VTun `vtund-3.0.2-ARCH` в обоих случаях называется по оригинальной версии VTun (начиная с v1.01).
+Статические бинарники (без зависимостей) — на [странице релизов](https://github.com/compot-dev/vtesse/releases): [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) пересобирается при каждом push в `main` (постоянные имена файлов, используются ниже). Версия VTesse указана в заголовке релиза; история изменений — в [CHANGELOG.md](CHANGELOG.md).
 
 | Платформа | `ARCH` |
 |---|---|
