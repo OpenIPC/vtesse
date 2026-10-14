@@ -41,4 +41,10 @@ void nc_ip4_format(uint32_t ip, char *out, size_t size);
  * byte must not have the multicast bit set. Fills mac. 0 on success. */
 int nc_devid_to_mac(const char *id, uint8_t mac[6]);
 
+/* Device ID from a MAC in the form "aa:bb:cc:dd:ee:ff" (as in
+ * /sys/class/net/<if>/address; either case, trailing newline allowed).
+ * Writes 12 upper case characters and a NUL to id. -1 for a malformed,
+ * multicast or all-zero MAC. */
+int nc_devid_from_mac_str(const char *mac, char id[13]);
+
 #endif

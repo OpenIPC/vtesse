@@ -1,5 +1,6 @@
 #include "netcore/route.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -103,5 +104,36 @@ int nc_devid_to_mac(const char *id, uint8_t mac[6])
     }
     if (mac[0] & 1)
         return -1;  /* multicast */
+    return 0;
+}
+
+int nc_devid_from_mac_str(const char *mac, char id[13])
+{
+    static const char hex[] = "0123456789ABCDEF";
+    uint8_t b[6];
+    int i, any = 0;
+
+    if (!mac)
+        return -1;
+    /* character by character: a short string stops at its NUL */
+    for (i = 0; i < 6; i++) {
+        const char *p = mac + i * 3;
+        int hi, lo;
+
+        if ((hi = hexval((char)toupper((unsigned char)p[0]))) < 0 ||
+            (lo = hexval((char)toupper((unsigned char)p[1]))) < 0)
+            return -1;
+        if (i < 5 ? p[2] != ':' : (p[2] && (p[2] != '\n' || p[3])))
+            return -1;
+        b[i] = (uint8_t)(hi << 4 | lo);
+        any |= b[i];
+    }
+    if (!any || (b[0] & 1))
+        return -1;  /* unset or multicast */
+    for (i = 0; i < 6; i++) {
+        id[i * 2] = hex[b[i] >> 4];
+        id[i * 2 + 1] = hex[b[i] & 15];
+    }
+    id[12] = '\0';
     return 0;
 }

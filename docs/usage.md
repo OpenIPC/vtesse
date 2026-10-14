@@ -57,6 +57,7 @@ vtesse-cli [--config FILE] [--seconds N] --tap [--ifname NAME] [--hook SCRIPT]
 |---|---|
 | `--config FILE` | configuration file, default `~/.config/vtesse/probe.conf` |
 | `--seconds N` | stop after N seconds (default: run until SIGINT/SIGTERM) |
+| `--id-from IFACE` | [device ID](#device-id) = MAC of the local interface `IFACE` (overrides `session`/`id_from` of the file) |
 | `--socks PORT` | SOCKS5 server on `LISTEN:PORT` |
 | `--forward LPORT:IP:RPORT` | TCP forward `LISTEN:LPORT → IP:RPORT` through the tunnel (repeatable, up to 16) |
 | `--listen ADDR` | address of the local listeners, default `127.0.0.1` |
@@ -135,6 +136,7 @@ never from the command line; keep it outside the repository with mode 600.
 | `host` | VTun server name or IPv4 address |
 | `port` | VTun server TCP port |
 | `session` | session name = [device ID](#device-id) |
+| `id_from` | instead of `session`: take the device ID from the MAC of this interface, e.g. `eth0` |
 | `password` | session password |
 | `auth` | challenge response, `xor` (default; servers built without OpenSSL) |
 | `socks_user`, `socks_password` | optional SOCKS5 username/password (RFC 1929) |
@@ -149,7 +151,13 @@ client's Ethernet MAC in `type ether` sessions.
   first byte must be 0 (a multicast address cannot be a source MAC). The CLI accepts
   other session names too and then derives a locally administered MAC (with a
   warning).
-- Embedded Linux: the device's own MAC (or configured).
+- Embedded Linux: the device's own MAC, so the ID needs no configuration per
+  device: `id_from=eth0` in the file (or `--id-from eth0`) reads
+  `/sys/class/net/eth0/address` and uses it as the session name, e.g.
+  `a4:5e:60:12:34:5c` → `A45E6012345C`. The CLI prints `device ID … (MAC of eth0)`
+  and refuses a multicast or all-zero MAC. `session` and `id_from` are mutually
+  exclusive in the file. With `--tap` the tunnel interface gets the same MAC as
+  `eth0`; they are different L2 segments, so this is harmless.
 - Android: the hardware MAC is not available to apps — a random locally administered
   unicast ID is generated once and stored (second character `2`, `6`, `A` or `E`),
   or the ID is entered manually. A session with that name must exist on the server.

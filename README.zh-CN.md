@@ -51,6 +51,8 @@ EOF
 chmod 600 /etc/vtesse.conf
 ```
 
+在摄像头或路由器上，也可以直接使用设备自身的 MAC 作为 ID：用 `id_from=eth0` 代替 `session=…`（见 [Device ID](docs/usage.md#device-id)）。
+
 ### OpenIPC 摄像机
 
 ```sh

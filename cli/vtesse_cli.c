@@ -48,6 +48,7 @@
 typedef struct cfg_file {
     char host[256];
     char session[64];
+    char id_from[32];       /* interface whose MAC is the device ID */
     char password[128];
     char auth[16];
     char socks_user[256];
@@ -77,8 +78,10 @@ static void usage(void)
 #if VTESSE_WITH_TAP
             "  TAP backend:    --tap [--ifname NAME] [--hook SCRIPT]\n"
 #endif
+            "  --id-from IFACE  device ID (session name) = MAC of IFACE, e.g. eth0\n"
             "  FILE: key=value lines: host, port, session, password, auth (xor),\n"
-            "        optional socks_user, socks_password (SOCKS5 user/password auth)\n"
+            "        optional id_from (instead of session: MAC of that interface),\n"
+            "        socks_user, socks_password (SOCKS5 user/password auth)\n"
             "        default " DEFAULT_CONFIG "\n");
 }
 
@@ -131,6 +134,8 @@ static int load_config(const char *path, cfg_file_t *c)
             c->port = atoi(v);
         else if (!strcmp(k, "session"))
             snprintf(c->session, sizeof(c->session), "%s", v);
+        else if (!strcmp(k, "id_from"))
+            snprintf(c->id_from, sizeof(c->id_from), "%s", v);
         else if (!strcmp(k, "password"))
             snprintf(c->password, sizeof(c->password), "%s", v);
         else if (!strcmp(k, "auth"))
@@ -141,8 +146,8 @@ static int load_config(const char *path, cfg_file_t *c)
             snprintf(c->socks_password, sizeof(c->socks_password), "%s", v);
     }
     fclose(f);
-    if (!c->host[0] || c->port <= 0 || c->port > 65535 || !c->session[0] || !c->password[0]) {
-        fprintf(stderr, "%s: host, port, session and password are required\n", full);
+    if (!c->host[0] || c->port <= 0 || c->port > 65535 || !c->password[0]) {
+        fprintf(stderr, "%s: host, port, session (or id_from) and password are required\n", full);
         return -1;
     }
     if (strcmp(c->auth, "xor") != 0) {
@@ -150,6 +155,31 @@ static int load_config(const char *path, cfg_file_t *c)
         return -1;
     }
     return 0;
+}
+
+/* Device ID from the MAC of a local interface (/sys/class/net/IFACE/address). */
+static int id_from_interface(const char *ifname, char *id, size_t size)
+{
+    char path[96], line[64];
+    FILE *f;
+    int rc;
+
+    if (!ifname[0] || strchr(ifname, '/') || !strcmp(ifname, ".") || !strcmp(ifname, "..") ||
+        strlen(ifname) > 31 || size < 13) {
+        fprintf(stderr, "id_from: bad interface name '%s'\n", ifname);
+        return -1;
+    }
+    snprintf(path, sizeof(path), "/sys/class/net/%s/address", ifname);
+    f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "id_from: cannot read %s: %s\n", path, strerror(errno));
+        return -1;
+    }
+    rc = fgets(line, sizeof(line), f) ? nc_devid_from_mac_str(line, id) : -1;
+    fclose(f);
+    if (rc < 0)
+        fprintf(stderr, "id_from: %s has no usable unicast MAC\n", ifname);
+    return rc;
 }
 
 static double elapsed(uint64_t t0)
@@ -464,7 +494,7 @@ static int parse_prefix(const char *s, uint32_t *addr, uint32_t *mask)
 
 int main(int argc, char **argv)
 {
-    const char *config = DEFAULT_CONFIG;
+    const char *config = DEFAULT_CONFIG, *id_from = NULL;
     double seconds = 0;
     cfg_file_t c;
     vt_cfg_t vc;
@@ -493,6 +523,8 @@ int main(int argc, char **argv)
             seconds = atof(argv[++i]);
         else if (!strcmp(argv[i], "-v"))
             verbose = 1;
+        else if (!strcmp(argv[i], "--id-from") && i + 1 < argc)
+            id_from = argv[++i];
         else if (!strcmp(argv[i], "--version")) {
             printf("vtesse-cli %s (%s)\n", VTESSE_VERSION,
                    VTESSE_WITH_LWIP ? "lwip+tap" : "tap");
@@ -561,6 +593,20 @@ int main(int argc, char **argv)
     }
     if (load_config(config, &c) < 0)
         return 2;
+    if (id_from)
+        snprintf(c.id_from, sizeof(c.id_from), "%s", id_from);
+    if (c.id_from[0]) {
+        if (c.session[0] && !id_from) {
+            fprintf(stderr, "%s: session and id_from are mutually exclusive\n", config);
+            return 2;
+        }
+        if (id_from_interface(c.id_from, c.session, sizeof(c.session)) < 0)
+            return 2;
+        printf("device ID %s (MAC of %s)\n", c.session, c.id_from);
+    } else if (!c.session[0]) {
+        fprintf(stderr, "%s: session or id_from is required\n", config);
+        return 2;
+    }
     if (nc_devid_to_mac(c.session, mac) < 0) {
         /* not a device ID: still usable as a session name, MAC is derived */
         uint8_t h = 0;

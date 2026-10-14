@@ -51,6 +51,8 @@ EOF
 chmod 600 /etc/vtesse.conf
 ```
 
+На камере или роутере ID можно брать из собственного MAC устройства: вместо `session=…` укажите `id_from=eth0` (см. [Device ID](docs/usage.md#device-id)).
+
 ### Камера OpenIPC
 
 ```sh

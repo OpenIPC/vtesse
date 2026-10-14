@@ -125,7 +125,10 @@ cmd_tap_test() {
     docker rm -f "$tapc" >/dev/null 2>&1 || true
     docker run -d --name "$tapc" --privileged --network "$NET" -v "$repo:/src:ro" "$IMAGE" sh -c "
         mkdir -p /var/lib/dhcp
-        printf 'host=$SERVER\nport=5000\nsession=$SESSION\npassword=$PASSWORD\n' > /tmp/vtesse.conf
+        # device ID from an interface MAC (id_from, #6): a dummy NIC with the session's MAC
+        ip link add idsrc0 type dummy
+        ip link set idsrc0 address $(echo $SESSION | sed 's/../&:/g; s/:$//')
+        printf 'host=$SERVER\nport=5000\nid_from=idsrc0\npassword=$PASSWORD\n' > /tmp/vtesse.conf
         python3 -m http.server 8080 --bind 0.0.0.0 --directory /etc >/dev/null 2>&1 &
         exec /src/build-bench-tap/vtesse-cli --tap --ifname vtesse0 --hook /src/scripts/vtesse-hook.sh --config /tmp/vtesse.conf
     " >/dev/null
@@ -133,6 +136,7 @@ cmd_tap_test() {
     i=0
     until inc 'ip -4 addr show vtesse0 2>/dev/null | grep -q "inet 10\.77\.0\."' || [ $i -gt 20 ]; do sleep 1; i=$((i + 1)); done
     addr=$(inc "ip -4 -o addr show vtesse0" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p')
+    check "device ID taken from the MAC of idsrc0 (id_from)" 'docker logs "$tapc" 2>&1 | grep -q "device ID $SESSION (MAC of idsrc0)"'
     check "tap interface vtesse0 with DHCP address" '[ -n "$addr" ]'
     check "MAC of vtesse0 is the device ID" 'inc "cat /sys/class/net/vtesse0/address" | grep -qi "^02:be:0c:00:00:01$"'
     check "option 121 route via the tunnel, no default route through it" \

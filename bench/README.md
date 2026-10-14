@@ -71,7 +71,8 @@ and 8 MiB TCP echo through forwards with integrity checks, RTSP `OPTIONS`, 8 par
 downloads, SOCKS5 username/password. The device also serves `/big.bin` (20 MiB,
 sha256 in `/big.sha256`) and a TCP echo on port 7.
 
-`bench.sh tap-test` is the TAP backend acceptance test: it builds `vtesse-cli` with
+`bench.sh tap-test` is the TAP backend acceptance test (the device ID comes from the MAC
+of a dummy interface, `id_from`): it builds `vtesse-cli` with
 `LWIP=0` in a Debian bookworm container (`ci/Dockerfile.native`) and runs it with
 `--tap` in a second privileged container; addressing via `udhcpc` and
 `scripts/vtesse-udhcpc.script`; inbound ping and HTTP from the device to the client.

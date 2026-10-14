@@ -93,6 +93,25 @@ static void test_devid(void)
     CHECK_EQ_INT(nc_devid_to_mac(NULL, mac), -1);
 }
 
+static void test_devid_from_mac(void)
+{
+    char id[13];
+
+    CHECK_EQ_INT(nc_devid_from_mac_str("a4:5e:60:12:34:5c\n", id), 0);  /* sysfs form */
+    CHECK_EQ_STR(id, "A45E6012345C");
+    CHECK_EQ_INT(nc_devid_from_mac_str("02:BE:0C:00:00:01", id), 0);
+    CHECK_EQ_STR(id, "02BE0C000001");
+    CHECK_EQ_INT(nc_devid_from_mac_str("01:00:5e:00:00:01", id), -1);    /* multicast */
+    CHECK_EQ_INT(nc_devid_from_mac_str("00:00:00:00:00:00", id), -1);    /* unset */
+    CHECK_EQ_INT(nc_devid_from_mac_str("02:be:0c:00:00", id), -1);       /* short */
+    CHECK_EQ_INT(nc_devid_from_mac_str("02:be:0c:00:00:01:", id), -1);
+    CHECK_EQ_INT(nc_devid_from_mac_str("02:be:0c:00:00:01\nx", id), -1);
+    CHECK_EQ_INT(nc_devid_from_mac_str("02-be-0c-00-00-01", id), -1);
+    CHECK_EQ_INT(nc_devid_from_mac_str("aa:", id), -1);
+    CHECK_EQ_INT(nc_devid_from_mac_str("", id), -1);
+    CHECK_EQ_INT(nc_devid_from_mac_str(NULL, id), -1);
+}
+
 int main(void)
 {
     RUN(test_parse_121);
@@ -100,5 +119,6 @@ int main(void)
     RUN(test_parse_malformed);
     RUN(test_lookup_none);
     RUN(test_devid);
+    RUN(test_devid_from_mac);
     return UNIT_SUMMARY();
 }
