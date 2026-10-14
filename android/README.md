@@ -21,6 +21,24 @@ launcher banner, no touchscreen required).
 - Native code: the repository's C sources built by CMake
   ([`app/src/main/cpp`](app/src/main/cpp)); JNI bridge `vtesse_jni.c`.
 
+## Players
+
+Recommended: [OpenIPC Decoder](https://github.com/OpenIPC/decoder) with the slot's
+transport set to **TCP** — RTP over UDP cannot pass a TCP port forward (Auto falls
+back to TCP after 3 s). A camera can be opened from the shell:
+
+```sh
+adb shell am start -a android.intent.action.SEND -t text/plain \
+  --es android.intent.extra.TEXT 'rtsp://user:pass@127.0.0.1:8554/stream=0' \
+  --es transport tcp -n com.openipc.decoder/.Decoder
+```
+
+Keep Decoder's **S** mode (key frames only) off for full-rate video. VLC works too
+(`rtsp://127.0.0.1:8554/...`). Smooth 1080p through the tunnel was confirmed on an
+Android TV box (#25); if a stream shows far fewer frames than the camera is set to,
+check the camera's own uplink first (transmit drops in its `/metrics`): the tunnel
+carries several Mbit/s per connection (#24).
+
 ## Build
 
 ```sh
