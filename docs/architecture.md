@@ -65,6 +65,7 @@ the tunnel; there is no system network interface.
 | `third_party/lwip/` | vendored lwIP 2.2.1, unmodified subset |
 | `tests/` | unit tests and client scenarios |
 | `bench/` | Docker test bench |
+| `server/` | vtund build script and our VTun server patches (bench and release builds) |
 | `ci/` | cross builds (`build-musl.sh`), build containers, big-endian MIPS tests under qemu |
 | `.github/workflows/` | CI: tests, cross builds, test bench, releases |
 | `tools/` | probe script |

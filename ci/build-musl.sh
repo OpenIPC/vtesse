@@ -1,5 +1,5 @@
 #!/bin/sh
-# Static musl build of vtesse-cli for one target.
+# Static musl build of vtesse-cli and of the patched vtund server for one target.
 #
 #   ci/build-musl.sh <target> [outdir]
 #
@@ -8,7 +8,8 @@
 #         arm64 | mips | x86_64 | armv5 | armv7   Bootlin musl toolchains
 #         (mips = big-endian MIPS32)
 # Produces <outdir>/vtesse-<target> (lwIP + TAP) and <outdir>/vtesse-tap-<target>
-# (TAP only, LWIP=0), stripped. With QEMU=1 the unit tests are run under
+# (TAP only, LWIP=0), stripped, and <outdir>/vtund-<vtun version>-<target>: the VTun
+# server with our patches (server/build-vtund.sh). With QEMU=1 the unit tests are run under
 # qemu-user as well. musl is used because a static glibc binary cannot resolve
 # host names without the NSS libraries of the same glibc on the device.
 set -eu
@@ -61,6 +62,9 @@ for variant in full tap; do
     echo "$bin: $(wc -c < "$OUT/$bin") bytes"
 done
 
+VTUND=vtund-$("$ROOT/server/build-vtund.sh" --version)-$TARGET
+"$ROOT/server/build-vtund.sh" --cross "$CROSS" --static "$OUT/$VTUND"
+
 if [ "${QEMU:-0}" = 1 ]; then
     for t in test_proto test_route test_client; do
         echo "== $QEMU_BIN $t"
@@ -68,4 +72,6 @@ if [ "${QEMU:-0}" = 1 ]; then
     done
     "$QEMU_BIN" "$OUT/vtesse-$TARGET" --version
     "$QEMU_BIN" "$OUT/vtesse-tap-$TARGET" --version
+    # vtund has no --version; -h prints "VTun ver ..." and the usage, exit code 1
+    "$QEMU_BIN" "$OUT/$VTUND" -h 2>&1 | grep "^VTun ver"
 fi

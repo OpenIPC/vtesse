@@ -35,6 +35,8 @@
 
 每个平台提供两个二进制文件：`vtesse-ARCH`（lwIP 与 TAP 两种后端：无需 root 的 SOCKS5 / 端口转发，或使用 `--tap` 的内核接口）和 `vtesse-tap-ARCH`（仅 TAP，体积约为一半）。TAP 后端需要 root、`tun` 驱动（`/dev/net/tun`）以及钩子脚本 `vtesse-hook.sh` 和 `vtesse-udhcpc.script`。
 
+发布页还提供同样平台的 VTun 服务器 `vtund-3.0.2-ARCH`：原版 VTun 3.0.2 加上我们的补丁（登录被拒时日志会记录设备 ID 和原因），详见 [server/README.md](server/README.md)。
+
 ### 配置
 
 下面所有安装方式都读取 `/etc/vtesse.conf`（会话名即设备 ID：12 个 `0-9A-F` 字符，同时用作 MAC 地址）：
@@ -129,6 +131,7 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 | [Architecture](docs/architecture.md) | 分层、`tunnel_ops_t`、VTun 客户端、lwIP 协议栈、代理与流量控制、仓库结构 |
 | [Embedding](docs/embedding.md) | 在其他应用中使用这些库、事件循环集成、示例 |
 | [Security](docs/security.md) | VTun 认证的弱点、明文数据、本地代理的暴露面 |
+| [VTun server](server/README.md) | 打补丁的 vtund 构建、发布的二进制文件、补丁列表 |
 | [Testing](docs/testing.md) | 单元测试、sanitizer、大端序 MIPS、Docker 测试台与验收测试 |
 
 ## 路线图

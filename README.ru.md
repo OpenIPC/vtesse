@@ -35,6 +35,8 @@
 
 На каждую платформу два бинарника: `vtesse-ARCH` (режимы lwIP и TAP: SOCKS5 / проброс портов без root или интерфейс ядра с `--tap`) и `vtesse-tap-ARCH` (только TAP, примерно вдвое меньше). Режиму TAP нужны root, драйвер `tun` (`/dev/net/tun`) и хук-скрипты `vtesse-hook.sh` и `vtesse-udhcpc.script`.
 
+В релизах также есть сервер VTun для тех же платформ, `vtund-3.0.2-ARCH`: оригинальный VTun 3.0.2 с нашими патчами (отказ во входе пишется в лог с ID устройства и причиной), см. [server/README.md](server/README.md).
+
 ### Конфигурация
 
 Все варианты установки ниже читают `/etc/vtesse.conf` (имя сессии — ID устройства: 12 символов `0-9A-F`, он же MAC-адрес):
@@ -129,6 +131,7 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 | [Architecture](docs/architecture.md) | слои, `tunnel_ops_t`, клиент VTun, стек lwIP, прокси и управление потоком, структура репозитория |
 | [Embedding](docs/embedding.md) | использование библиотек в другом приложении, интеграция с циклом событий, пример |
 | [Security](docs/security.md) | слабые места аутентификации VTun, открытый трафик, доступ к локальному прокси |
+| [VTun server](server/README.md) | сборки vtund с патчами, бинарники в релизах, список патчей |
 | [Testing](docs/testing.md) | юнит-тесты, санитайзеры, big-endian MIPS, тестовый стенд в Docker и приёмочные тесты |
 
 ## План работ

@@ -24,7 +24,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION=02BE0C000001
 PASSWORD=c79e01d2e49d80eafd192c043c5142bd5a65b5a9
 
-cmd_build() { docker build -t "$IMAGE" "$HERE"; }
+# context: the repository root, for server/ (vtund build script and patches)
+cmd_build() { docker build -t "$IMAGE" -f "$HERE/Dockerfile" "$HERE/.."; }
 
 cmd_up() {
     docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null

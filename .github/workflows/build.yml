@@ -2,6 +2,9 @@
 # build.yml — VTesse CI: tests, static musl builds for camera/router targets,
 # the Docker test bench, releases.
 #
+# The VTun server (vtund) is built in the same job with our patches
+# (server/build-vtund.sh, server/patches) and released as vtund-<vtun version>-<arch>.
+#
 # Static musl binaries (a static glibc binary cannot resolve host names without
 # the NSS libraries of the same glibc on the device). 32-bit ARM and MIPSEL use
 # the OpenIPC firmware toolchains, the rest Bootlin musl toolchains
@@ -65,16 +68,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install qemu-user
+      - name: Install qemu-user and the vtund build tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-user
+          sudo apt-get install -y -qq qemu-user bison flex autotools-dev
 
       - name: Cache toolchain
         uses: actions/cache@v6
         with:
           path: .toolchains
           key: toolchain-${{ matrix.target }}-${{ hashFiles('ci/build-musl.sh') }}
+
+      - name: Cache vtun sources
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/vtesse-vtun
+          key: vtun-${{ hashFiles('server/build-vtund.sh') }}
 
       - name: Build and run the unit tests under qemu
         run: QEMU=1 ci/build-musl.sh ${{ matrix.target }} dist
@@ -96,7 +105,7 @@ jobs:
 
   # ------------------------------------------------------------------ bench
   bench:
-    name: Test bench (VTun 3.0.2 in Docker)
+    name: Test bench (VTun 3.0.2 + our patches, in Docker)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -150,6 +159,8 @@ jobs:
           VER=$(sed -n 's/^#define VTESSE_VERSION "\(.*\)"/\1/p' include/vtesse/version.h)
           if [ -z "$VER" ]; then echo "::error::no VTESSE_VERSION found"; exit 1; fi
           echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          VTUN=$(server/build-vtund.sh --version)
+          echo "vtun=$VTUN" >> "$GITHUB_OUTPUT"
           mkdir latest versioned
           # artifacts keep their directory layout (dist/...)
           for f in $(find artifacts -type f -name 'vtesse-*' ! -name '*.md' | sort); do
@@ -159,6 +170,20 @@ jobs:
             cp "$f" "latest/$name"
             cp "$f" "versioned/${base}-${VER}-${arch}"
           done
+          # vtund carries the original VTun version in its name, in both releases
+          for f in $(find artifacts -type f -name "vtund-${VTUN}-*" | sort); do
+            cp "$f" latest/
+            cp "$f" versioned/
+          done
+          [ -n "$(ls latest/vtund-* 2>/dev/null)" ] || { echo "::error::no vtund binaries"; exit 1; }
+          {
+            echo "\`vtund-${VTUN}-<arch>\`: VTun server **${VTUN}** (original upstream version), static musl,"
+            echo "built without OpenSSL/LZO/zlib (XOR challenge response) with our patches from \`server/patches\`:"
+            for p in server/patches/vtun-${VTUN}-*.patch; do
+              echo "- \`$(basename "$p")\` — $(head -1 "$p")"
+            done
+          } > vtund.md
+          cat vtund.md
           for d in latest versioned; do
             cp scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse scripts/vtesse.init "$d/"
             (cd "$d" && sha256sum * > SHA256SUMS)
@@ -166,7 +191,7 @@ jobs:
           {
             echo "| File | Size, bytes |"
             echo "|---|---|"
-            for f in $(ls latest/vtesse-* | grep -v "\.sh$\|\.script$\|\.init$"); do echo "| $(basename "$f") | $(wc -c < "$f") |"; done
+            for f in $(ls latest/vtesse-* latest/vtund-* | grep -v "\.sh$\|\.script$\|\.init$"); do echo "| $(basename "$f") | $(wc -c < "$f") |"; done
           } > sizes.md
           cat sizes.md
 
@@ -185,6 +210,8 @@ jobs:
           Static musl binaries: \`vtesse-<arch>\` (lwIP + TAP backends), \`vtesse-tap-<arch>\` (TAP only, smaller).
           arm32 / mipsel are built with the OpenIPC firmware toolchains (hisilicon-hi3516cv100, ingenic-t31).
 
+          $(cat vtund.md)
+
           $(cat sizes.md)"
 
       - name: Versioned release
@@ -202,9 +229,14 @@ jobs:
           PREV=$(printf '%s\n' "$TAGS" | grep '^v1\.' | sed 's/^v//' | { cat; echo "$VER"; } \
             | sort -V -u | grep -B1 -x "$VER" | grep -v -x "$VER" || true)
           if [ -n "$PREV" ]; then
-            NOTES=(--generate-notes --notes-start-tag "v$PREV")
+            # --notes goes first, the generated changelog is appended after it
+            NOTES=(--generate-notes --notes-start-tag "v$PREV" --notes "$(cat vtund.md)
+
+          $(cat sizes.md)")
           else
             NOTES=(--notes "First release of the 1.xx line.
+
+          $(cat vtund.md)
 
           $(cat sizes.md)")
           fi

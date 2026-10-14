@@ -35,6 +35,8 @@ Static binaries (no dependencies) are on the [releases page](https://github.com/
 
 Two binaries per platform: `vtesse-ARCH` (lwIP and TAP backends: SOCKS5 / port forwards without root, or a kernel interface with `--tap`) and `vtesse-tap-ARCH` (TAP only, about half the size). The TAP backend needs root and the `tun` driver (`/dev/net/tun`), and the hook scripts `vtesse-hook.sh` and `vtesse-udhcpc.script`.
 
+The releases also carry the VTun server for the same platforms, `vtund-3.0.2-ARCH`: the original VTun 3.0.2 with our patches (a refused login is logged with the device ID and the reason), see [server/README.md](server/README.md).
+
 ### Configuration
 
 All installations below read `/etc/vtesse.conf` (the session name is the device ID: 12 characters `0-9A-F`, also used as the MAC):
@@ -127,6 +129,7 @@ The session name is the device ID (12 characters `0-9A-F`, also used as the MAC)
 | [Architecture](docs/architecture.md) | layers, `tunnel_ops_t`, VTun client, lwIP stack, proxy and flow control, repository layout |
 | [Embedding](docs/embedding.md) | using the libraries in another application, loop integration, example |
 | [Security](docs/security.md) | VTun authentication weaknesses, clear-text data, local proxy exposure |
+| [VTun server](server/README.md) | patched vtund builds, release binaries, patch list |
 | [Testing](docs/testing.md) | unit tests, sanitizers, big-endian MIPS, Docker test bench and acceptance tests |
 
 ## Roadmap

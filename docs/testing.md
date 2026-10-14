@@ -39,7 +39,7 @@ The version lives in one place, `include/vtesse/version.h`:
 ## Test bench
 
 [`bench/`](../bench/README.md): Docker image with a VTun 3.0.2 server built without
-OpenSSL, a bridged segment with a DHCP server (option 121, ping check), and a
+OpenSSL and with our patches ([`server/build-vtund.sh`](../server/README.md)), a bridged segment with a DHCP server (option 121, ping check), and a
 "remote device" behind a router (HTTP with a 20 MiB file, RTSP stub, TCP echo).
 
 ```sh

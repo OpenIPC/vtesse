@@ -20,7 +20,8 @@ response is XOR) and a bridged L2 segment that looks like the real one:
 
 All names, addresses and passwords are bench-only test values.
 
-The server is built with our patches from [`patches/`](patches/): a refused login is
+The server is built with our patches by [`server/build-vtund.sh`](../server/README.md)
+(the same script as the release binaries): a refused login is
 logged with the session name and the reason, e.g.
 `Denied connection from 172.28.0.1:33016: session 02BE0C000001: wrong password`
 (stock 3.0.2 logs only `Denied connection from IP:PORT`).
