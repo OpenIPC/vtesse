@@ -36,8 +36,9 @@ QEMU=1 ci/build-musl.sh arm32 dist     # downloads the toolchain, runs the tests
 | `mips` | Bootlin mips32 musl | big-endian MIPS routers |
 | `x86_64` | Bootlin x86-64 musl | PCs, servers |
 
-Each target gives `vtesse-<target>` (lwIP + TAP) and `vtesse-tap-<target>` (TAP
-only). Use musl builds on devices: a static glibc binary cannot resolve host names
+Each target gives `vtesse-<target>` (lwIP + TAP), `vtesse-tap-<target>` (TAP
+only) and `vtund-3.0.2-<target>`, the VTun server with our patches
+([server/README.md](../server/README.md)). Use musl builds on devices: a static glibc binary cannot resolve host names
 without the NSS libraries of the same glibc. Prebuilt binaries are on the
 [releases page](https://github.com/compot-dev/vtesse/releases) (`latest` is rebuilt
 from every push to `main`).

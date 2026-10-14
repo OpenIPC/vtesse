@@ -23,7 +23,7 @@ A resource access microsystem: a client for existing **VTun** servers (`vtund -s
 
 ## Download
 
-Static binaries (no dependencies) are on the [releases page](https://github.com/compot-dev/vtesse/releases): [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) is rebuilt from every push to `main` (stable file names, used below); versioned releases such as [`v1.00`](https://github.com/compot-dev/vtesse/releases/tag/v1.00) carry the version in the file names (`vtesse-1.00-arm32`).
+Static binaries (no dependencies) are on the [releases page](https://github.com/compot-dev/vtesse/releases): [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) is rebuilt from every push to `main` (stable file names, used below); versioned releases such as [`v1.01`](https://github.com/compot-dev/vtesse/releases/tag/v1.01) carry the version in the file names (`vtesse-1.01-arm32`). The VTun server `vtund-3.0.2-ARCH` keeps the original VTun version in its name in both (since v1.01).
 
 | Platform | `ARCH` |
 |---|---|
