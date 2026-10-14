@@ -18,13 +18,20 @@
 
 /* ---- memory ---- */
 #ifndef VTESSE_LWIP_SMALL
-#define MEM_SIZE                        (256 * 1024)
-#define PBUF_POOL_SIZE                  256     /* >= sum of receive windows of parallel connections */
+/* Throughput of one connection is at most window / RTT, and the RTT to a VTun
+ * server is often 100-200 ms: a 16 x MSS window gave ~1.3 Mbit/s at 140 ms, too
+ * little for a 1080p camera stream (the camera dropped frames, #24). ~125 KiB with
+ * window scaling allows ~7 Mbit/s at 140 ms. The proxy acknowledges data only
+ * after writing it locally, so pbufs pile up only while a local reader is slow. */
+#define MEM_SIZE                        (512 * 1024)
+#define PBUF_POOL_SIZE                  512
 #define MEMP_NUM_PBUF                   64
 #define MEMP_NUM_TCP_PCB                32
-#define TCP_WND                         (16 * TCP_MSS)
-#define TCP_SND_BUF                     (16 * TCP_MSS)
-#define MEMP_NUM_TCP_SEG                160
+#define LWIP_WND_SCALE                  1
+#define TCP_RCV_SCALE                   2
+#define TCP_WND                         (88 * TCP_MSS)
+#define TCP_SND_BUF                     (64 * TCP_MSS)
+#define MEMP_NUM_TCP_SEG                512
 #else   /* cameras / routers */
 #define MEM_SIZE                        (48 * 1024)
 #define PBUF_POOL_SIZE                  24

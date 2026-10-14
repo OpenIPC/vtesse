@@ -4,6 +4,15 @@ The version lives in `include/vtesse/version.h`. Binaries are published only as 
 [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) release, rebuilt
 from every push to `main`; this file is the change history.
 
+## 1.04 — 2026-10-14
+
+- lwIP TCP window ~125 KiB with window scaling (was 16 x MSS ≈ 23 KiB), send
+  buffer 64 x MSS (#24). One connection is limited to window / RTT: with ~140 ms to
+  the VTun server the old window allowed ~1.3 Mbit/s, so a 1080p camera stream lost
+  most frames (only key frames got through). Now the stream through a forward keeps
+  up in real time, as with the kernel's TCP; the remaining limit was the path to
+  the camera. Small profile (`VTESSE_LWIP_SMALL`) unchanged.
+
 ## 1.03 — 2026-10-14
 
 - Android app (#13): `vtesse-android.apk` in the release, Android 5.0+ including
