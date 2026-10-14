@@ -4,6 +4,18 @@ The version lives in `include/vtesse/version.h`. Binaries are published only as 
 [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) release, rebuilt
 from every push to `main`; this file is the change history.
 
+## 1.02 — 2026-10-14
+
+- Device ID from the device's own MAC: `id_from=eth0` in the config or `--id-from eth0`
+  (reads `/sys/class/net/eth0/address`; multicast and all-zero MACs refused) (#6).
+- `type tun` sessions: manual IPv4 with `ip=`, `gw=`, `route=` (repeatable) in the
+  config or `--ip`/`--gw` (the old `--debug-ip`/`--debug-gw` still work); with `--tap`
+  a TUN interface is created and the hook sets the address and routes (#8).
+- Bench: `tun-test` (lwIP and TAP over a `type tun` session), `tap-test` takes the
+  device ID from an interface MAC; both run in CI.
+- DHCP client (#5) closed after verification on a production VTun 3.0.2 server
+  (lwIP and TAP: ping and HTTP to a camera behind the server).
+
 ## 1.01 — 2026-10-14
 
 - VTun server builds: `server/build-vtund.sh` is the only way vtund is built in the

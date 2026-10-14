@@ -49,7 +49,7 @@ from every push to `main`).
 vtesse-cli [--config FILE] [--seconds N] [-v]
            [--socks PORT] [--forward LPORT:IP:RPORT]... [--listen ADDR]
            [--fetch http://IP[:PORT]/PATH]
-           [--debug-ip A.B.C.D/P --debug-gw A.B.C.D]
+           [--ip A.B.C.D/P [--gw A.B.C.D]]
 vtesse-cli [--config FILE] [--seconds N] --tap [--ifname NAME] [--hook SCRIPT]
 ```
 
@@ -62,7 +62,7 @@ vtesse-cli [--config FILE] [--seconds N] --tap [--ifname NAME] [--hook SCRIPT]
 | `--forward LPORT:IP:RPORT` | TCP forward `LISTEN:LPORT → IP:RPORT` through the tunnel (repeatable, up to 16) |
 | `--listen ADDR` | address of the local listeners, default `127.0.0.1` |
 | `--fetch URL` | one HTTP GET through the stack once an address is bound (diagnostics) |
-| `--debug-ip`, `--debug-gw` | manual IPv4 instead of DHCP (debugging, `type tun`) |
+| `--ip A.B.C.D/P`, `--gw A.B.C.D` | [manual IPv4](#manual-ipv4-type-tun) instead of DHCP; override `ip`/`gw` of the file (`--debug-ip`/`--debug-gw` are accepted as old names) |
 | `--tap` | [TAP backend](#tap-backend): kernel interface instead of lwIP (Linux, root) |
 | `--ifname NAME` | interface name for `--tap`, default `vtesse%d` |
 | `--hook SCRIPT` | script run on interface events for `--tap` |
@@ -137,6 +137,7 @@ never from the command line; keep it outside the repository with mode 600.
 | `port` | VTun server TCP port |
 | `session` | session name = [device ID](#device-id) |
 | `id_from` | instead of `session`: take the device ID from the MAC of this interface, e.g. `eth0` |
+| `ip`, `gw`, `route` | [manual IPv4](#manual-ipv4-type-tun): `ip=A.B.C.D/P`, optional `gw=A.B.C.D`, `route=NET/P` (repeatable, up to 16); required for `type tun` |
 | `password` | session password |
 | `auth` | challenge response, `xor` (default; servers built without OpenSSL) |
 | `socks_user`, `socks_password` | optional SOCKS5 username/password (RFC 1929) |
@@ -179,8 +180,27 @@ lwIP DHCP client through the tunnel:
   requested again;
 - until an address is bound the proxy refuses connections (SOCKS5 code 3).
 
-Manual IPv4 settings (`--debug-ip`, `--debug-gw`) exist only for debugging and for
-`type tun` (no DHCP over L3).
+## Manual IPv4 (type tun)
+
+A `type tun` session carries bare IPv4 packets (no Ethernet, no ARP), so there is no
+DHCP: the address and routes are configured. The server side typically has
+`ip "addr add 10.76.0.1 peer 10.76.0.2 dev %%"`; the client then uses:
+
+```
+ip=10.76.0.2/32
+gw=10.76.0.1
+route=10.78.0.0/24       # networks behind the server, repeatable
+```
+
+- `route` lines are the reachable networks, like option 121; without them and with
+  `gw` there is a default route through the tunnel.
+- lwIP backend: applied when the tunnel comes up; the CLI prints
+  `address … (manual)`. The same keys work on a `type ether` session instead of DHCP.
+- TAP backend (`--tap`): a TUN interface is created; `vtesse-hook.sh` gets
+  `VTESSE_IP`, `VTESSE_GW`, `VTESSE_ROUTES` and sets the address and routes
+  (`ip addr`/`ip route`) instead of starting DHCP. A default route via `gw` is added
+  only with `VTESSE_DEFAULT_ROUTE=1`.
+- Acceptance: `bench/bench.sh tun-test` (both backends).
 
 ## Local proxy
 

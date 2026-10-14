@@ -126,6 +126,9 @@ jobs:
       - name: TAP backend acceptance
         run: bench/bench.sh tap-test
 
+      - name: type tun acceptance (manual IPv4, lwIP and TAP)
+        run: bench/bench.sh tun-test
+
       - name: Server log
         if: always()
         run: docker logs vtesse-bench-server 2>&1 | tail -100 || true

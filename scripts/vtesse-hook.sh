@@ -13,7 +13,11 @@
 # routes only; DNS and the default route are left alone, see the script).
 # dhclient is a fallback: its stock script may rewrite /etc/resolv.conf with
 # the tunnel DNS and install a default route through the tunnel.
-# For type tun sessions configure addresses here instead (no DHCP over L3).
+# Manual IPv4 (ip=, gw=, route= in the vtesse-cli config; required for type tun,
+# which has no DHCP over L3) arrives as VTESSE_IP (A.B.C.D/P), VTESSE_GW and
+# VTESSE_ROUTES ("NET/P NET/P ..."): the address and routes are set here instead of
+# DHCP. Without routes and with VTESSE_GW a default route through the tunnel is
+# installed only with VTESSE_DEFAULT_ROUTE=1 (as in vtesse-udhcpc.script).
 
 IF=$VTESSE_IFNAME
 PIDFILE=/var/run/vtesse-dhcp.$IF.pid
@@ -30,13 +34,33 @@ dhcp_start() {
     fi
 }
 
+static_up() {
+    ip addr replace "$VTESSE_IP" dev "$IF"
+    for r in $VTESSE_ROUTES; do
+        if [ "$VTESSE_LINK" = tun ] || [ -z "$VTESSE_GW" ]; then
+            ip route replace "$r" dev "$IF"
+        else
+            ip route replace "$r" via "$VTESSE_GW" dev "$IF"
+        fi
+    done
+    if [ -z "$VTESSE_ROUTES" ] && [ -n "$VTESSE_GW" ] && [ "${VTESSE_DEFAULT_ROUTE:-0}" = 1 ]; then
+        ip route replace default via "$VTESSE_GW" dev "$IF"
+    fi
+}
+
 dhcp_pid() {
     [ -f "$PIDFILE" ] && cat "$PIDFILE"
 }
 
 case "$1" in
     up)
-        [ "$VTESSE_LINK" = ether ] && dhcp_start
+        if [ -n "$VTESSE_IP" ]; then
+            static_up
+        elif [ "$VTESSE_LINK" = ether ]; then
+            dhcp_start
+        else
+            echo "vtesse-hook: type tun needs ip= (and route=) in the config" >&2
+        fi
         ;;
     reconnect)
         ip neigh flush dev "$IF" 2>/dev/null

@@ -49,6 +49,9 @@ typedef struct cfg_file {
     char host[256];
     char session[64];
     char id_from[32];       /* interface whose MAC is the device ID */
+    char ip[32], gw[32];    /* manual IPv4 (type tun, or instead of DHCP) */
+    char route[16][32];     /* NET/P, repeatable */
+    int route_count;
     char password[128];
     char auth[16];
     char socks_user[256];
@@ -73,7 +76,7 @@ static void usage(void)
             "  lwIP backend (default):\n"
             "                  [--socks PORT] [--forward LPORT:IP:RPORT]... [--listen ADDR]\n"
             "                  [--fetch http://IP[:PORT]/PATH]\n"
-            "                  [--debug-ip A.B.C.D/P --debug-gw A.B.C.D]\n"
+            "                  [--ip A.B.C.D/P [--gw A.B.C.D]]   (manual IPv4 instead of DHCP)\n"
 #endif
 #if VTESSE_WITH_TAP
             "  TAP backend:    --tap [--ifname NAME] [--hook SCRIPT]\n"
@@ -81,6 +84,8 @@ static void usage(void)
             "  --id-from IFACE  device ID (session name) = MAC of IFACE, e.g. eth0\n"
             "  FILE: key=value lines: host, port, session, password, auth (xor),\n"
             "        optional id_from (instead of session: MAC of that interface),\n"
+            "        ip=A.B.C.D/P, gw=A.B.C.D, route=NET/P (repeatable): manual IPv4\n"
+            "        (needed for type tun; with --tap passed to the hook),\n"
             "        socks_user, socks_password (SOCKS5 user/password auth)\n"
             "        default " DEFAULT_CONFIG "\n");
 }
@@ -134,7 +139,18 @@ static int load_config(const char *path, cfg_file_t *c)
             c->port = atoi(v);
         else if (!strcmp(k, "session"))
             snprintf(c->session, sizeof(c->session), "%s", v);
-        else if (!strcmp(k, "id_from"))
+        else if (!strcmp(k, "ip"))
+            snprintf(c->ip, sizeof(c->ip), "%s", v);
+        else if (!strcmp(k, "gw"))
+            snprintf(c->gw, sizeof(c->gw), "%s", v);
+        else if (!strcmp(k, "route")) {
+            if (c->route_count >= (int)(sizeof(c->route) / sizeof(c->route[0]))) {
+                fprintf(stderr, "%s: too many route lines\n", full);
+                fclose(f);
+                return -1;
+            }
+            snprintf(c->route[c->route_count++], sizeof(c->route[0]), "%s", v);
+        } else if (!strcmp(k, "id_from"))
             snprintf(c->id_from, sizeof(c->id_from), "%s", v);
         else if (!strcmp(k, "password"))
             snprintf(c->password, sizeof(c->password), "%s", v);
@@ -154,6 +170,34 @@ static int load_config(const char *path, cfg_file_t *c)
         fprintf(stderr, "%s: unsupported auth '%s' (only xor)\n", full, c->auth);
         return -1;
     }
+    return 0;
+}
+
+static int parse_ip4(const char *s, uint32_t *out)
+{
+    unsigned a, b, c, d;
+    char tail;
+
+    if (sscanf(s, "%u.%u.%u.%u%c", &a, &b, &c, &d, &tail) != 4 || a > 255 || b > 255 || c > 255 || d > 255)
+        return -1;
+    *out = a << 24 | b << 16 | c << 8 | d;
+    return 0;
+}
+
+static int parse_prefix(const char *s, uint32_t *addr, uint32_t *mask)
+{
+    char buf[32];
+    const char *slash = strchr(s, '/');
+    int p;
+
+    if (!slash || (size_t)(slash - s) >= sizeof(buf))
+        return -1;
+    memcpy(buf, s, (size_t)(slash - s));
+    buf[slash - s] = '\0';
+    p = atoi(slash + 1);
+    if (p < 0 || p > 32 || parse_ip4(buf, addr) < 0)
+        return -1;
+    *mask = p ? 0xffffffffu << (32 - p) : 0;
     return 0;
 }
 
@@ -192,18 +236,6 @@ static vt_t *vt;
 
 static void print_tunnel_event(int tev, int err);
 
-#if VTESSE_WITH_LWIP
-static int parse_ip4(const char *s, uint32_t *out)
-{
-    unsigned a, b, c, d;
-    char tail;
-
-    if (sscanf(s, "%u.%u.%u.%u%c", &a, &b, &c, &d, &tail) != 4 || a > 255 || b > 255 || c > 255 || d > 255)
-        return -1;
-    *out = a << 24 | b << 16 | c << 8 | d;
-    return 0;
-}
-#endif
 
 #if VTESSE_WITH_LWIP
 
@@ -356,6 +388,8 @@ static int parse_forward(const char *s, nc_forward_t *f)
 
 /* ---- events ---- */
 
+static int manual_ip;   /* ip= / --ip: no DHCP */
+
 static void print_info(void)
 {
     nc_stack_info_t in;
@@ -366,8 +400,12 @@ static void print_info(void)
     nc_ip4_format(in.addr, a, sizeof(a));
     nc_ip4_format(in.mask, m, sizeof(m));
     nc_ip4_format(in.gw, g, sizeof(g));
-    printf("[%8.3f] address %s mask %s, option 3 %s%s\n", elapsed(t_start), a, m, g,
-           in.default_route ? " (default route)" : " (ignored: classless routes present)");
+    if (manual_ip)
+        printf("[%8.3f] address %s mask %s (manual), gw %s%s\n", elapsed(t_start), a, m, g,
+               in.default_route ? " (default route)" : "");
+    else
+        printf("[%8.3f] address %s mask %s, option 3 %s%s\n", elapsed(t_start), a, m, g,
+               in.default_route ? " (default route)" : " (ignored: classless routes present)");
     for (i = 0; i < in.routes.count; i++) {
         nc_route_format(&in.routes.r[i], r, sizeof(r));
         printf("[%8.3f]   route %s\n", elapsed(t_start), r);
@@ -473,28 +511,12 @@ static void on_tap_event(void *user, int ev, int tev, int err)
 }
 #endif /* VTESSE_WITH_TAP */
 
-#if VTESSE_WITH_LWIP
-static int parse_prefix(const char *s, uint32_t *addr, uint32_t *mask)
-{
-    char buf[32];
-    const char *slash = strchr(s, '/');
-    int p;
-
-    if (!slash || (size_t)(slash - s) >= sizeof(buf))
-        return -1;
-    memcpy(buf, s, (size_t)(slash - s));
-    buf[slash - s] = '\0';
-    p = atoi(slash + 1);
-    if (p < 0 || p > 32 || parse_ip4(buf, addr) < 0)
-        return -1;
-    *mask = p ? 0xffffffffu << (32 - p) : 0;
-    return 0;
-}
-#endif
 
 int main(int argc, char **argv)
 {
-    const char *config = DEFAULT_CONFIG, *id_from = NULL;
+    const char *config = DEFAULT_CONFIG, *id_from = NULL, *ip_arg = NULL, *gw_arg = NULL;
+    uint32_t st_addr = 0, st_mask = 0, st_gw = 0;
+    nc_routes_t st_routes;
     double seconds = 0;
     cfg_file_t c;
     vt_cfg_t vc;
@@ -564,18 +586,10 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--listen") && i + 1 < argc) {
             pc.listen_addr = argv[++i];
             lwip_opts = 1;
-        } else if (!strcmp(argv[i], "--debug-ip") && i + 1 < argc) {
-            if (parse_prefix(argv[++i], &sc.addr, &sc.mask) < 0) {
-                fprintf(stderr, "--debug-ip: expected A.B.C.D/P\n");
-                return 2;
-            }
-            sc.static_ip = lwip_opts = 1;
-        } else if (!strcmp(argv[i], "--debug-gw") && i + 1 < argc) {
-            if (parse_ip4(argv[++i], &sc.gw) < 0) {
-                fprintf(stderr, "--debug-gw: expected A.B.C.D\n");
-                return 2;
-            }
-            lwip_opts = 1;
+        } else if ((!strcmp(argv[i], "--ip") || !strcmp(argv[i], "--debug-ip")) && i + 1 < argc) {
+            ip_arg = argv[++i];
+        } else if ((!strcmp(argv[i], "--gw") || !strcmp(argv[i], "--debug-gw")) && i + 1 < argc) {
+            gw_arg = argv[++i];
         }
 #endif
         else {
@@ -584,7 +598,7 @@ int main(int argc, char **argv)
         }
     }
     if (use_tap && lwip_opts) {
-        fprintf(stderr, "--tap cannot be combined with --socks/--forward/--listen/--fetch/--debug-*\n");
+        fprintf(stderr, "--tap cannot be combined with --socks/--forward/--listen/--fetch\n");
         return 2;
     }
     if (!VTESSE_WITH_TAP && use_tap) {
@@ -607,6 +621,37 @@ int main(int argc, char **argv)
         fprintf(stderr, "%s: session or id_from is required\n", config);
         return 2;
     }
+    /* manual IPv4: command line overrides the file */
+    if (ip_arg)
+        snprintf(c.ip, sizeof(c.ip), "%s", ip_arg);
+    if (gw_arg)
+        snprintf(c.gw, sizeof(c.gw), "%s", gw_arg);
+    memset(&st_routes, 0, sizeof(st_routes));
+    if (!c.ip[0] && (c.gw[0] || c.route_count)) {
+        fprintf(stderr, "gw/route need ip\n");
+        return 2;
+    }
+    if (c.ip[0] && parse_prefix(c.ip, &st_addr, &st_mask) < 0) {
+        fprintf(stderr, "ip: expected A.B.C.D/P, got '%s'\n", c.ip);
+        return 2;
+    }
+    if (c.gw[0] && parse_ip4(c.gw, &st_gw) < 0) {
+        fprintf(stderr, "gw: expected A.B.C.D, got '%s'\n", c.gw);
+        return 2;
+    }
+    for (i = 0; i < c.route_count; i++) {
+        uint32_t net, m;
+        int p = 0;
+
+        if (parse_prefix(c.route[i], &net, &m) < 0) {
+            fprintf(stderr, "route: expected NET/P, got '%s'\n", c.route[i]);
+            return 2;
+        }
+        while (p < 32 && (m & (0x80000000u >> p)))
+            p++;
+        nc_routes_add(&st_routes, net, (uint8_t)p, st_gw);
+    }
+
     if (nc_devid_to_mac(c.session, mac) < 0) {
         /* not a device ID: still usable as a session name, MAC is derived */
         uint8_t h = 0;
@@ -641,6 +686,20 @@ int main(int argc, char **argv)
 #if VTESSE_WITH_TAP
     if (use_tap) {
         memcpy(tc.mac, mac, 6);
+        /* manual IPv4 for the hook (it configures the interface) */
+        if (c.ip[0]) {
+            char routes[16 * 32 + 16] = "";
+
+            for (i = 0; i < c.route_count; i++) {
+                strcat(routes, i ? " " : "");
+                strcat(routes, c.route[i]);
+            }
+            setenv("VTESSE_IP", c.ip, 1);
+            if (c.gw[0])
+                setenv("VTESSE_GW", c.gw, 1);
+            if (routes[0])
+                setenv("VTESSE_ROUTES", routes, 1);
+        }
         session_name = c.session;
         tap = nc_tap_create(&t, &tc, on_tap_event, NULL);
         if (!tap) {
@@ -654,6 +713,13 @@ int main(int argc, char **argv)
 #if VTESSE_WITH_LWIP
     if (!use_tap) {
         memcpy(sc.mac, mac, 6);
+        if (c.ip[0]) {
+            sc.static_ip = manual_ip = 1;
+            sc.addr = st_addr;
+            sc.mask = st_mask;
+            sc.gw = st_gw;
+            sc.routes = st_routes;
+        }
         if (nc_stack_init(&t, &sc, on_stack_event, NULL) < 0) {
             fprintf(stderr, "stack initialisation failed\n");
             return 2;

@@ -26,7 +26,7 @@ typedef struct nc_stack_cfg {
     uint8_t mac[6];             /* own MAC for L2 links (from the device ID) */
     int static_ip;              /* 1: use addr/mask/gw/routes below instead of DHCP */
     uint32_t addr, mask, gw;    /* host byte order */
-    nc_routes_t routes;         /* static routes (static_ip only) */
+    nc_routes_t routes;         /* static routes (static_ip only); none: default route via gw */
     int opt3_default_route;     /* debug: keep option 3 as default route even with 121 */
 } nc_stack_cfg_t;
 

@@ -77,6 +77,11 @@ of a dummy interface, `id_from`): it builds `vtesse-cli` with
 `--tap` in a second privileged container; addressing via `udhcpc` and
 `scripts/vtesse-udhcpc.script`; inbound ping and HTTP from the device to the client.
 
+`bench.sh tun-test` is the `type tun` acceptance test (#8): session `02BE0C000006` with
+manual IPv4 (`ip=10.76.0.2/32`, `gw=10.76.0.1`, `route=10.78.0.0/24`); lwIP: HTTP to the
+device and inbound ping; `--tap`: a TUN interface addressed by the hook, ping/HTTP to the
+device, inbound ping, no default route.
+
 `selftest.py` checks: 50-byte greeting; `<TeK>`; `ECHO_REQ` as the first frame;
 DHCP OFFER through the tunnel, delayed ≥ 2 s, with option 121; `killold`
 take-over (new login OK, old connection closed); shaper/compression/tun flags;

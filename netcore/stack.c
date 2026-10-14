@@ -281,7 +281,8 @@ static void on_tunnel_event(void *user, int ev, int err)
             ip4_addr_set_u32(&a, lwip_htonl(st.cfg.addr));
             ip4_addr_set_u32(&m, lwip_htonl(st.cfg.mask));
             ip4_addr_set_u32(&g, lwip_htonl(st.cfg.gw));
-            apply_routes(&st.cfg.routes, st.cfg.gw != 0);
+            /* like option 121: explicit routes, or a default route via gw */
+            apply_routes(&st.cfg.routes, st.cfg.gw != 0 && st.cfg.routes.count == 0);
             netif_set_addr(&st.netif, &a, &m, &g);
         } else if (link == TUNNEL_LINK_L2 && !st.dhcp_started) {
             st.dhcp_started = 1;
