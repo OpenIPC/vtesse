@@ -10,7 +10,7 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- server profiles (#26) -->
+        <!-- servers (#26, #27) -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -41,36 +41,58 @@
             android:layout_height="wrap_content"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:paddingBottom="12dp" />
+            android:paddingTop="4dp"
+            android:paddingBottom="8dp" />
 
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="@string/profile_name" />
+        <Button
+            android:id="@+id/toggle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/start" />
+
+        <!-- server -->
+        <TextView style="@style/Section" android:text="@string/section_server" />
+
+        <TextView style="@style/Label" android:text="@string/server_name" />
         <EditText
             android:id="@+id/profile_name"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:inputType="textCapSentences"
-            android:hint="@string/profile_name_hint" />
+            android:hint="@string/server_name_hint" />
 
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="@string/server" />
-        <EditText
-            android:id="@+id/host"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="textUri"
-            android:hint="vtun.example.org" />
+            android:orientation="horizontal">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="3"
+                android:orientation="vertical">
+                <TextView style="@style/Label" android:text="@string/server" />
+                <EditText
+                    android:id="@+id/host"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textUri"
+                    android:hint="vtun.example.org" />
+            </LinearLayout>
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView style="@style/Label" android:text="@string/port" />
+                <EditText
+                    android:id="@+id/port"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number" />
+            </LinearLayout>
+        </LinearLayout>
 
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="@string/port" />
-        <EditText
-            android:id="@+id/port"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="number" />
-
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="@string/device_id" />
+        <TextView style="@style/Label" android:text="@string/device_id" />
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -90,24 +112,39 @@
                 android:text="@string/generate" />
         </LinearLayout>
 
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="@string/password" />
+        <TextView style="@style/Label" android:text="@string/password" />
         <EditText
             android:id="@+id/password"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:inputType="textPassword" />
 
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="@string/socks_port" />
-        <EditText
-            android:id="@+id/socks_port"
+        <!-- cameras (#27) -->
+        <TextView style="@style/Section" android:text="@string/section_cameras" />
+        <TextView style="@style/Label" android:text="@string/services" />
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="number" />
+            android:orientation="horizontal">
+            <CheckBox android:id="@+id/svc_rtsp" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:singleLine="true" />
+            <CheckBox android:id="@+id/svc_http" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:singleLine="true" />
+            <CheckBox android:id="@+id/svc_ssh" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:singleLine="true" />
+            <CheckBox android:id="@+id/svc_socks" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:singleLine="true" />
+        </LinearLayout>
 
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="@string/forwards" />
+        <!-- 8 rows filled by MainActivity -->
+        <LinearLayout
+            android:id="@+id/cameras"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <TextView style="@style/Section" android:text="@string/section_extra" />
+        <TextView style="@style/Label" android:text="@string/forwards" />
         <EditText
             android:id="@+id/forwards"
             android:layout_width="match_parent"
@@ -116,14 +153,7 @@
             android:gravity="top"
             android:hint="@string/forwards_hint"
             android:inputType="textMultiLine|textNoSuggestions"
-            android:minLines="2" />
-
-        <Button
-            android:id="@+id/toggle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/start" />
+            android:minLines="1" />
 
         <TextView
             android:id="@+id/details"

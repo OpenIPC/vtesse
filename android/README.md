@@ -7,10 +7,24 @@ with `rtsp://127.0.0.1:8554/...` for a forward `8554:CAMERA_IP:554`. No VPN icon
 VPN permission; Android 5.0 (API 21) and later, phones and Android TV boxes (TV
 launcher banner, no touchscreen required).
 
-- Server profiles: up to three (name, server, port, device ID, password, SOCKS5 port,
-  forwards each), selected with the buttons at the top. Selecting another profile
-  while connected disconnects and connects with it; the notification shows
-  `VTesse · N · name`. Profile 1 holds the settings of earlier versions.
+- Servers: up to three (name, VTun server, port, device ID, password), selected with
+  the buttons at the top. Selecting another server while connected disconnects and
+  connects with it; the notification shows `VTesse · Server N · name`.
+- Cameras: up to 8 per server (name, IP). For every camera the checked services
+  are forwarded on fixed local ports, **local port = server·1000 + service·10 +
+  camera** (#27):
+
+  | Service | Camera port | Server 1 | Server 2 | Server 3 |
+  |---|---|---|---|---|
+  | RTSP (55) | 554 | 1551–1558 | 2551–2558 | 3551–3558 |
+  | HTTP (80) | 80 | 1801–1808 | 2801–2808 | 3801–3808 |
+  | SSH (22), off by default | 22 | 1221–1228 | 2221–2228 | 3221–3228 |
+  | SOCKS5 | — | 1080 | 2080 | 3080 |
+
+  Camera 3 of server 1 in a player: `rtsp://user:pass@127.0.0.1:1553/stream=0`; its
+  web UI: `http://127.0.0.1:1803/`. Port 9 of each block (S559) is reserved for
+  RTP/UDP from cameras (#28). Anything else goes into *Other forwards*
+  (`LPORT:IP:RPORT`).
 - Device ID: generated once (random locally administered unicast MAC, second
   character `2`, `6`, `A` or `E`) and kept; it can be replaced by hand. Add it as a
   session on the VTun server (long press copies it).
@@ -29,12 +43,12 @@ back to TCP after 3 s). A camera can be opened from the shell:
 
 ```sh
 adb shell am start -a android.intent.action.SEND -t text/plain \
-  --es android.intent.extra.TEXT 'rtsp://user:pass@127.0.0.1:8554/stream=0' \
+  --es android.intent.extra.TEXT 'rtsp://user:pass@127.0.0.1:1551/stream=0' \
   --es transport tcp -n com.openipc.decoder/.Decoder
 ```
 
 Keep Decoder's **S** mode (key frames only) off for full-rate video. VLC works too
-(`rtsp://127.0.0.1:8554/...`). Smooth 1080p through the tunnel was confirmed on an
+(`rtsp://127.0.0.1:1551/...`). Smooth 1080p through the tunnel was confirmed on an
 Android TV box (#25); if a stream shows far fewer frames than the camera is set to,
 check the camera's own uplink first (transmit drops in its `/metrics`): the tunnel
 carries several Mbit/s per connection (#24).

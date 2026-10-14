@@ -3,6 +3,6 @@
 
 /* MAJOR.MM. Shown by --version and in the title of the "latest" release (CI);
  * record each bump in CHANGELOG.md. */
-#define VTESSE_VERSION "1.05"
+#define VTESSE_VERSION "1.06"
 
 #endif

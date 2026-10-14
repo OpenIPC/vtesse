@@ -4,6 +4,16 @@ The version lives in `include/vtesse/version.h`. Binaries are published only as 
 [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) release, rebuilt
 from every push to `main`; this file is the change history.
 
+## 1.06 — 2026-10-14
+
+- Android: servers with cameras (#27). Each of the three servers has up to 8
+  cameras (name, IP); RTSP, HTTP and optionally SSH are forwarded for every camera on
+  fixed local ports, local port = server·1000 + service·10 + camera: RTSP S55N
+  (1551–1558, 2551–…), HTTP S80N, SSH S22N; SOCKS5 on S080 (1080, 2080, 3080). Ports
+  never overlap between servers, so player slots stay valid. Free-form forwards
+  remain as "Other forwards" (the forwards of 1.05 move there). Camera fields have
+  accessibility labels. RTP/UDP ("camera 9", port S559) is planned in #28.
+
 ## 1.05 — 2026-10-14
 
 - Android: up to three server profiles, each with its own name, server, port, device

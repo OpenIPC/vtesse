@@ -15,31 +15,45 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
+import android.text.InputType
+import android.text.TextWatcher
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 
 /**
- * Server profiles (#26), settings and status. The tunnel itself runs in
- * [TunnelService] (":tunnel" process).
+ * Servers (up to 3) with their cameras (up to 8 each), settings and status
+ * (#26, #27). The tunnel itself runs in [TunnelService] (":tunnel" process).
  */
 class MainActivity : Activity() {
-    private lateinit var profileButtons: List<Button>
-    private lateinit var profileName: EditText
+    private class CameraRow(val name: EditText, val ip: EditText, val ports: TextView)
+
+    private lateinit var serverButtons: List<Button>
+    private lateinit var serverName: EditText
     private lateinit var host: EditText
     private lateinit var port: EditText
     private lateinit var deviceId: EditText
     private lateinit var password: EditText
-    private lateinit var socksPort: EditText
+    private lateinit var svcRtsp: CheckBox
+    private lateinit var svcHttp: CheckBox
+    private lateinit var svcSsh: CheckBox
+    private lateinit var svcSocks: CheckBox
+    private lateinit var cameraRows: List<CameraRow>
     private lateinit var forwards: EditText
     private lateinit var toggle: Button
     private lateinit var state: TextView
     private lateinit var details: TextView
 
     private val handler = Handler(Looper.getMainLooper())
-    private var profile = 1             // shown in the form
-    private var pendingSwitch = 0       // profile to connect once the tunnel has stopped
+    private var server = 1              // shown in the form
+    private var pendingSwitch = 0       // server to connect once the tunnel has stopped
     private var running = false
     private var lastStatusAt = 0L
 
@@ -60,22 +74,35 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        profileButtons = listOf(R.id.profile_1, R.id.profile_2, R.id.profile_3).map { findViewById(it) }
-        profileName = findViewById(R.id.profile_name)
+        serverButtons = listOf(R.id.profile_1, R.id.profile_2, R.id.profile_3).map { findViewById(it) }
+        serverName = findViewById(R.id.profile_name)
         host = findViewById(R.id.host)
         port = findViewById(R.id.port)
         deviceId = findViewById(R.id.device_id)
         password = findViewById(R.id.password)
-        socksPort = findViewById(R.id.socks_port)
+        svcRtsp = findViewById(R.id.svc_rtsp)
+        svcHttp = findViewById(R.id.svc_http)
+        svcSsh = findViewById(R.id.svc_ssh)
+        svcSocks = findViewById(R.id.svc_socks)
         forwards = findViewById(R.id.forwards)
         toggle = findViewById(R.id.toggle)
         state = findViewById(R.id.state)
         details = findViewById(R.id.details)
+        cameraRows = buildCameraRows(findViewById(R.id.cameras))
         title = "${getString(R.string.app_name)} ${Native.version()}"
 
-        profile = Settings.active(this)
-        loadForm(profile)
-        profileButtons.forEachIndexed { i, b -> b.setOnClickListener { selectProfile(i + 1) } }
+        server = Settings.active(this)
+        loadForm(server)
+        serverButtons.forEachIndexed { i, b -> b.setOnClickListener { selectServer(i + 1) } }
+        listOf(svcRtsp, svcHttp, svcSsh, svcSocks).forEach { it.setOnCheckedChangeListener { _, _ -> refreshPorts() } }
+        // the server button shows the name (or host) as it is typed
+        val relabel = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) { refreshServerButtons() }
+        }
+        serverName.addTextChangedListener(relabel)
+        host.addTextChangedListener(relabel)
 
         findViewById<Button>(R.id.generate).setOnClickListener {
             deviceId.setText(Settings.generateDeviceId())
@@ -110,78 +137,148 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
-        if (!running) formSettings()?.save(this, profile)   // keep edits of the shown profile
+        if (!running) formSettings().save(this, server)     // keep edits of the shown server
         super.onPause()
     }
 
-    // ---- profiles ----
+    // ---- form ----
+
+    private fun dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
+
+    /** Camera rows: number, name, IP, local ports. */
+    private fun buildCameraRows(parent: LinearLayout): List<CameraRow> = (1..Settings.CAMERAS).map { n ->
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val num = TextView(this).apply {
+            text = "$n"
+            setTypeface(null, Typeface.BOLD)
+            width = dp(28)
+        }
+        val name = EditText(this).apply {
+            hint = getString(R.string.camera_name_hint, n)
+            contentDescription = getString(R.string.camera_name_desc, n)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            setSingleLine()
+        }
+        val ip = EditText(this).apply {
+            hint = getString(R.string.camera_ip_hint)
+            contentDescription = getString(R.string.camera_ip_desc, n)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            typeface = Typeface.MONOSPACE
+            setSingleLine()
+            setOnFocusChangeListener { _, _ -> refreshPorts() }
+        }
+        val ports = TextView(this).apply {
+            typeface = Typeface.MONOSPACE
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(dp(8), 0, 0, 0)
+        }
+        row.addView(num)
+        row.addView(name, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f))
+        row.addView(ip, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f))
+        row.addView(ports, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 3f))
+        parent.addView(row)
+        CameraRow(name, ip, ports)
+    }
 
     private fun loadForm(n: Int) {
         val s = Settings.load(this, n)
-        profileName.setText(s.name)
+        serverName.setText(s.name)
         host.setText(s.host)
         port.setText(s.port.toString())
         deviceId.setText(s.deviceId)
         password.setText(s.password)
-        socksPort.setText(s.socksPort.toString())
-        forwards.setText(s.forwards.joinToString("\n"))
-        refreshProfileButtons()
+        svcRtsp.isChecked = s.rtsp
+        svcHttp.isChecked = s.http
+        svcSsh.isChecked = s.ssh
+        svcSocks.isChecked = s.socks
+        s.cameras.forEachIndexed { i, c ->
+            cameraRows[i].name.setText(c.name)
+            cameraRows[i].ip.setText(c.ip)
+        }
+        forwards.setText(s.extraForwards.joinToString("\n"))
+        refreshServerButtons()
+        refreshPorts()
     }
 
-    private fun refreshProfileButtons() {
-        profileButtons.forEachIndexed { i, b ->
+    /** Service labels and the local ports of every camera for the shown server. */
+    private fun refreshPorts() {
+        svcRtsp.text = "RTSP ${server}55N"
+        svcHttp.text = "HTTP ${server}80N"
+        svcSsh.text = "SSH ${server}22N"
+        svcSocks.text = getString(R.string.svc_socks, Settings.socksPort(server))
+        cameraRows.forEachIndexed { i, r ->
             val n = i + 1
-            b.text = if (n == profile) formSettings()?.label(n) ?: "$n" else Settings.load(this, n).label(n)
-            b.setTypeface(null, if (n == profile) Typeface.BOLD else Typeface.NORMAL)
-            b.alpha = if (n == profile) 1f else 0.6f
+            val list = buildList {
+                if (svcRtsp.isChecked) add("rtsp ${Settings.port(server, Settings.RTSP, n)}")
+                if (svcHttp.isChecked) add("http ${Settings.port(server, Settings.HTTP, n)}")
+                if (svcSsh.isChecked) add("ssh ${Settings.port(server, Settings.SSH, n)}")
+            }
+            r.ports.text = list.joinToString(" · ")
+            r.ports.alpha = if (r.ip.text.isBlank()) 0.35f else 1f
         }
     }
 
-    /** Switch the form to profile [n]; while connected, reconnect with it. */
-    private fun selectProfile(n: Int) {
-        if (n == profile && pendingSwitch == 0) return
+    private fun refreshServerButtons() {
+        serverButtons.forEachIndexed { i, b ->
+            val n = i + 1
+            b.text = if (n == server) formSettings().label(this, n) else Settings.load(this, n).label(this, n)
+            b.setTypeface(null, if (n == server) Typeface.BOLD else Typeface.NORMAL)
+            b.alpha = if (n == server) 1f else 0.6f
+        }
+    }
+
+    /** Switch the form to server [n]; while connected, reconnect with it. */
+    private fun selectServer(n: Int) {
+        if (n == server && pendingSwitch == 0) return
         if (running) {
             pendingSwitch = n
             state.text = getString(R.string.switching, n.toString())
             TunnelService.stop(this)
             return
         }
-        formSettings()?.save(this, profile)
-        profile = n
+        formSettings().save(this, server)
+        server = n
         Settings.setActive(this, n)
         loadForm(n)
     }
 
-    // ---- connect ----
+    /** The form as settings, lenient (drafts are saved as typed). */
+    private fun formSettings(): Settings = Settings(
+        name = serverName.text.toString().trim(),
+        host = host.text.toString().trim(),
+        port = port.text.toString().toIntOrNull() ?: 5000,
+        deviceId = deviceId.text.toString().trim().uppercase(),
+        password = password.text.toString(),
+        cameras = cameraRows.map { Camera(it.name.text.toString().trim(), it.ip.text.toString().trim()) },
+        rtsp = svcRtsp.isChecked,
+        http = svcHttp.isChecked,
+        ssh = svcSsh.isChecked,
+        socks = svcSocks.isChecked,
+        extraForwards = forwards.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() },
+    )
 
-    /** The form as settings, lenient (for saving drafts); null if nothing sensible to save. */
-    private fun formSettings(): Settings? {
-        if (!::host.isInitialized) return null
-        return Settings(
-            name = profileName.text.toString().trim(),
-            host = host.text.toString().trim(),
-            port = port.text.toString().toIntOrNull() ?: 5000,
-            deviceId = deviceId.text.toString().trim().uppercase(),
-            password = password.text.toString(),
-            socksPort = socksPort.text.toString().ifBlank { "0" }.toIntOrNull() ?: 0,
-            forwards = forwards.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() },
-        )
-    }
+    // ---- connect ----
 
     private fun connect() {
         val id = deviceId.text.toString().trim().uppercase()
         Native.checkDeviceId(id)?.let { deviceId.error = it; return }
         val p = port.text.toString().toIntOrNull()
         if (p == null || p !in 1..65535) { port.error = getString(R.string.bad_port); return }
-        val sp = socksPort.text.toString().ifBlank { "0" }.toIntOrNull()
-        if (sp == null || sp !in 0..65535) { socksPort.error = getString(R.string.bad_port); return }
-        val s = formSettings()!!.copy(deviceId = id, port = p, socksPort = sp)
-        s.save(this, profile)
-        Settings.setActive(this, profile)
-        refreshProfileButtons()
+        cameraRows.forEach { r ->
+            val ip = r.ip.text.toString().trim()
+            if (ip.isNotEmpty() && !Settings.isIpv4(ip)) { r.ip.error = getString(R.string.bad_ip); r.ip.requestFocus(); return }
+        }
+        val s = formSettings().copy(deviceId = id, port = p)
+        s.save(this, server)
+        Settings.setActive(this, server)
+        refreshServerButtons()
         show(Status.parse("state=connecting\n"))
+        val n = server
         // the previous tunnel process must be gone: lwIP starts once per process
-        whenTunnelProcessGone { TunnelService.start(this, s.toConfig(), s.label(profile)) }
+        whenTunnelProcessGone { TunnelService.start(this, s.toConfig(n), s.label(this, n)) }
     }
 
     /** Runs [action] once the previous tunnel process has ended (up to 30 s). */
@@ -214,17 +311,19 @@ class MainActivity : Activity() {
         if (!running && pendingSwitch != 0) {
             val n = pendingSwitch
             pendingSwitch = 0
-            profile = n
+            server = n
             Settings.setActive(this, n)
             loadForm(n)
-            if (host.text.isNotBlank()) {       // an empty profile: just disconnect
+            if (host.text.isNotBlank()) {       // an empty server: just disconnect
                 connect()
                 return
             }
         }
         state.text = if (pendingSwitch != 0) getString(R.string.switching, pendingSwitch.toString()) else st.summary(this)
         toggle.setText(if (running) R.string.stop else R.string.start)
-        listOf(profileName, host, port, deviceId, password, socksPort, forwards).forEach { it.isEnabled = !running }
+        val editable = listOf<View>(serverName, host, port, deviceId, password, svcRtsp, svcHttp, svcSsh, svcSocks, forwards) +
+            cameraRows.flatMap { listOf(it.name, it.ip) }
+        editable.forEach { it.isEnabled = !running }
         details.text = buildString {
             if (st.bound) {
                 append("address ").append(st.addr).append(" / ").append(st.mask).append('\n')
