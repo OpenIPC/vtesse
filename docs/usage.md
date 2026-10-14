@@ -244,13 +244,26 @@ vtesse-cli --config /etc/vtesse.conf --udp-relay 1559
 ```
 
 On the camera (`/etc/majestic.yaml`, then restart Majestic), with the tunnel address the
-client printed:
+client printed. The key depends on the Majestic version — the camera's
+`/api/v1/config.schema.json` shows which one it has:
 
 ```yaml
-outgoing:
+outgoing:                       # one destination (e.g. Majestic of 2025)
+  enabled: true
+  server: udp://10.77.0.169:1559
+```
+
+```yaml
+outgoing:                       # a list (newer Majestic)
   servers:
     - udp://10.77.0.169:1559
 ```
+
+The Majestic log then shows `Outgoing RTP stream udp://…`. Restarting Majestic over SSH
+on OpenIPC firmware: keep the environment of the boot scripts, otherwise the sensor
+may not be found and video stops (`Cannot start SDK`):
+`SENSOR=$(fw_printenv -n sensor) /etc/init.d/S95majestic restart` (or restart from
+the web UI, or reboot).
 
 Player: `udp://@:1559` (OpenIPC Decoder: a `udp://` slot or its U cell with port 5600
 via `--udp-relay 1559:5600`).

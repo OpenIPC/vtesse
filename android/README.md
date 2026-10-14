@@ -27,9 +27,12 @@ launcher banner, no touchscreen required).
 - RTP/UDP from cameras (#28): with *Receive RTP/UDP* checked, datagrams sent to the
   device's tunnel address on port **S559** (1559, 2559, 3559 — "camera 9" of the RTSP
   block) are relayed to `127.0.0.1:S559`. The status shows what to configure: on the
-  camera `outgoing` → `udp://<tunnel address>:1559` (majestic.yaml), in the player
-  `udp://@:1559` (OpenIPC Decoder: a `udp://` slot). The tunnel address stays the same
-  across reconnects.
+  camera `outgoing` → `udp://<tunnel address>:1559` (majestic.yaml: `server:` or
+  `servers:` depending on the Majestic version, see
+  [usage](../docs/usage.md#udp-relay-rtp-from-cameras)), in the player `udp://@:1559`
+  (OpenIPC Decoder: a `udp://` slot, shown as `UDP push`). The tunnel address stays
+  the same across reconnects. Verified on the Android TV box: a camera pushing H.264
+  1080p, Decoder playing it at full rate through the relay.
 - Device ID: generated once (random locally administered unicast MAC, second
   character `2`, `6`, `A` or `E`) and kept; it can be replaced by hand. Add it as a
   session on the VTun server (long press copies it).
