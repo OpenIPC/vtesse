@@ -4,6 +4,17 @@ The version lives in `include/vtesse/version.h`. Binaries are published only as 
 [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) release, rebuilt
 from every push to `main`; this file is the change history.
 
+## 1.05 — 2026-10-14
+
+- Android: up to three server profiles, each with its own name, server, port, device
+  ID, password, SOCKS5 port and port forwards (#26). The settings of 1.04 become
+  profile 1; a new profile starts with profile 1's device ID. A profile row on the
+  main screen (also with a TV remote); selecting another profile while connected
+  reconnects with it (~1.5 s on the test box), an empty profile just disconnects.
+  The notification shows the active profile.
+- Android: a new tunnel waits until the previous tunnel process has ended instead of
+  starting into it; stopping never blocks the service's main thread for long.
+
 ## 1.04 — 2026-10-14
 
 - lwIP TCP window ~125 KiB with window scaling (was 16 x MSS ≈ 23 KiB), send

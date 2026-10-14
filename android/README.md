@@ -7,6 +7,10 @@ with `rtsp://127.0.0.1:8554/...` for a forward `8554:CAMERA_IP:554`. No VPN icon
 VPN permission; Android 5.0 (API 21) and later, phones and Android TV boxes (TV
 launcher banner, no touchscreen required).
 
+- Server profiles: up to three (name, server, port, device ID, password, SOCKS5 port,
+  forwards each), selected with the buttons at the top. Selecting another profile
+  while connected disconnects and connects with it; the notification shows
+  `VTesse · N · name`. Profile 1 holds the settings of earlier versions.
 - Device ID: generated once (random locally administered unicast MAC, second
   character `2`, `6`, `A` or `E`) and kept; it can be replaced by hand. Add it as a
   session on the VTun server (long press copies it).

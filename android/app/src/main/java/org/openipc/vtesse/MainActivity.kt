@@ -217,8 +217,10 @@ class MainActivity : Activity() {
             profile = n
             Settings.setActive(this, n)
             loadForm(n)
-            connect()
-            return
+            if (host.text.isNotBlank()) {       // an empty profile: just disconnect
+                connect()
+                return
+            }
         }
         state.text = if (pendingSwitch != 0) getString(R.string.switching, pendingSwitch.toString()) else st.summary(this)
         toggle.setText(if (running) R.string.stop else R.string.start)

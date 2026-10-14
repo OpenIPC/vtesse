@@ -104,7 +104,7 @@ curl -fsSL -o ~/.local/bin/vtesse https://github.com/compot-dev/vtesse/releases/
 
 ### Android
 
-Android 5.0 及以上（包括电视盒子）：[`vtesse-android.apk`](https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-android.apk)。无需 VPN 权限、没有 VPN 图标——带普通通知的服务维持隧道，并在 `127.0.0.1` 上提供 SOCKS5 和端口转发；播放器（如 VLC）即可打开 `rtsp://127.0.0.1:8554/...`。设备 ID 在首次启动时生成（长按可复制），需要在服务器上添加为会话。详见 [android/README.md](android/README.md)。
+Android 5.0 及以上（包括电视盒子）：[`vtesse-android.apk`](https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-android.apk)。无需 VPN 权限、没有 VPN 图标——带普通通知的服务维持隧道，并在 `127.0.0.1` 上提供 SOCKS5 和端口转发；播放器（如 VLC）即可打开 `rtsp://127.0.0.1:8554/...`。设备 ID 在首次启动时生成（长按可复制），需要在服务器上添加为会话。最多三个服务器配置，一键切换。详见 [android/README.md](android/README.md)。
 
 ## 从源码构建
 
