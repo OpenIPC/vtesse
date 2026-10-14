@@ -20,6 +20,11 @@ response is XOR) and a bridged L2 segment that looks like the real one:
 
 All names, addresses and passwords are bench-only test values.
 
+The server is built with our patches from [`patches/`](patches/): a refused login is
+logged with the session name and the reason, e.g.
+`Denied connection from 172.28.0.1:33016: session 02BE0C000001: wrong password`
+(stock 3.0.2 logs only `Denied connection from IP:PORT`).
+
 - DHCP: leases `10.77.0.100–199`, infinite; option 3 `10.77.0.1`; option 121
   `10.78.0.0/24` and `10.79.0.0/24` (unreachable) via `10.77.0.1`. dnsmasq pings an
   address before offering it, so the OFFER comes after ~3 s, like on the target server.

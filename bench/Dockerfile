@@ -17,6 +17,9 @@ RUN curl -fsSL -o vtun.tar.gz "http://prdownloads.sourceforge.net/vtun/vtun-${VT
  && tar xzf vtun.tar.gz
 
 WORKDIR /src/vtun-${VTUN_VERSION}
+# Our patches (patches/README.md): e.g. who was denied and why in the server log.
+COPY patches/ /src/patches/
+RUN for p in /src/patches/vtun-${VTUN_VERSION}-*.patch; do patch -p1 < "$p" || exit 1; done
 # -fcommon: the 2008 sources define globals in headers (modern GCC defaults to -fno-common).
 RUN CFLAGS="-O2 -fcommon" ./configure --build=x86_64-linux-gnu \
         --disable-lzo --disable-zlib --disable-ssl --prefix='' \
