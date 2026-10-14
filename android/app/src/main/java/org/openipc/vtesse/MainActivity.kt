@@ -2,6 +2,7 @@ package org.openipc.vtesse
 
 import android.Manifest
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -9,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -18,8 +20,13 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 
-/** Settings and status. The tunnel itself runs in [TunnelService] (":tunnel" process). */
+/**
+ * Server profiles (#26), settings and status. The tunnel itself runs in
+ * [TunnelService] (":tunnel" process).
+ */
 class MainActivity : Activity() {
+    private lateinit var profileButtons: List<Button>
+    private lateinit var profileName: EditText
     private lateinit var host: EditText
     private lateinit var port: EditText
     private lateinit var deviceId: EditText
@@ -31,6 +38,8 @@ class MainActivity : Activity() {
     private lateinit var details: TextView
 
     private val handler = Handler(Looper.getMainLooper())
+    private var profile = 1             // shown in the form
+    private var pendingSwitch = 0       // profile to connect once the tunnel has stopped
     private var running = false
     private var lastStatusAt = 0L
 
@@ -51,6 +60,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        profileButtons = listOf(R.id.profile_1, R.id.profile_2, R.id.profile_3).map { findViewById(it) }
+        profileName = findViewById(R.id.profile_name)
         host = findViewById(R.id.host)
         port = findViewById(R.id.port)
         deviceId = findViewById(R.id.device_id)
@@ -62,13 +73,9 @@ class MainActivity : Activity() {
         details = findViewById(R.id.details)
         title = "${getString(R.string.app_name)} ${Native.version()}"
 
-        val s = Settings.load(this)
-        host.setText(s.host)
-        port.setText(s.port.toString())
-        deviceId.setText(s.deviceId)
-        password.setText(s.password)
-        socksPort.setText(s.socksPort.toString())
-        forwards.setText(s.forwards.joinToString("\n"))
+        profile = Settings.active(this)
+        loadForm(profile)
+        profileButtons.forEachIndexed { i, b -> b.setOnClickListener { selectProfile(i + 1) } }
 
         findViewById<Button>(R.id.generate).setOnClickListener {
             deviceId.setText(Settings.generateDeviceId())
@@ -102,6 +109,65 @@ class MainActivity : Activity() {
         super.onStop()
     }
 
+    override fun onPause() {
+        if (!running) formSettings()?.save(this, profile)   // keep edits of the shown profile
+        super.onPause()
+    }
+
+    // ---- profiles ----
+
+    private fun loadForm(n: Int) {
+        val s = Settings.load(this, n)
+        profileName.setText(s.name)
+        host.setText(s.host)
+        port.setText(s.port.toString())
+        deviceId.setText(s.deviceId)
+        password.setText(s.password)
+        socksPort.setText(s.socksPort.toString())
+        forwards.setText(s.forwards.joinToString("\n"))
+        refreshProfileButtons()
+    }
+
+    private fun refreshProfileButtons() {
+        profileButtons.forEachIndexed { i, b ->
+            val n = i + 1
+            b.text = if (n == profile) formSettings()?.label(n) ?: "$n" else Settings.load(this, n).label(n)
+            b.setTypeface(null, if (n == profile) Typeface.BOLD else Typeface.NORMAL)
+            b.alpha = if (n == profile) 1f else 0.6f
+        }
+    }
+
+    /** Switch the form to profile [n]; while connected, reconnect with it. */
+    private fun selectProfile(n: Int) {
+        if (n == profile && pendingSwitch == 0) return
+        if (running) {
+            pendingSwitch = n
+            state.text = getString(R.string.switching, n.toString())
+            TunnelService.stop(this)
+            return
+        }
+        formSettings()?.save(this, profile)
+        profile = n
+        Settings.setActive(this, n)
+        loadForm(n)
+    }
+
+    // ---- connect ----
+
+    /** The form as settings, lenient (for saving drafts); null if nothing sensible to save. */
+    private fun formSettings(): Settings? {
+        if (!::host.isInitialized) return null
+        return Settings(
+            name = profileName.text.toString().trim(),
+            host = host.text.toString().trim(),
+            port = port.text.toString().toIntOrNull() ?: 5000,
+            deviceId = deviceId.text.toString().trim().uppercase(),
+            password = password.text.toString(),
+            socksPort = socksPort.text.toString().ifBlank { "0" }.toIntOrNull() ?: 0,
+            forwards = forwards.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() },
+        )
+    }
+
     private fun connect() {
         val id = deviceId.text.toString().trim().uppercase()
         Native.checkDeviceId(id)?.let { deviceId.error = it; return }
@@ -109,25 +175,54 @@ class MainActivity : Activity() {
         if (p == null || p !in 1..65535) { port.error = getString(R.string.bad_port); return }
         val sp = socksPort.text.toString().ifBlank { "0" }.toIntOrNull()
         if (sp == null || sp !in 0..65535) { socksPort.error = getString(R.string.bad_port); return }
-        val s = Settings(
-            host = host.text.toString().trim(),
-            port = p,
-            deviceId = id,
-            password = password.text.toString(),
-            socksPort = sp,
-            forwards = forwards.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() },
-        )
-        s.save(this)
-        TunnelService.start(this, s.toConfig())
+        val s = formSettings()!!.copy(deviceId = id, port = p, socksPort = sp)
+        s.save(this, profile)
+        Settings.setActive(this, profile)
+        refreshProfileButtons()
         show(Status.parse("state=connecting\n"))
+        // the previous tunnel process must be gone: lwIP starts once per process
+        whenTunnelProcessGone { TunnelService.start(this, s.toConfig(), s.label(profile)) }
     }
+
+    /** Runs [action] once the previous tunnel process has ended (up to 30 s). */
+    private fun whenTunnelProcessGone(action: () -> Unit) {
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val name = TunnelService.processName(this)
+        val deadline = System.currentTimeMillis() + 30000
+        val check = object : Runnable {
+            override fun run() {
+                val alive = am.runningAppProcesses?.any { it.processName == name } == true
+                when {
+                    !alive -> action()
+                    System.currentTimeMillis() < deadline -> {
+                        state.text = getString(R.string.waiting_previous)
+                        lastStatusAt = System.currentTimeMillis()   // not stale while waiting
+                        handler.postDelayed(this, 200)
+                    }
+                    else -> show(Status.parse("state=failed\nerror=${getString(R.string.err_previous_closing)}\n"))
+                }
+            }
+        }
+        check.run()
+    }
+
+    // ---- status ----
 
     private fun show(st: Status) {
         lastStatusAt = System.currentTimeMillis()
         running = st.running
-        state.text = st.summary(this)
+        if (!running && pendingSwitch != 0) {
+            val n = pendingSwitch
+            pendingSwitch = 0
+            profile = n
+            Settings.setActive(this, n)
+            loadForm(n)
+            connect()
+            return
+        }
+        state.text = if (pendingSwitch != 0) getString(R.string.switching, pendingSwitch.toString()) else st.summary(this)
         toggle.setText(if (running) R.string.stop else R.string.start)
-        listOf(host, port, deviceId, password, socksPort, forwards).forEach { it.isEnabled = !running }
+        listOf(profileName, host, port, deviceId, password, socksPort, forwards).forEach { it.isEnabled = !running }
         details.text = buildString {
             if (st.bound) {
                 append("address ").append(st.addr).append(" / ").append(st.mask).append('\n')

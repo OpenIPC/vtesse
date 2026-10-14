@@ -30,6 +30,7 @@ class TunnelService : Service() {
     private var running = false
     private var wakeLock: PowerManager.WakeLock? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
+    private var label = ""      // active profile, for the notification title
 
     private val tick = object : Runnable {
         override fun run() {
@@ -44,13 +45,22 @@ class TunnelService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> shutdown()
-            ACTION_START -> if (!running) start(intent.getStringExtra(EXTRA_CONFIG) ?: "")
+            ACTION_START -> if (!running) {
+                if (sessionUsed) {
+                    // this process is about to end (lwIP starts once per process)
+                    publish("state=failed\nerror=${getString(R.string.err_previous_closing)}\n")
+                } else {
+                    label = intent.getStringExtra(EXTRA_LABEL) ?: ""
+                    start(intent.getStringExtra(EXTRA_CONFIG) ?: "")
+                }
+            }
         }
         return START_REDELIVER_INTENT
     }
 
     private fun start(config: String) {
         startInForeground(getString(R.string.notify_connecting))
+        sessionUsed = true
         val err = Native.start(config)
         if (err != null) {
             publish("state=failed\nerror=$err\n")
@@ -68,7 +78,7 @@ class TunnelService : Service() {
         handler.removeCallbacks(tick)
         if (running) {
             running = false
-            Native.stop()
+            stopNative()
         }
         netCallback?.let {
             runCatching { connectivity().unregisterNetworkCallback(it) }
@@ -86,9 +96,17 @@ class TunnelService : Service() {
     override fun onDestroy() {
         if (running) {
             running = false
-            Native.stop()
+            stopNative()
         }
         super.onDestroy()
+    }
+
+    /** Native.stop() waits for the network thread; never block the main thread long
+     *  for it: the process ends right after anyway. */
+    private fun stopNative() {
+        val t = Thread { Native.stop() }
+        t.start()
+        t.join(2000)
     }
 
     private fun publish(status: String) {
@@ -163,7 +181,7 @@ class TunnelService : Service() {
             Notification.Builder(this).setPriority(Notification.PRIORITY_LOW)
         }
         return b.setSmallIcon(R.drawable.ic_notify)
-            .setContentTitle(getString(R.string.app_name))
+            .setContentTitle(if (label.isEmpty()) getString(R.string.app_name) else "${getString(R.string.app_name)} · $label")
             .setContentText(text)
             .setOngoing(true)
             .setContentIntent(open)
@@ -176,12 +194,20 @@ class TunnelService : Service() {
         const val ACTION_STOP = "org.openipc.vtesse.STOP"
         const val ACTION_STATUS = "org.openipc.vtesse.STATUS"
         const val EXTRA_CONFIG = "config"
+        const val EXTRA_LABEL = "label"
         const val EXTRA_STATUS = "status"
         private const val CHANNEL = "tunnel"
         private const val NOTIFY_ID = 1
 
-        fun start(ctx: Context, config: String) {
-            val i = Intent(ctx, TunnelService::class.java).setAction(ACTION_START).putExtra(EXTRA_CONFIG, config)
+        /** A session ran in this process: it cannot start another one. */
+        @Volatile private var sessionUsed = false
+
+        /** Name of the process the tunnel runs in (manifest: android:process=":tunnel"). */
+        fun processName(ctx: Context) = ctx.packageName + ":tunnel"
+
+        fun start(ctx: Context, config: String, label: String) {
+            val i = Intent(ctx, TunnelService::class.java).setAction(ACTION_START)
+                .putExtra(EXTRA_CONFIG, config).putExtra(EXTRA_LABEL, label)
             if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i)
         }
 

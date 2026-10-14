@@ -10,6 +10,31 @@
         android:orientation="vertical"
         android:padding="16dp">
 
+        <!-- server profiles (#26) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <Button
+                android:id="@+id/profile_1"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:singleLine="true" />
+            <Button
+                android:id="@+id/profile_2"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:singleLine="true" />
+            <Button
+                android:id="@+id/profile_3"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:singleLine="true" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/state"
             android:layout_width="match_parent"
@@ -17,6 +42,15 @@
             android:textSize="18sp"
             android:textStyle="bold"
             android:paddingBottom="12dp" />
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="@string/profile_name" />
+        <EditText
+            android:id="@+id/profile_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textCapSentences"
+            android:hint="@string/profile_name_hint" />
 
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="@string/server" />

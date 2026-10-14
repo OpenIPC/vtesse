@@ -2,6 +2,11 @@
 <resources>
     <string name="app_name">VTesse</string>
     <string name="channel_name">Tunnel</string>
+    <string name="profile_name">Profile name</string>
+    <string name="profile_name_hint">e.g. Office</string>
+    <string name="switching">Switching to profile %1$s…</string>
+    <string name="waiting_previous">Waiting for the previous connection to close…</string>
+    <string name="err_previous_closing">the previous connection is still closing, try again</string>
     <string name="server">VTun server</string>
     <string name="port">Port</string>
     <string name="device_id">Device ID (session name)</string>
