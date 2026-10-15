@@ -1,0 +1,4 @@
+# Docker build context is the repository root (bench/Dockerfile): send only what it uses.
+*
+!bench/
+!server/

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VTesse</string>
+    <string name="channel_name">Tunnel</string>
+    <string name="server_n">Server %1$d</string>
+    <string name="section_server">Server</string>
+    <string name="section_cameras">Cameras (up to 8)</string>
+    <string name="section_extra">Other forwards</string>
+    <string name="server_name">Name</string>
+    <string name="server_name_hint">e.g. Office</string>
+    <string name="services">Forward for each camera (local port = server·1000 + service·10 + camera)</string>
+    <string name="svc_rtsp">RTSP S55N</string>
+    <string name="svc_http">HTTP S80N</string>
+    <string name="svc_ssh">SSH S22N</string>
+    <string name="svc_socks">SOCKS5 :%1$d</string>
+    <string name="svc_udp">Receive RTP/UDP from cameras on port %1$d (camera: outgoing udp://&lt;tunnel address&gt;:%1$d, player: udp://@:%1$d)</string>
+    <string name="udp_hint">RTP/UDP: camera → udp://%1$s:%2$d · player → udp://@:%3$d · %4$d datagrams, %5$d dropped</string>
+    <string name="camera_name_hint">Camera %1$d</string>
+    <string name="camera_ip_hint">IP address</string>
+    <string name="camera_name_desc">Camera %1$d name</string>
+    <string name="camera_ip_desc">Camera %1$d IP address</string>
+    <string name="bad_ip">Not an IPv4 address</string>
+    <string name="switching">Switching to server %1$s…</string>
+    <string name="waiting_previous">Waiting for the previous connection to close…</string>
+    <string name="err_previous_closing">the previous connection is still closing, try again</string>
+    <string name="server">VTun server (host)</string>
+    <string name="port">Port</string>
+    <string name="device_id">Device ID (session name)</string>
+    <string name="generate">New ID</string>
+    <string name="password">Password</string>
+    <string name="forwards">One per line: LPORT:IP:RPORT (any host behind the server)</string>
+    <string name="forwards_hint">8554:10.0.0.10:554</string>
+    <string name="start">Connect</string>
+    <string name="stop">Disconnect</string>
+    <string name="notify_connecting">Connecting…</string>
+    <string name="state_connecting">Connecting…</string>
+    <string name="state_up_addr">Connected, address %1$s</string>
+    <string name="state_up_dhcp">Connected, waiting for DHCP…</string>
+    <string name="state_down">Reconnecting: %1$s</string>
+    <string name="state_failed">Failed: %1$s</string>
+    <string name="state_stopped">Not connected</string>
+    <string name="id_generated">New device ID generated: add it as a session on the server</string>
+    <string name="id_copied">Device ID copied</string>
+    <string name="bad_port">Bad port</string>
+</resources>

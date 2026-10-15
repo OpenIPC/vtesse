@@ -1,0 +1,135 @@
+vtund server: say who was denied and why.
+
+Stock 3.0.2 logs a failed login only as "Denied connection from IP:PORT", so a
+wrong password, an unknown session and a refused second login look the same
+and the device cannot be identified. Log the session name the client sent
+(sanitised to printable ASCII) and the reason:
+
+  Denied connection from 1.2.3.4:5678: session 02BE0C000001: wrong password
+  Denied connection from 1.2.3.4:5678: session 02BE0C0000FF: unknown session
+  Denied connection from 1.2.3.4:5678: session 02BE0C000005: already connected (multi no) or lock error
+  Denied connection from 1.2.3.4:5678: no session name received
+
+The wire protocol is unchanged: the client still gets a bare "ERR".
+
+--- a/auth.h
++++ b/auth.h
+@@ -26,5 +26,5 @@
+ #define ST_HOST  1
+ #define ST_CHAL  2
+ 
+-struct vtun_host * auth_server(int fd);
++struct vtun_host * auth_server(int fd, char *why, int why_len);
+ int auth_client(int fd, struct vtun_host *host);
+--- a/auth.c
++++ b/auth.c
+@@ -309,17 +309,32 @@
+      return 1;
+ }   
+ 
+-/* Authentication (Server side) */
+-struct vtun_host * auth_server(int fd)
++/* Client-supplied session name, made safe for syslog: printable ASCII only. */
++static void log_name(char *dst, int len, const char *src)
++{
++	int i;
++
++	for(i=0; i < len-1 && src[i]; i++)
++	   dst[i] = ((unsigned char)src[i] > 0x20 && (unsigned char)src[i] < 0x7f) ? src[i] : '?';
++	dst[i] = '\0';
++}
++
++/* Authentication (Server side).
++ * On failure returns NULL and leaves the reason, with the session name the
++ * client sent, in why[] for the "Denied connection" log line. */
++struct vtun_host * auth_server(int fd, char *why, int why_len)
+ {
+         char chal_req[VTUN_CHAL_SIZE], chal_res[VTUN_CHAL_SIZE];	
+ 	char buf[VTUN_MESG_SIZE], *str1, *str2;
+         struct vtun_host *h = NULL;
+ 	char *host = NULL;
++	char name[VTUN_MESG_SIZE];
+ 	int  stage;
+ 
+         set_title("authentication");
+ 
++	snprintf(why, why_len, "no session name received");
++
+ 	print_p(fd,"VTUN server ver %s\n",VTUN_VER);
+ 
+ 	stage = ST_HOST;
+@@ -337,6 +352,8 @@
+ 	     case ST_HOST:
+ 	        if( !strcmp(str1,"HOST") ){
+ 		   host = strdup(str2);
++		   log_name(name, sizeof(name), host);
++		   snprintf(why, why_len, "session %s: no challenge response", name);
+ 
+ 		   gen_chal(chal_req);
+ 		   print_p(fd,"OK CHAL: %s\n", cl2cs(chal_req));
+@@ -347,11 +364,15 @@
+ 		break;
+ 	     case ST_CHAL:
+ 	        if( !strcmp(str1,"CHAL") ){
+-		   if( !cs2cl(str2,chal_res) )
++		   if( !cs2cl(str2,chal_res) ){
++		      snprintf(why, why_len, "session %s: malformed challenge response", name);
+ 		      break; 
++		   }
+ 		   
+-		   if( !(h = find_host(host)) )
++		   if( !(h = find_host(host)) ){
++		      snprintf(why, why_len, "session %s: unknown session", name);
+ 		      break;
++		   }
+ 
+ 		   decrypt_chal(chal_res, h->passwd);   		
+ 	
+@@ -361,12 +382,15 @@
+ 		      /* Lock host */	
+ 		      if( lock_host(h) < 0 ){
+ 		         /* Multiple connections are denied */
++		         snprintf(why, why_len, "session %s: already connected (multi no) or lock error", name);
+ 		         h = NULL;
+ 		         break;
+ 		      }	
+ 		      print_p(fd,"OK FLAGS: %s\n", bf2cf(h)); 
+- 		   } else
++ 		   } else {
++		      snprintf(why, why_len, "session %s: wrong password", name);
+ 		      h = NULL;
++		   }
+ 	        }
+ 		break;
+  	   }
+--- a/server.c
++++ b/server.c
+@@ -62,7 +62,7 @@
+      struct sockaddr_in my_addr, cl_addr;
+      struct vtun_host *host;
+      struct sigaction sa;
+-     char *ip;
++     char *ip, why[VTUN_MESG_SIZE + 64];
+      int opt;
+ 
+      opt = sizeof(struct sockaddr_in);
+@@ -80,7 +80,7 @@
+ 
+      io_init();
+ 
+-     if( (host=auth_server(sock)) ){	
++     if( (host=auth_server(sock, why, sizeof(why))) ){	
+         sa.sa_handler=SIG_IGN;
+ 	sa.sa_flags=SA_NOCLDWAIT;;
+         sigaction(SIGHUP,&sa,NULL);
+@@ -102,8 +102,8 @@
+ 	/* Unlock host. (locked in auth_server) */	
+ 	unlock_host(host);
+      } else {
+-        vtun_syslog(LOG_INFO,"Denied connection from %s:%d", ip,
+-					ntohs(cl_addr.sin_port) );
++        vtun_syslog(LOG_INFO,"Denied connection from %s:%d: %s", ip,
++					ntohs(cl_addr.sin_port), why );
+      }
+      close(sock);
+ 

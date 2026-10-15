@@ -1,0 +1,253 @@
+#
+# build.yml — VTesse CI: tests, static musl builds for camera/router targets,
+# the Docker test bench, releases.
+#
+# The VTun server (vtund) is built with our patches (server/build-vtund.sh,
+# server/patches) for PCs/servers only, in the x86_64 job, and released as
+# vtund-<vtun version>-x86_64. Cameras and routers build it in the OpenIPC
+# environment when needed.
+#
+# Static musl binaries (a static glibc binary cannot resolve host names without
+# the NSS libraries of the same glibc on the device). 32-bit ARM uses the OpenIPC
+# firmware toolchain, MIPS (both byte orders) the OpenWrt toolchains (musl,
+# soft-float: no FPU needed on routers), the rest Bootlin musl toolchains
+# (ci/build-musl.sh).
+#
+# Release: one release only, "latest", replaced by every push to main. Its title
+# carries the version from include/vtesse/version.h (VTESSE_VERSION "MAJOR.MM")
+# and its notes are one short line; the change history lives in CHANGELOG.md.
+# No versioned releases are kept.
+#
+
+name: VTesse CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# One run per branch and event: a newer push cancels the older run, so
+# "latest" always carries the build of the newest commit.
+concurrency:
+  group: build-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ------------------------------------------------------------------ tests
+  tests:
+    name: Unit tests (native, sanitizers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build and test
+        run: |
+          make -j"$(nproc)"
+          make test
+
+      - name: Test under ASan/UBSan
+        run: |
+          make -j"$(nproc)" BUILD=build-asan \
+            CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" \
+            LDFLAGS="-fsanitize=address,undefined" test
+
+      - name: TAP-only build (LWIP=0)
+        run: make -j"$(nproc)" BUILD=build-tap LWIP=0 all
+
+      - name: Minimal lwIP build (SOCKS=0 UDP_RELAY=0 TAP=0) and its tests
+        run: make -j"$(nproc)" BUILD=build-min SOCKS=0 UDP_RELAY=0 TAP=0 test
+
+  # ------------------------------------------------------------------ cross
+  build:
+    name: Build ${{ matrix.target }} (musl static)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [arm32, mipsel, arm64, mips, x86_64]
+    env:
+      TOOLCHAIN_CACHE: ${{ github.workspace }}/.toolchains
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install qemu-user and the vtund build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-user
+          # vtund (x86_64 job only)
+          if [ "${{ matrix.target }}" = x86_64 ]; then sudo apt-get install -y -qq bison flex autotools-dev; fi
+
+      - name: Cache toolchain
+        uses: actions/cache@v6
+        with:
+          path: .toolchains
+          key: toolchain-${{ matrix.target }}-${{ hashFiles('ci/build-musl.sh') }}
+
+      - name: Cache vtun sources
+        if: matrix.target == 'x86_64'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/vtesse-vtun
+          key: vtun-${{ hashFiles('server/build-vtund.sh') }}
+
+      - name: Build and run the unit tests under qemu
+        run: QEMU=1 ci/build-musl.sh ${{ matrix.target }} dist
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: vtesse-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------ bench
+  bench:
+    name: Test bench (VTun 3.0.2 + our patches, in Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: Start the bench
+        run: |
+          bench/bench.sh build
+          bench/bench.sh up
+          sleep 5
+
+      - name: Server self-test
+        run: bench/bench.sh selftest
+
+      - name: Stage 1 acceptance (lwIP, DHCP)
+        run: bench/bench.sh cli-test
+
+      - name: Stage 2 acceptance (SOCKS5, port forwards)
+        run: bench/bench.sh proxy-test
+
+      - name: TAP backend acceptance
+        run: bench/bench.sh tap-test
+
+      - name: type tun acceptance (manual IPv4, lwIP and TAP)
+        run: bench/bench.sh tun-test
+
+      - name: UDP relay acceptance (RTP from cameras)
+        run: bench/bench.sh udp-test
+
+      - name: Failure scenarios (link loss, server restart, no option 121, lease renewal)
+        run: bench/bench.sh fault-test
+
+      - name: Server log
+        if: always()
+        run: docker logs vtesse-bench-server 2>&1 | tail -100 || true
+
+  # ---------------------------------------------------------------- android
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache Gradle
+        uses: actions/cache@v6
+        with:
+          path: android/.gradle-cache
+          key: gradle-${{ hashFiles('android/**/*.kts', 'android/gradle.properties') }}
+
+      - name: Build APKs (Docker, ci/Dockerfile.android)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.VTESSE_KEYSTORE_BASE64 }}
+          VTESSE_KEYSTORE_PASSWORD: ${{ secrets.VTESSE_KEYSTORE_PASSWORD }}
+          VTESSE_KEY_ALIAS: ${{ secrets.VTESSE_KEY_ALIAS }}
+          VTESSE_KEY_PASSWORD: ${{ secrets.VTESSE_KEY_PASSWORD }}
+        run: |
+          # release signing key from the repository secrets (absent in forks: unsigned)
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            mkdir -p "$RUNNER_TEMP/keys"
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/keys/vtesse-release.jks"
+            export VTESSE_KEYSTORE="$RUNNER_TEMP/keys/vtesse-release.jks"
+          fi
+          android/build.sh assembleDebug assembleRelease
+          rm -rf "$RUNNER_TEMP/keys"
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: vtesse-android
+          path: android/app/build/outputs/apk/*/*.apk
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------- release
+  release:
+    name: Release
+    needs: [tests, build, bench, android]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Collect assets
+        id: vars
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(sed -n 's/^#define VTESSE_VERSION "\(.*\)"/\1/p' include/vtesse/version.h)
+          if [ -z "$VER" ]; then echo "::error::no VTESSE_VERSION found"; exit 1; fi
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          # the APK goes to Telegram only when the version changes (#33)
+          PREV=$(gh release view latest --json name -q .name 2>/dev/null || true)
+          echo "Previous release: ${PREV:-none}"
+          [ "$PREV" = "VTesse $VER" ] || echo "new=true" >> "$GITHUB_OUTPUT"
+          echo "vtun=$(server/build-vtund.sh --version)" >> "$GITHUB_OUTPUT"
+          mkdir release
+          # artifacts keep their directory layout (dist/...)
+          find artifacts -type f \( -name 'vtesse-*' -o -name 'vtund-*' \) -exec cp {} release/ \;
+          [ -f "release/vtund-$(server/build-vtund.sh --version)-x86_64" ] || { echo "::error::no vtund x86_64 binary"; exit 1; }
+          # Android: the signed release APK only (an unsigned one is app-release-unsigned.apk)
+          apk=$(find artifacts -type f -name app-release.apk | head -1)
+          [ -n "$apk" ] || { echo "::error::no signed release APK"; exit 1; }
+          cp "$apk" release/vtesse-android.apk
+          cp scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse scripts/vtesse.init release/
+          (cd release && sha256sum * > SHA256SUMS)
+          ls -l release
+
+      - name: Publish "latest"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ steps.vars.outputs.ver }}
+          VTUN: ${{ steps.vars.outputs.vtun }}
+        run: |
+          gh release delete latest --cleanup-tag --yes 2>/dev/null || true
+          gh release create latest release/* \
+            --latest \
+            --title "VTesse ${VER}" \
+            --target "${GITHUB_SHA}" \
+            --notes "VTesse ${VER} (${GITHUB_SHA::7}): static musl builds of vtesse-cli for arm32, mipsel, mips, arm64 and x86_64, the Android app (vtesse-android.apk, Android 5.0+) and the VTun ${VTUN} server with our patches for PCs (vtund-${VTUN}-x86_64). Changes: CHANGELOG.md; installation: README.md."
+
+      # The Telegram channel gets the APK of every new version, as in OpenIPC/decoder (#33).
+      # Organization secrets; a failed upload is reported but does not fail the release.
+      - name: Telegram
+        if: steps.vars.outputs.new == 'true'
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_TOKEN_BOT_OPENIPC }}
+          TG_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL_OPENIPC_DEV }}
+          VER: ${{ steps.vars.outputs.ver }}
+        run: |
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHANNEL" ]; then
+            echo "::warning::Telegram secrets are not available, APK not posted"; exit 0
+          fi
+          CAPTION=$(printf 'VTesse %s for Android\nCommit: %s\nTime: %s\n\n%s' "$VER" "${GITHUB_SHA::7}" \
+            "$(date -u '+%Y-%m-%d %H:%M:%S UTC')" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/latest")
+          HTTP=$(curl -sS -o tg.json -w '%{http_code}' "https://api.telegram.org/bot${TG_TOKEN}/sendDocument" \
+            -F chat_id="$TG_CHANNEL" -F caption="$CAPTION" -F document=@release/vtesse-android.apk) || HTTP=000
+          echo "Telegram response: $HTTP"
+          [ "$HTTP" = 200 ] || { echo "::warning::Telegram upload failed (HTTP $HTTP): $(cat tg.json 2>/dev/null)"; }
