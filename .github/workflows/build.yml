@@ -93,6 +93,8 @@ jobs:
           key: vtun-${{ hashFiles('server/build-vtund.sh') }}
 
       - name: Build and run the unit tests under qemu
+        env:
+          GITHUB_TOKEN: ${{ github.token }}   # toolchain digest lookup (ci/build-musl.sh)
         run: QEMU=1 ci/build-musl.sh ${{ matrix.target }} dist
 
       - name: Upload binaries
