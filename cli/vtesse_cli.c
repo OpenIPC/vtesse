@@ -14,6 +14,7 @@
  */
 #include <errno.h>
 #include <signal.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -524,15 +525,31 @@ static void reap_children(void)
 static pid_t hook_pids[8];
 
 /* Waits for the hooks started so far: "stop" must not overtake an earlier "up" that
- * has yet to start the DHCP client (it would be left running after we exit). */
+ * has yet to start the DHCP client (it would be left running after we exit). A hook
+ * still running after HOOK_WAIT_MS is terminated, so shutdown cannot hang on it. */
+#define HOOK_WAIT_MS 5000
+
 static void wait_hooks(void)
 {
+    uint64_t deadline = nc_now_ms() + HOOK_WAIT_MS;
     size_t i;
 
     for (i = 0; i < sizeof(hook_pids) / sizeof(hook_pids[0]); i++) {
-        while (hook_pids[i] > 0 && waitpid(hook_pids[i], NULL, 0) < 0 && errno == EINTR)
-            ;
-        hook_pids[i] = 0;
+        while (hook_pids[i] > 0) {
+            pid_t r = waitpid(hook_pids[i], NULL, WNOHANG);
+            if (r != 0) {
+                hook_pids[i] = 0;               /* finished, or already reaped */
+            } else if (nc_now_ms() >= deadline) {
+                printf("[%8.3f] hook: pid %d still running, terminated\n", elapsed(t_start),
+                       (int)hook_pids[i]);
+                kill(hook_pids[i], SIGTERM);
+                waitpid(hook_pids[i], NULL, 0);
+                hook_pids[i] = 0;
+            } else {
+                struct timespec ts = { 0, 20 * 1000000L };
+                nanosleep(&ts, NULL);
+            }
+        }
     }
 }
 
@@ -632,8 +649,9 @@ int main(int argc, char **argv)
             const char *arg = argv[++i];
             char *end;
             seconds = strtod(arg, &end);
-            if (end == arg || *end || !(seconds > 0)) {   /* "1m" or "-5" must not mean "forever" */
-                fprintf(stderr, "--seconds: expected a positive number, got '%s'\n", arg);
+            /* "1m" or "-5" must not mean "forever"; inf or 1e30 would overflow the deadline */
+            if (end == arg || *end || !(seconds > 0) || !(seconds <= 1e9)) {
+                fprintf(stderr, "--seconds: expected a number of seconds from 0 to 1e9, got '%s'\n", arg);
                 return 2;
             }
         }
