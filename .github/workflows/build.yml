@@ -197,10 +197,16 @@ jobs:
 
       - name: Collect assets
         id: vars
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VER=$(sed -n 's/^#define VTESSE_VERSION "\(.*\)"/\1/p' include/vtesse/version.h)
           if [ -z "$VER" ]; then echo "::error::no VTESSE_VERSION found"; exit 1; fi
           echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          # the APK goes to Telegram only when the version changes (#33)
+          PREV=$(gh release view latest --json name -q .name 2>/dev/null || true)
+          echo "Previous release: ${PREV:-none}"
+          [ "$PREV" = "VTesse $VER" ] || echo "new=true" >> "$GITHUB_OUTPUT"
           echo "vtun=$(server/build-vtund.sh --version)" >> "$GITHUB_OUTPUT"
           mkdir release
           # artifacts keep their directory layout (dist/...)
@@ -226,3 +232,22 @@ jobs:
             --title "VTesse ${VER}" \
             --target "${GITHUB_SHA}" \
             --notes "VTesse ${VER} (${GITHUB_SHA::7}): static musl builds of vtesse-cli for arm32, mipsel, mips, arm64 and x86_64, the Android app (vtesse-android.apk, Android 5.0+) and the VTun ${VTUN} server with our patches for PCs (vtund-${VTUN}-x86_64). Changes: CHANGELOG.md; installation: README.md."
+
+      # The Telegram channel gets the APK of every new version, as in OpenIPC/decoder (#33).
+      # Organization secrets; a failed upload is reported but does not fail the release.
+      - name: Telegram
+        if: steps.vars.outputs.new == 'true'
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_TOKEN_BOT_OPENIPC }}
+          TG_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL_OPENIPC_DEV }}
+          VER: ${{ steps.vars.outputs.ver }}
+        run: |
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHANNEL" ]; then
+            echo "::warning::Telegram secrets are not available, APK not posted"; exit 0
+          fi
+          CAPTION=$(printf 'VTesse %s for Android\nCommit: %s\nTime: %s\n\n%s' "$VER" "${GITHUB_SHA::7}" \
+            "$(date -u '+%Y-%m-%d %H:%M:%S UTC')" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/latest")
+          HTTP=$(curl -sS -o tg.json -w '%{http_code}' "https://api.telegram.org/bot${TG_TOKEN}/sendDocument" \
+            -F chat_id="$TG_CHANNEL" -F caption="$CAPTION" -F document=@release/vtesse-android.apk) || HTTP=000
+          echo "Telegram response: $HTTP"
+          [ "$HTTP" = 200 ] || { echo "::warning::Telegram upload failed (HTTP $HTTP): $(cat tg.json 2>/dev/null)"; }

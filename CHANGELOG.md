@@ -4,6 +4,13 @@ The version lives in `include/vtesse/version.h`. Binaries are published only as 
 [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) release, rebuilt
 from every push to `main`; this file is the change history.
 
+## 1.11 — 2026-10-15
+
+- The Android APK of every new version is posted to the OpenIPC Telegram dev channel
+  by CI (#33), as OpenIPC/decoder does; pushes that do not change the version only
+  update the `latest` release.
+- README: a screenshot of the Android app with example settings (#31).
+
 ## 1.10 — 2026-10-14
 
 - MIPS releases are soft-float (#30): `vtesse-mipsel` and `vtesse-mips` are built with
