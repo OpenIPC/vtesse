@@ -522,7 +522,7 @@ static void reap_children(void)
 
 /* Hooks still running, by PID: as PID 1 (in a container) we also inherit the DHCP
  * client the hook daemonized, so waiting for "any child" would never return. */
-static pid_t hook_pids[8];
+static pid_t hook_pids[16];
 
 /* Waits for the hooks started so far: "stop" must not overtake an earlier "up" that
  * has yet to start the DHCP client (it would be left running after we exit). A hook
@@ -557,10 +557,20 @@ static void wait_hooks(void)
 static void run_hook(const char *event)
 {
     pid_t pid;
+    size_t slot;
 
     reap_children();
     if (!hook)
         return;
+    /* a free slot first: every hook we start must be one shutdown can wait for */
+    for (slot = 0; slot < sizeof(hook_pids) / sizeof(hook_pids[0]); slot++)
+        if (hook_pids[slot] <= 0 || waitpid(hook_pids[slot], NULL, WNOHANG) != 0)
+            break;
+    if (slot == sizeof(hook_pids) / sizeof(hook_pids[0])) {
+        printf("[%8.3f] hook: too many hooks still running, \"%s\" not started\n",
+               elapsed(t_start), event);
+        return;
+    }
     pid = fork();
     if (pid == 0) {
         setenv("VTESSE_EVENT", event, 1);
@@ -570,17 +580,10 @@ static void run_hook(const char *event)
         execl("/bin/sh", "sh", hook, event, (char *)NULL);
         _exit(127);
     }
-    if (pid < 0) {
+    if (pid < 0)
         printf("[%8.3f] hook: fork failed: %s\n", elapsed(t_start), strerror(errno));
-    } else {
-        size_t i;
-        /* remember it; a slot whose hook was already reaped (waitpid != 0) is free */
-        for (i = 0; i < sizeof(hook_pids) / sizeof(hook_pids[0]); i++)
-            if (hook_pids[i] <= 0 || waitpid(hook_pids[i], NULL, WNOHANG) != 0) {
-                hook_pids[i] = pid;
-                break;
-            }
-    }
+    else
+        hook_pids[slot] = pid;
 }
 
 static void on_tap_event(void *user, int ev, int tev, int err)
@@ -651,7 +654,7 @@ int main(int argc, char **argv)
             seconds = strtod(arg, &end);
             /* "1m" or "-5" must not mean "forever"; inf or 1e30 would overflow the deadline */
             if (end == arg || *end || !(seconds > 0) || !(seconds <= 1e9)) {
-                fprintf(stderr, "--seconds: expected a number of seconds from 0 to 1e9, got '%s'\n", arg);
+                fprintf(stderr, "--seconds: expected a positive number of seconds up to 1e9, got '%s'\n", arg);
                 return 2;
             }
         }
