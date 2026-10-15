@@ -12,6 +12,9 @@
 
 A resource access microsystem: a client for existing **VTun** servers (`vtund -s`) that works **without a TUN/TAP device and without a system VPN**. The tunnel is terminated inside the application by a userspace TCP/IP stack (lwIP); applications reach remote devices through a local SOCKS5 proxy or port forwards on `127.0.0.1`.
 
+> [!WARNING]
+> **An experimental tool, not a security product.** The tunnel has no encryption and no privacy protection: all traffic, including video, passwords and the web interfaces of the devices behind it, travels in clear text, and the VTun handshake can reveal the session password to anyone who captures it. Anyone on the path (public Wi-Fi, mobile and provider networks, the Internet) can read, alter or take over the session. Use it for experiments and only over networks you trust, or inside a secure channel of your own (TLS/stunnel, an operator VPN); do not expose cameras or other devices through it on open networks. Details: [docs/security.md](docs/security.md).
+
 ## Features
 
 - **No VPN:** no root, no `/dev/net/tun`, no Android `VpnService` (no VPN icon)
