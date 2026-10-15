@@ -107,6 +107,8 @@ curl -fsSL -o ~/.local/bin/vtesse https://github.com/compot-dev/vtesse/releases/
 
 Android 5.0 и новее, включая ТВ-приставки: [`vtesse-android.apk`](https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-android.apk). Без разрешения VPN и без значка VPN — сервис с обычным уведомлением держит туннель и даёт SOCKS5 и проброс портов на `127.0.0.1`; плеер, например OpenIPC Decoder или VLC, открывает `rtsp://127.0.0.1:1551/...` (камера 1 сервера 1). До трёх серверов и до 8 камер на каждом, на фиксированных портах. ID устройства генерируется при первом запуске (долгое нажатие копирует его), его нужно добавить как сессию на сервере. До трёх профилей серверов, переключение одним нажатием. Подробнее — [android/README.md](android/README.md).
 
+![VTesse для Android: профили серверов и камеры (пример данных)](docs/img/android-settings.png)
+
 ## Сборка из исходников
 
 ```sh

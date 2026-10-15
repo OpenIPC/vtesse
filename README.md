@@ -107,6 +107,8 @@ curl -fsSL -o ~/.local/bin/vtesse https://github.com/compot-dev/vtesse/releases/
 
 Android 5.0 and later, including Android TV boxes: [`vtesse-android.apk`](https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-android.apk). No VPN permission and no VPN icon — a service with a regular notification runs the tunnel and offers SOCKS5 and port forwards on `127.0.0.1`; a player such as OpenIPC Decoder or VLC opens e.g. `rtsp://127.0.0.1:1551/...` (camera 1 of server 1). Up to three servers with up to 8 cameras each on fixed ports. The device ID is generated on first start (long press copies it) and must be added as a session on the server. Up to three server profiles, switched with one press. See [android/README.md](android/README.md).
 
+![VTesse for Android: server profiles and cameras (example data)](docs/img/android-settings.png)
+
 ## Build from source
 
 ```sh
