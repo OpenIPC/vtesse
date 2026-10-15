@@ -36,6 +36,7 @@ static struct {
     int pending_valid;          /* 121 (2) or 249 (1) seen, 0 none */
     u32_t pending_xid;
     int lease_used;             /* dhcp->lease_used seen last: it restarts at 0 on every ACK */
+    int dhcp_state;             /* dhcp->state seen last */
 
     uint8_t txbuf[FRAME_MAX];
 } st;
@@ -219,18 +220,25 @@ static void apply_dhcp_routes(const struct dhcp *d)
     apply_routes(have121 ? &st.pending : &none, !have121 || st.cfg.opt3_default_route);
     st.pending_valid = 0;
     st.lease_used = d ? d->lease_used : 0;
+    st.dhcp_state = DHCP_STATE_BOUND;
 }
 
-/* A renewal keeps the address, so status_cb is not called, and its DHCPREQUEST reuses
- * the xid. dhcp_bind() restarts lease_used at 0 on every ACK: when it went back while
- * bound, a renewal ACK replaced the lease and its routes (none if it had none). */
+/* A renewal or a reboot after a reconnect keeps the address, so status_cb is not
+ * called, and the DHCPREQUEST reuses the xid. A new ACK shows as a return to BOUND
+ * (from RENEWING, REBINDING or REBOOTING), or, if no check saw the state in between,
+ * as lease_used going back: dhcp_bind() restarts it at 0 on every ACK. Its routes
+ * replace the old ones (none if it had none). */
 static void check_renewal(void)
 {
     const struct dhcp *d = netif_dhcp_data(&st.netif);
+    int prev = st.dhcp_state;
 
-    if (!st.bound || st.cfg.static_ip || !d || d->state != DHCP_STATE_BOUND)
+    if (!d || st.cfg.static_ip)
         return;
-    if (d->lease_used < st.lease_used)
+    st.dhcp_state = d->state;
+    if (!st.bound || d->state != DHCP_STATE_BOUND)
+        return;
+    if (prev != DHCP_STATE_BOUND || d->lease_used < st.lease_used)
         apply_dhcp_routes(d);
     st.lease_used = d->lease_used;
 }
