@@ -96,6 +96,12 @@ curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtess
 /etc/init.d/vtesse enable && /etc/init.d/vtesse start
 ```
 
+### Keenetic router (research, [#32](https://github.com/OpenIPC/vtesse/issues/32))
+
+Not supported yet. KeeneticOS (NDMS) is closed firmware: SSH gives only the NDMS command line, no Linux shell. Own software runs only through the **OPKG** component, which installs Entware into `/opt` on a storage volume (`opkg disk <volume> <installer URL>`), so the router needs a USB drive or an internal `storage:` partition.
+
+Tried on a Netcraze Explorer NC-1621 (Keenetic rebrand, NDMS 5.2 beta, MIPS, 128 MB RAM, `small_flash`): the `opkg` component is available and installs (`components install opkg`, `components commit`, firmware rebuilt and the router restarts), but the model has no USB and no `storage:` volume, and Entware on the RAM disk `temp:` is refused (`unsuitable disk type`). Next: a Keenetic with a USB port (MT7621 or arm64) and an `.ipk` package with `vtesse-mipsel`/`vtesse-arm64`, an Entware init script and NDMS hooks for the TAP backend.
+
 ### Linux PC, Raspberry Pi
 
 ```sh
