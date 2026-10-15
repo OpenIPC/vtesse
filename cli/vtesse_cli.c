@@ -550,9 +550,16 @@ static void wait_hooks(void)
             if (hook_done(hook_pids[i])) {
                 hook_pids[i] = 0;               /* finished, or already reaped */
             } else if (nc_now_ms() >= deadline) {
+                uint64_t grace = nc_now_ms() + 1000;
                 printf("[%8.3f] hook: pid %d still running, terminated\n", elapsed(t_start),
                        (int)hook_pids[i]);
-                kill(hook_pids[i], SIGTERM);
+                /* the whole group: also a udhcpc still in the hook's foreground */
+                kill(-hook_pids[i], SIGTERM);
+                while (!hook_done(hook_pids[i]) && nc_now_ms() < grace) {
+                    struct timespec ts = { 0, 20 * 1000000L };
+                    nanosleep(&ts, NULL);
+                }
+                kill(-hook_pids[i], SIGKILL);
                 while (waitpid(hook_pids[i], NULL, 0) < 0 && errno == EINTR)
                     ;
                 hook_pids[i] = 0;
@@ -584,6 +591,7 @@ static void run_hook(const char *event)
     }
     pid = fork();
     if (pid == 0) {
+        setpgid(0, 0);      /* own process group, so a stuck hook can be ended as a whole */
         setenv("VTESSE_EVENT", event, 1);
         setenv("VTESSE_IFNAME", nc_tap_ifname(tap), 1);
         setenv("VTESSE_LINK", nc_tap_link(tap) == TUNNEL_LINK_L3 ? "tun" : "ether", 1);
@@ -593,8 +601,10 @@ static void run_hook(const char *event)
     }
     if (pid < 0)
         printf("[%8.3f] hook: fork failed: %s\n", elapsed(t_start), strerror(errno));
-    else
+    else {
+        setpgid(pid, pid);  /* also here: no race with a kill() before the child ran */
         hook_pids[slot] = pid;
+    }
 }
 
 static void on_tap_event(void *user, int ev, int tev, int err)

@@ -72,6 +72,8 @@ if [ ! -d "$DIR/bin" ]; then
     SHA=${TOOLCHAIN_SHA256:-$SHA}
     if [ "$SHA" = github ]; then
         # authenticated when a token is available: anonymous calls share a 60/hour limit per IP
+        command -v jq >/dev/null ||
+            { echo "jq is needed to verify $URL (or set TOOLCHAIN_SHA256)" >&2; rm -f "$CACHE/toolchain.tar"; exit 1; }
         TOKEN=${GITHUB_TOKEN:-${GH_TOKEN:-}}
         REL=$(curl -fsSL --retry 3 ${TOKEN:+-H "Authorization: Bearer $TOKEN"} \
               "https://api.github.com/repos/OpenIPC/firmware/releases/tags/toolchain") ||

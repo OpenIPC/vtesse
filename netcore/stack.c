@@ -118,8 +118,12 @@ void nc_hook_dhcp_parse_option(struct netif *netif, struct dhcp *dhcp, u8_t stat
     int prio = option == 121 ? 2 : option == 249 ? 1 : 0;
 
     (void)dhcp;
-    (void)state;
     if (netif != &st.netif || !prio || msg_type != DHCP_ACK)
+        return;
+    /* lwIP parses every reply but accepts an ACK only in these states: the options of
+     * an ACK it ignores (e.g. a duplicate while BOUND) must not reach the routes */
+    if (state != DHCP_STATE_REQUESTING && state != DHCP_STATE_REBOOTING &&
+        state != DHCP_STATE_RENEWING && state != DHCP_STATE_REBINDING)
         return;
     if (pbuf_copy_partial(p, buf, len, offset) != len)
         return;
