@@ -35,6 +35,7 @@ static struct {
     nc_routes_t pending;        /* from the last DHCPACK */
     int pending_valid;          /* 121 (2) or 249 (1) seen, 0 none */
     u32_t pending_xid;
+    u32_t applied_xid;          /* DHCP transaction whose routes are in effect */
 
     uint8_t txbuf[FRAME_MAX];
 } st;
@@ -207,21 +208,36 @@ static err_t netif_init_cb(struct netif *n)
     return ERR_OK;
 }
 
+/* Routes of the DHCPACK that made the lease current: option 121/249 if it had them. */
+static void apply_dhcp_routes(const struct dhcp *d)
+{
+    int have121 = st.pending_valid && d && st.pending_xid == d->xid;
+    nc_routes_t none;
+
+    memset(&none, 0, sizeof(none));
+    /* RFC 3442: with classless routes the router option is ignored */
+    apply_routes(have121 ? &st.pending : &none, !have121 || st.cfg.opt3_default_route);
+    st.pending_valid = 0;
+    st.applied_xid = d ? d->xid : 0;
+}
+
+/* A renewal keeps the address, so status_cb is not called: a DHCPACK of a new
+ * transaction while bound replaces the routes (also removes them if it has none). */
+static void check_renewal(void)
+{
+    const struct dhcp *d = netif_dhcp_data(&st.netif);
+
+    if (st.bound && !st.cfg.static_ip && d && d->state == DHCP_STATE_BOUND && d->xid != st.applied_xid)
+        apply_dhcp_routes(d);
+}
+
 static void status_cb(struct netif *n)
 {
     int has_addr = netif_is_up(n) && !ip4_addr_isany_val(*netif_ip4_addr(n));
 
     if (has_addr && !st.bound) {
-        if (!st.cfg.static_ip) {
-            struct dhcp *d = netif_dhcp_data(n);
-            int have121 = st.pending_valid && d && st.pending_xid == d->xid;
-            nc_routes_t none;
-
-            memset(&none, 0, sizeof(none));
-            /* RFC 3442: with classless routes the router option is ignored */
-            apply_routes(have121 ? &st.pending : &none, !have121 || st.cfg.opt3_default_route);
-            st.pending_valid = 0;
-        }
+        if (!st.cfg.static_ip)
+            apply_dhcp_routes(netif_dhcp_data(n));
         st.bound = 1;
         emit(NC_STACK_EV_ADDR_BOUND, 0, 0);
     } else if (!has_addr && st.bound) {
@@ -258,6 +274,7 @@ static void on_rx(void *user, const uint8_t *pkt, size_t len)
     pbuf_take(p, pkt, (u16_t)len);
     if (st.netif.input(p, &st.netif) != ERR_OK)
         pbuf_free(p);
+    check_renewal();
 }
 
 static void on_tunnel_event(void *user, int ev, int err)
@@ -311,6 +328,7 @@ static void timer_run(void *ctx)
 {
     (void)ctx;
     sys_check_timeouts();
+    check_renewal();
 }
 
 nc_source_t nc_stack_timer_source(void)

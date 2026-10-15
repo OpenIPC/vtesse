@@ -17,7 +17,11 @@ STATE=/var/run/vtesse-routes.$interface
 routes_del() {
     [ -f "$STATE" ] || return 0
     while read -r dst gw; do
-        ip route del "$dst" via "$gw" dev "$interface" 2>/dev/null
+        if [ "$gw" = 0.0.0.0 ]; then
+            ip route del "$dst" dev "$interface" 2>/dev/null
+        else
+            ip route del "$dst" via "$gw" dev "$interface" 2>/dev/null
+        fi
     done < "$STATE"
     rm -f "$STATE"
 }
@@ -28,7 +32,11 @@ routes_add() {
     if [ -n "$list" ]; then
         set -- $list
         while [ $# -ge 2 ]; do
-            ip route add "$1" via "$2" dev "$interface" && echo "$1 $2" >> "$STATE"
+            if [ "$2" = 0.0.0.0 ]; then   # on-link destination (RFC 3442)
+                ip route add "$1" dev "$interface" && echo "$1 $2" >> "$STATE"
+            else
+                ip route add "$1" via "$2" dev "$interface" && echo "$1 $2" >> "$STATE"
+            fi
             shift 2
         done
     elif [ -n "$router" ] && [ "$VTESSE_DEFAULT_ROUTE" = 1 ]; then

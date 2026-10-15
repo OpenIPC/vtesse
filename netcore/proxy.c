@@ -549,6 +549,8 @@ static void accept_on(nc_proxy_t *px, int which)
         if (which == 0) {
             c->socks = 1;
             c->state = C_GREETING;
+            /* the handshake gets the connect timeout too: idle clients must not hold slots */
+            c->deadline = nc_now_ms() + (uint64_t)px->cfg.connect_timeout_ms;
         } else {
             const nc_forward_t *f = &px->cfg.forwards[which - 1];
             c->dst = f->ip;
@@ -639,7 +641,7 @@ static int px_next_timeout(void *ctx)
 
     for (i = 0; i < px->nconns; i++) {
         const conn_t *c = px->conns[i];
-        if (c->state == C_CONNECTING && c->deadline && (!next || c->deadline < next))
+        if (c->state <= C_CONNECTING && !c->dead && c->deadline && (!next || c->deadline < next))
             next = c->deadline;
     }
     if (!next)
@@ -659,6 +661,10 @@ static void px_timer(void *ctx)
             struct tcp_pcb *pcb = c->pcb;
             c->deadline = 0;
             tcp_abort(pcb);         /* calls on_err(ERR_ABRT) -> "connect timeout" */
+        } else if (c->state < C_CONNECTING && !c->dead && c->deadline && now >= c->deadline) {
+            logf_(px, "socks: handshake timeout");
+            c->deadline = 0;
+            c->dead = 1;
         }
     }
     service(px);

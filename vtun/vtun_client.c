@@ -119,9 +119,10 @@ static void fail(vt_t *vt, int err)
         vt->backoff_ms = vt->cfg.reconnect_min_ms;
     vt->state = ST_WAIT_RECONNECT;
     vt->reconnect_at = now + (uint64_t)vt->backoff_ms;
-    vt->backoff_ms *= 2;
-    if (vt->backoff_ms > vt->cfg.reconnect_max_ms)
+    if (vt->backoff_ms > vt->cfg.reconnect_max_ms / 2)  /* no int overflow when doubling */
         vt->backoff_ms = vt->cfg.reconnect_max_ms;
+    else
+        vt->backoff_ms *= 2;
     emit(vt, TUNNEL_EV_DOWN, err);
 }
 
@@ -296,6 +297,7 @@ static void handle_mesg(vt_t *vt, char *m)
 static size_t handle_frames(vt_t *vt, const uint8_t *p, size_t len)
 {
     size_t used = 0;
+    int progress = 0;   /* a complete frame: bytes of an unfinished one do not keep the peer alive */
 
     while (vt->state == ST_ESTABLISHED) {
         uint16_t hdr, flen, fl;
@@ -306,6 +308,7 @@ static size_t handle_frames(vt_t *vt, const uint8_t *p, size_t len)
             vt->skip -= n;
             if (vt->skip)
                 break;
+            progress = 1;
             continue;
         }
         if (len - used < 2)
@@ -315,6 +318,7 @@ static size_t handle_frames(vt_t *vt, const uint8_t *p, size_t len)
         flen = hdr & VT_FSIZE_MASK;
         if (fl) {
             used += 2;
+            progress = 1;
             if (fl & VT_CONN_CLOSE) {
                 fail(vt, TUNNEL_ERR_PEER_CLOSED);
                 break;
@@ -333,7 +337,10 @@ static size_t handle_frames(vt_t *vt, const uint8_t *p, size_t len)
         if (flen && vt->rx_cb)
             vt->rx_cb(vt->rx_user, p + used + 2, flen);
         used += 2u + flen;
+        progress = 1;
     }
+    if (progress)
+        vt->last_rx = nc_now_ms();
     return used;
 }
 
@@ -421,7 +428,6 @@ static void op_on_readable(void *ctx)
             return;
         }
         vt->in_len += (size_t)n;
-        vt->last_rx = nc_now_ms();
         process_input(vt);
         if (vt->fd < 0)
             return;
@@ -593,6 +599,11 @@ vt_t *vt_create(const vt_cfg_t *cfg, int *err)
     if (!cfg || !cfg->host || !*cfg->host || !cfg->port ||
         !vt_session_name_valid(cfg->session) || !cfg->password || !*cfg->password ||
         cfg->auth != VT_AUTH_XOR)
+        return NULL;
+    /* 0 means the default; negative values would wrap in the unsigned deadline arithmetic */
+    if (cfg->handshake_timeout_ms < 0 || cfg->ka_interval_ms < 0 || cfg->ka_count < 0 ||
+        cfg->data_delay_ms < 0 || cfg->reconnect_min_ms < 0 || cfg->reconnect_max_ms < 0 ||
+        cfg->out_buffer_size < 0)
         return NULL;
 
     *err = TUNNEL_ERR_NOMEM;

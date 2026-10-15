@@ -445,6 +445,38 @@ static void test_keepalive_timeout(void)
     server_status(pid);
 }
 
+static void script_partial_frame(int lfd)
+{
+    int fd = accept(lfd, NULL, NULL);
+    uint8_t hdr[2] = { 0x00, 100 };     /* a 100-byte data frame that never completes */
+    int i;
+
+    srv_handshake(fd, "OK FLAGS: <TuK>\n");
+    srv_write(fd, hdr, sizeof(hdr));
+    for (i = 0; i < 20; i++) {          /* one byte every 100 ms, no ECHO_REP */
+        sleep_ms(100);
+        srv_write(fd, "x", 1);
+    }
+    close(fd);
+}
+
+/* Bytes of an unfinished frame are not a sign of life (Qodo on #35). */
+static void test_partial_frame_timeout(void)
+{
+    uint16_t port;
+    pid_t pid = start_server(script_partial_frame, &port);
+    rec_t r;
+    vt_t *vt = make_client(port, &r, 1);
+
+    vt_start(vt);
+    CHECK(run_until(vt, pred_up, &r, 2000));
+    CHECK(run_until(vt, pred_failed, &r, 1500));
+    CHECK_EQ_INT(r.errs[r.nev - 1], TUNNEL_ERR_KEEPALIVE);
+    vt_destroy(vt);
+    kill(pid, SIGTERM);
+    server_status(pid);
+}
+
 static void script_reconnect(int lfd)
 {
     int fd = accept(lfd, NULL, NULL);
@@ -544,6 +576,16 @@ static void test_config_validation(void)
     cfg.password = "";
     CHECK(vt_create(&cfg, &err) == NULL);
     CHECK_EQ_INT(err, TUNNEL_ERR_CONFIG);
+    /* negative tuning values would wrap in the deadline arithmetic */
+    cfg.password = "x";
+    cfg.auth = VT_AUTH_XOR;
+    cfg.ka_interval_ms = -1;
+    CHECK(vt_create(&cfg, &err) == NULL);
+    CHECK_EQ_INT(err, TUNNEL_ERR_CONFIG);
+    cfg.ka_interval_ms = 0;
+    cfg.reconnect_max_ms = -5;
+    CHECK(vt_create(&cfg, &err) == NULL);
+    CHECK_EQ_INT(err, TUNNEL_ERR_CONFIG);
 }
 
 int main(void)
@@ -558,6 +600,7 @@ int main(void)
     RUN(test_bad_greeting);
     RUN(test_handshake_timeout);
     RUN(test_keepalive_timeout);
+    RUN(test_partial_frame_timeout);
     RUN(test_reconnect);
     return UNIT_SUMMARY();
 }

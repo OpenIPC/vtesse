@@ -24,7 +24,8 @@ start() {
 
 stop() {
     printf "Stopping vtesse: "
-    start-stop-daemon -K -q -p "$PIDFILE" && echo "OK" || echo "not running"
+    # -x: a stale PID file must not make us signal another process that reused the PID
+    start-stop-daemon -K -q -p "$PIDFILE" -x "$DAEMON" && echo "OK" || echo "not running"
     rm -f "$PIDFILE"
 }
 
@@ -33,7 +34,7 @@ case "$1" in
     stop)    stop ;;
     restart) stop; sleep 1; start ;;
     status)
-        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        if [ -f "$PIDFILE" ] && start-stop-daemon -K -t -q -p "$PIDFILE" -x "$DAEMON"; then
             echo "vtesse is running (pid $(cat "$PIDFILE"))"
         else
             echo "vtesse is not running"

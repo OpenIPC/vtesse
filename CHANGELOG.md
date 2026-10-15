@@ -4,6 +4,27 @@ The version lives in `include/vtesse/version.h`. Binaries are published only as 
 [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) release, rebuilt
 from every push to `main`; this file is the change history.
 
+## 1.12 — 2026-10-15
+
+Fixes from the first Qodo review of the whole codebase (#34, PR #35):
+
+- lwIP backend: a DHCP renewal replaces the classless routes (or removes them) even
+  though the address stays the same; before, only the first lease set them.
+- The keepalive timeout is refreshed only by complete frames: a peer that trickles
+  bytes of a frame it never finishes no longer keeps a dead session alive.
+- `vt_create()` rejects negative timer settings; the reconnect backoff cannot overflow.
+- SOCKS5: an unfinished handshake is dropped after the connect timeout (15 s), so idle
+  clients cannot hold every connection slot.
+- `vtesse-cli`: `--seconds` and the `--fetch` port are checked (`--seconds 1m` used to
+  mean "no limit"); the `stop` hook runs only after earlier hooks finished, so a DHCP
+  client started by a late `up` hook is not left running.
+- `vtesse-udhcpc.script` installs on-link classless routes (gateway 0.0.0.0) without `via`.
+- `S99vtesse` stop/status check the process (`-x`), so a stale PID file cannot make
+  them signal or report another process.
+- CI: unit-test failures under QEMU fail the build (`| tail -1` hid them); toolchain
+  archives are checked against SHA256 before their compiler runs; the bench self-test
+  checks that ECHO_REQ really is the first frame.
+
 ## 1.11 — 2026-10-15
 
 - The Android APK of every new version is posted to the OpenIPC Telegram dev channel

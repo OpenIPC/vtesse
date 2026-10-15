@@ -91,6 +91,24 @@ def wait_flag(s, want, seconds):
     return False
 
 
+def first_frame_flag(s, seconds):
+    """Return the flag of the first frame (0 for a data frame), or None on timeout/EOF."""
+    s.settimeout(seconds)
+    buf = b""
+    try:
+        while len(buf) < 2:
+            c = s.recv(2 - len(buf))
+            if not c:
+                return None
+            buf += c
+    except socket.timeout:
+        return None
+    hdr = struct.unpack(">H", buf)[0]
+    if hdr & 0xF000 == ECHO_REQ:
+        s.sendall(struct.pack(">H", ECHO_REP))
+    return hdr & 0xF000
+
+
 def dhcp_offer(s, mac, seconds):
     """Send DHCPDISCOVER, return (seconds until OFFER, raw frame) or (None, None)."""
     t0 = time.time()
@@ -129,7 +147,7 @@ def main():
     check("greeting is exactly 50 bytes, NUL padded",
           len(g[0]) == 50 and g[0].startswith(b"VTUN server ver ") and g[0].rstrip(b"\0").endswith(b"\n"))
     check("main session flags <TeK>", reply == "OK FLAGS: <TeK>\n", repr(reply))
-    check("ECHO_REQ is the first frame after OK FLAGS", wait_flag(s, ECHO_REQ, 2))
+    check("ECHO_REQ is the first frame after OK FLAGS", first_frame_flag(s, 2) == ECHO_REQ)
     time.sleep(0.5)  # the server brings the tap up asynchronously
     dt, fr = dhcp_offer(s, bytes.fromhex(S["main"][0]), 10)
     check("DHCP OFFER through the tunnel", fr is not None, "after %.1fs" % dt if dt else "")
