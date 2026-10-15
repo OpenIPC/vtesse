@@ -35,7 +35,7 @@ static struct {
     nc_routes_t pending;        /* from the last DHCPACK */
     int pending_valid;          /* 121 (2) or 249 (1) seen, 0 none */
     u32_t pending_xid;
-    u32_t applied_xid;          /* DHCP transaction whose routes are in effect */
+    int lease_used;             /* dhcp->lease_used seen last: it restarts at 0 on every ACK */
 
     uint8_t txbuf[FRAME_MAX];
 } st;
@@ -218,17 +218,21 @@ static void apply_dhcp_routes(const struct dhcp *d)
     /* RFC 3442: with classless routes the router option is ignored */
     apply_routes(have121 ? &st.pending : &none, !have121 || st.cfg.opt3_default_route);
     st.pending_valid = 0;
-    st.applied_xid = d ? d->xid : 0;
+    st.lease_used = d ? d->lease_used : 0;
 }
 
-/* A renewal keeps the address, so status_cb is not called: a DHCPACK of a new
- * transaction while bound replaces the routes (also removes them if it has none). */
+/* A renewal keeps the address, so status_cb is not called, and its DHCPREQUEST reuses
+ * the xid. dhcp_bind() restarts lease_used at 0 on every ACK: when it went back while
+ * bound, a renewal ACK replaced the lease and its routes (none if it had none). */
 static void check_renewal(void)
 {
     const struct dhcp *d = netif_dhcp_data(&st.netif);
 
-    if (st.bound && !st.cfg.static_ip && d && d->state == DHCP_STATE_BOUND && d->xid != st.applied_xid)
+    if (!st.bound || st.cfg.static_ip || !d || d->state != DHCP_STATE_BOUND)
+        return;
+    if (d->lease_used < st.lease_used)
         apply_dhcp_routes(d);
+    st.lease_used = d->lease_used;
 }
 
 static void status_cb(struct netif *n)
