@@ -71,8 +71,12 @@ if [ ! -d "$DIR/bin" ]; then
     curl -fsSL --retry 3 -o "$CACHE/toolchain.tar" "$URL"
     SHA=${TOOLCHAIN_SHA256:-$SHA}
     if [ "$SHA" = github ]; then
-        SHA=$(curl -fsSL --retry 3 "https://api.github.com/repos/OpenIPC/firmware/releases/tags/toolchain" |
-              jq -r --arg n "${URL##*/}" '.assets[] | select(.name == $n) | .digest // "" | sub("^sha256:"; "")')
+        # authenticated when a token is available: anonymous calls share a 60/hour limit per IP
+        TOKEN=${GITHUB_TOKEN:-${GH_TOKEN:-}}
+        REL=$(curl -fsSL --retry 3 ${TOKEN:+-H "Authorization: Bearer $TOKEN"} \
+              "https://api.github.com/repos/OpenIPC/firmware/releases/tags/toolchain") ||
+            { echo "GitHub API request for the toolchain digest failed (rate limit?)" >&2; rm -f "$CACHE/toolchain.tar"; exit 1; }
+        SHA=$(printf '%s' "$REL" | jq -r --arg n "${URL##*/}" '.assets[] | select(.name == $n) | .digest // "" | sub("^sha256:"; "")')
     fi
     [ -n "$SHA" ] || { echo "no SHA256 for $URL: set TOOLCHAIN_SHA256" >&2; rm -f "$CACHE/toolchain.tar"; exit 1; }
     echo "$SHA  $CACHE/toolchain.tar" | sha256sum -c - >/dev/null ||

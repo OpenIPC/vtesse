@@ -524,6 +524,17 @@ static void reap_children(void)
  * client the hook daemonized, so waiting for "any child" would never return. */
 static pid_t hook_pids[16];
 
+/* 1: the hook has exited (or was already reaped), 0: still running. EINTR is
+ * retried, so an interrupted check never counts as an exit. */
+static int hook_done(pid_t pid)
+{
+    pid_t r;
+
+    while ((r = waitpid(pid, NULL, WNOHANG)) < 0 && errno == EINTR)
+        ;
+    return r != 0;      /* pid, or -1 with ECHILD */
+}
+
 /* Waits for the hooks started so far: "stop" must not overtake an earlier "up" that
  * has yet to start the DHCP client (it would be left running after we exit). A hook
  * still running after HOOK_WAIT_MS is terminated, so shutdown cannot hang on it. */
@@ -536,14 +547,14 @@ static void wait_hooks(void)
 
     for (i = 0; i < sizeof(hook_pids) / sizeof(hook_pids[0]); i++) {
         while (hook_pids[i] > 0) {
-            pid_t r = waitpid(hook_pids[i], NULL, WNOHANG);
-            if (r != 0) {
+            if (hook_done(hook_pids[i])) {
                 hook_pids[i] = 0;               /* finished, or already reaped */
             } else if (nc_now_ms() >= deadline) {
                 printf("[%8.3f] hook: pid %d still running, terminated\n", elapsed(t_start),
                        (int)hook_pids[i]);
                 kill(hook_pids[i], SIGTERM);
-                waitpid(hook_pids[i], NULL, 0);
+                while (waitpid(hook_pids[i], NULL, 0) < 0 && errno == EINTR)
+                    ;
                 hook_pids[i] = 0;
             } else {
                 struct timespec ts = { 0, 20 * 1000000L };
@@ -564,7 +575,7 @@ static void run_hook(const char *event)
         return;
     /* a free slot first: every hook we start must be one shutdown can wait for */
     for (slot = 0; slot < sizeof(hook_pids) / sizeof(hook_pids[0]); slot++)
-        if (hook_pids[slot] <= 0 || waitpid(hook_pids[slot], NULL, WNOHANG) != 0)
+        if (hook_pids[slot] <= 0 || hook_done(hook_pids[slot]))
             break;
     if (slot == sizeof(hook_pids) / sizeof(hook_pids[0])) {
         printf("[%8.3f] hook: too many hooks still running, \"%s\" not started\n",
