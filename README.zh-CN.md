@@ -96,6 +96,12 @@ curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtess
 /etc/init.d/vtesse enable && /etc/init.d/vtesse start
 ```
 
+### Keenetic 路由器（调研，[#32](https://github.com/OpenIPC/vtesse/issues/32)）
+
+暂不支持。KeeneticOS（NDMS）是闭源固件：SSH 只提供 NDMS 命令行，没有 Linux shell。自有软件只能通过 **OPKG** 组件运行，它把 Entware 安装到存储卷上的 `/opt`（`opkg disk <卷> <安装包 URL>`），因此路由器需要 USB 存储或内部 `storage:` 分区。
+
+已在 Netcraze Explorer NC-1621（Keenetic 换牌型号，NDMS 5.2 beta，MIPS，128 MB 内存，`small_flash`）上测试：`opkg` 组件可用并可安装（`components install opkg`、`components commit`，固件重新生成后路由器重启），但该型号没有 USB，也没有 `storage:` 卷，而将 Entware 安装到内存盘 `temp:` 会被拒绝（`unsuitable disk type`）。下一步：使用带 USB 接口的 Keenetic（MT7621 或 arm64），并制作 `.ipk` 软件包，包含 `vtesse-mipsel`/`vtesse-arm64`、Entware 启动脚本以及 TAP 后端所需的 NDMS 钩子。
+
 ### Linux PC、树莓派
 
 ```sh

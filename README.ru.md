@@ -96,6 +96,12 @@ curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtess
 /etc/init.d/vtesse enable && /etc/init.d/vtesse start
 ```
 
+### Роутер Keenetic (исследование, [#32](https://github.com/OpenIPC/vtesse/issues/32))
+
+Пока не поддерживается. KeeneticOS (NDMS) — закрытая прошивка: по SSH доступна только командная строка NDMS, Linux-shell нет. Свои программы запускаются только через компонент **OPKG**, который ставит Entware в `/opt` на том хранения (`opkg disk <том> <URL установщика>`), поэтому роутеру нужна USB-флешка или внутренний раздел `storage:`.
+
+Проверено на Netcraze Explorer NC-1621 (ребренд Keenetic, NDMS 5.2 beta, MIPS, 128 МБ RAM, `small_flash`): компонент `opkg` есть и ставится (`components install opkg`, `components commit`, прошивка пересобирается, роутер перезагружается), но у модели нет USB и раздела `storage:`, а Entware на RAM-диск `temp:` роутер ставить отказывается (`unsuitable disk type`). Дальше: Keenetic с USB-портом (MT7621 или arm64) и пакет `.ipk` с `vtesse-mipsel`/`vtesse-arm64`, init-скриптом Entware и хуками NDMS для TAP-бэкенда.
+
 ### Linux на ПК, Raspberry Pi
 
 ```sh
