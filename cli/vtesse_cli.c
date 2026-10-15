@@ -519,12 +519,21 @@ static void reap_children(void)
         ;
 }
 
-/* Waits for every hook still running: "stop" must not overtake an earlier "up" that
+/* Hooks still running, by PID: as PID 1 (in a container) we also inherit the DHCP
+ * client the hook daemonized, so waiting for "any child" would never return. */
+static pid_t hook_pids[8];
+
+/* Waits for the hooks started so far: "stop" must not overtake an earlier "up" that
  * has yet to start the DHCP client (it would be left running after we exit). */
-static void wait_children(void)
+static void wait_hooks(void)
 {
-    while (waitpid(-1, NULL, 0) > 0 || errno == EINTR)
-        ;
+    size_t i;
+
+    for (i = 0; i < sizeof(hook_pids) / sizeof(hook_pids[0]); i++) {
+        while (hook_pids[i] > 0 && waitpid(hook_pids[i], NULL, 0) < 0 && errno == EINTR)
+            ;
+        hook_pids[i] = 0;
+    }
 }
 
 /* Runs "$hook <event>" asynchronously with VTESSE_* in the environment. */
@@ -544,8 +553,17 @@ static void run_hook(const char *event)
         execl("/bin/sh", "sh", hook, event, (char *)NULL);
         _exit(127);
     }
-    if (pid < 0)
+    if (pid < 0) {
         printf("[%8.3f] hook: fork failed: %s\n", elapsed(t_start), strerror(errno));
+    } else {
+        size_t i;
+        /* remember it; a slot whose hook was already reaped (waitpid != 0) is free */
+        for (i = 0; i < sizeof(hook_pids) / sizeof(hook_pids[0]); i++)
+            if (hook_pids[i] <= 0 || waitpid(hook_pids[i], NULL, WNOHANG) != 0) {
+                hook_pids[i] = pid;
+                break;
+            }
+    }
 }
 
 static void on_tap_event(void *user, int ev, int tev, int err)
@@ -908,9 +926,9 @@ int main(int argc, char **argv)
                nc_tap_ifname(tap), ts.frames_in, ts.frames_out, ts.dropped);
         if (nc_tap_link(tap) == TUNNEL_LINK_NONE && vt_is_up(vt))
             rc = 1;     /* interface creation failed */
-        wait_children();
+        wait_hooks();
         run_hook("stop");
-        wait_children();
+        wait_hooks();
         nc_tap_destroy(tap);
     }
 #endif
