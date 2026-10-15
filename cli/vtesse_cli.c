@@ -315,7 +315,11 @@ static int parse_url(const char *url)
     fetch.port = 80;
     colon = strchr(host, ':');
     if (colon) {
-        fetch.port = (uint16_t)atoi(colon + 1);
+        char *end;
+        long port = strtol(colon + 1, &end, 10);
+        if (end == colon + 1 || *end || port < 1 || port > 65535)
+            return -1;
+        fetch.port = (uint16_t)port;
         host[colon - host] = '\0';
     }
     snprintf(fetch.path, sizeof(fetch.path), "%s", slash ? slash : "/");
@@ -515,6 +519,14 @@ static void reap_children(void)
         ;
 }
 
+/* Waits for every hook still running: "stop" must not overtake an earlier "up" that
+ * has yet to start the DHCP client (it would be left running after we exit). */
+static void wait_children(void)
+{
+    while (waitpid(-1, NULL, 0) > 0 || errno == EINTR)
+        ;
+}
+
 /* Runs "$hook <event>" asynchronously with VTESSE_* in the environment. */
 static void run_hook(const char *event)
 {
@@ -598,8 +610,15 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--config") && i + 1 < argc)
             config = argv[++i];
-        else if (!strcmp(argv[i], "--seconds") && i + 1 < argc)
-            seconds = atof(argv[++i]);
+        else if (!strcmp(argv[i], "--seconds") && i + 1 < argc) {
+            const char *arg = argv[++i];
+            char *end;
+            seconds = strtod(arg, &end);
+            if (end == arg || *end || !(seconds > 0)) {   /* "1m" or "-5" must not mean "forever" */
+                fprintf(stderr, "--seconds: expected a positive number, got '%s'\n", arg);
+                return 2;
+            }
+        }
         else if (!strcmp(argv[i], "-v"))
             verbose = 1;
         else if (!strcmp(argv[i], "--id-from") && i + 1 < argc)
@@ -889,9 +908,10 @@ int main(int argc, char **argv)
                nc_tap_ifname(tap), ts.frames_in, ts.frames_out, ts.dropped);
         if (nc_tap_link(tap) == TUNNEL_LINK_NONE && vt_is_up(vt))
             rc = 1;     /* interface creation failed */
+        wait_children();
         run_hook("stop");
+        wait_children();
         nc_tap_destroy(tap);
-        reap_children();
     }
 #endif
     t.ops->close(vt);
