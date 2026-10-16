@@ -36,8 +36,8 @@ VTUND=1 ci/build-musl.sh arm32      # or together with VTesse, OpenIPC toolchain
 
 ## Patches
 
-| Patch | What it does |
-|---|---|
+| Patch                                                                | What it does                                                                                                                           |
+|----------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
 | [`vtun-3.0.2-denied-log.patch`](patches/vtun-3.0.2-denied-log.patch) | A refused login is logged with the session name the client sent and the reason instead of only `Denied connection from IP:PORT` (#22). |
 
 Log lines with `vtun-3.0.2-denied-log.patch`:

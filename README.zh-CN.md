@@ -29,13 +29,13 @@
 
 静态二进制文件（无依赖）发布在 [Releases 页面](https://github.com/compot-dev/vtesse/releases)：[`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) 随 `main` 的每次推送重新构建（文件名固定，下文使用）。发布标题中注明 VTesse 版本；变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
-| 平台 | `ARCH` |
-|---|---|
-| OpenIPC 摄像机：海思、国科、SigmaStar 及其他 32 位 ARM；运行 32 位系统的树莓派 | `arm32` |
-| OpenIPC 摄像机：君正（T31 等）；小端 MIPS 路由器（联发科 MT7621、MT7628） | `mipsel` |
-| 大端 MIPS 路由器（高通 Atheros ath79 等） | `mips` |
-| 64 位 ARM：运行 64 位系统的树莓派、瑞芯微及其他 ARM64 开发板 | `arm64` |
-| PC 与服务器 | `x86_64` |
+| 平台                                                                           | `ARCH`   |
+|--------------------------------------------------------------------------------|----------|
+| OpenIPC 摄像机：海思、国科、SigmaStar 及其他 32 位 ARM；运行 32 位系统的树莓派 | `arm32`  |
+| OpenIPC 摄像机：君正（T31 等）；小端 MIPS 路由器（联发科 MT7621、MT7628）      | `mipsel` |
+| 大端 MIPS 路由器（高通 Atheros ath79 等）                                      | `mips`   |
+| 64 位 ARM：运行 64 位系统的树莓派、瑞芯微及其他 ARM64 开发板                   | `arm64`  |
+| PC 与服务器                                                                    | `x86_64` |
 
 每个平台提供两个二进制文件：`vtesse-ARCH`（lwIP 与 TAP 两种后端：无需 root 的 SOCKS5 / 端口转发，或使用 `--tap` 的内核接口）和 `vtesse-tap-ARCH`（仅 TAP，体积约为一半）。TAP 后端需要 root、`tun` 驱动（`/dev/net/tun`）以及钩子脚本 `vtesse-hook.sh` 和 `vtesse-udhcpc.script`。
 
@@ -142,31 +142,31 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 
 文档为英文。
 
-| 文档 | 内容 |
-|---|---|
-| [Usage](docs/usage.md) | 构建、`vtesse-cli` 选项、配置文件、设备 ID、DHCP 与路由、本地代理、错误信息、探测工具 |
-| [VTun protocol](docs/protocol.md) | 握手、质询应答、会话标志、帧格式、keepalive、影响客户端的服务器行为、UDP |
-| [Architecture](docs/architecture.md) | 分层、`tunnel_ops_t`、VTun 客户端、lwIP 协议栈、代理与流量控制、仓库结构 |
-| [Embedding](docs/embedding.md) | 在其他应用中使用这些库、事件循环集成、示例 |
-| [Security](docs/security.md) | VTun 认证的弱点、明文数据、本地代理的暴露面 |
-| [VTun server](server/README.md) | 打补丁的 vtund 构建、发布的二进制文件、补丁列表 |
-| [Testing](docs/testing.md) | 单元测试、sanitizer、大端序 MIPS、Docker 测试台与验收测试 |
+| 文档                                 | 内容                                                                                  |
+|--------------------------------------|---------------------------------------------------------------------------------------|
+| [Usage](docs/usage.md)               | 构建、`vtesse-cli` 选项、配置文件、设备 ID、DHCP 与路由、本地代理、错误信息、探测工具 |
+| [VTun protocol](docs/protocol.md)    | 握手、质询应答、会话标志、帧格式、keepalive、影响客户端的服务器行为、UDP              |
+| [Architecture](docs/architecture.md) | 分层、`tunnel_ops_t`、VTun 客户端、lwIP 协议栈、代理与流量控制、仓库结构              |
+| [Embedding](docs/embedding.md)       | 在其他应用中使用这些库、事件循环集成、示例                                            |
+| [Security](docs/security.md)         | VTun 认证的弱点、明文数据、本地代理的暴露面                                           |
+| [VTun server](server/README.md)      | 打补丁的 vtund 构建、发布的二进制文件、补丁列表                                       |
+| [Testing](docs/testing.md)           | 单元测试、sanitizer、大端序 MIPS、Docker 测试台与验收测试                             |
 
 ## 路线图
 
 各阶段与任务记录在 [GitHub Issues](https://github.com/compot-dev/vtesse/issues) 中：
 
-| 阶段 | 状态 | Issues |
-|---|---|---|
-| 0. 测试台（Docker 中的 VTun 3.0.2、网桥、带选项 121 的 DHCP） | ✅ 已完成 | [#1](https://github.com/compot-dev/vtesse/issues/1) ✅ |
-| 1. Linux 命令行原型：TCP + `type ether` + 基于 lwIP 的 DHCP | ✅ 已完成 | [#2](https://github.com/compot-dev/vtesse/issues/2) ✅ [#3](https://github.com/compot-dev/vtesse/issues/3) ✅ [#4](https://github.com/compot-dev/vtesse/issues/4) ✅ [#5](https://github.com/compot-dev/vtesse/issues/5) ✅ [#6](https://github.com/compot-dev/vtesse/issues/6) ✅ [#7](https://github.com/compot-dev/vtesse/issues/7) ✅ [#8](https://github.com/compot-dev/vtesse/issues/8) ✅ |
-| 2. 本地代理：SOCKS5 与端口转发 | ✅ 已完成 | [#10](https://github.com/compot-dev/vtesse/issues/10) ✅ [#11](https://github.com/compot-dev/vtesse/issues/11) ✅ |
-| 3. 嵌入式 Linux：ARM/MIPS 交叉编译、体积与内存、CI | ✅ 已完成 | [#12](https://github.com/compot-dev/vtesse/issues/12) ✅ [#20](https://github.com/compot-dev/vtesse/issues/20) ✅ |
-| 3. TAP/TUN 后端（用内核接口代替 lwIP，Linux 平台） | ✅ 已完成 | [#19](https://github.com/compot-dev/vtesse/issues/19) ✅ |
-| 4. Android 应用（不使用 VpnService） | ✅ 已完成 | [#13](https://github.com/compot-dev/vtesse/issues/13) ✅ |
-| 5. 可选：UDP 传输、TLS 封装、Blowfish 认证 | ⏸ 已推迟 | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16) |
-| 6. 在 camex 中复用上层模块 | ⏸ 已推迟 | [#17](https://github.com/compot-dev/vtesse/issues/17) |
-| 通用：测试、许可证 | ✅ 已完成 | [#9](https://github.com/compot-dev/vtesse/issues/9) ✅ [#18](https://github.com/compot-dev/vtesse/issues/18) ✅ |
+| 阶段                                                          | 状态      | Issues                                                                                                                                                                                                                                                                                                                                                                                           |
+|---------------------------------------------------------------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0. 测试台（Docker 中的 VTun 3.0.2、网桥、带选项 121 的 DHCP） | ✅ 已完成 | [#1](https://github.com/compot-dev/vtesse/issues/1) ✅                                                                                                                                                                                                                                                                                                                                           |
+| 1. Linux 命令行原型：TCP + `type ether` + 基于 lwIP 的 DHCP   | ✅ 已完成 | [#2](https://github.com/compot-dev/vtesse/issues/2) ✅ [#3](https://github.com/compot-dev/vtesse/issues/3) ✅ [#4](https://github.com/compot-dev/vtesse/issues/4) ✅ [#5](https://github.com/compot-dev/vtesse/issues/5) ✅ [#6](https://github.com/compot-dev/vtesse/issues/6) ✅ [#7](https://github.com/compot-dev/vtesse/issues/7) ✅ [#8](https://github.com/compot-dev/vtesse/issues/8) ✅ |
+| 2. 本地代理：SOCKS5 与端口转发                                | ✅ 已完成 | [#10](https://github.com/compot-dev/vtesse/issues/10) ✅ [#11](https://github.com/compot-dev/vtesse/issues/11) ✅                                                                                                                                                                                                                                                                                |
+| 3. 嵌入式 Linux：ARM/MIPS 交叉编译、体积与内存、CI            | ✅ 已完成 | [#12](https://github.com/compot-dev/vtesse/issues/12) ✅ [#20](https://github.com/compot-dev/vtesse/issues/20) ✅                                                                                                                                                                                                                                                                                |
+| 3. TAP/TUN 后端（用内核接口代替 lwIP，Linux 平台）            | ✅ 已完成 | [#19](https://github.com/compot-dev/vtesse/issues/19) ✅                                                                                                                                                                                                                                                                                                                                         |
+| 4. Android 应用（不使用 VpnService）                          | ✅ 已完成 | [#13](https://github.com/compot-dev/vtesse/issues/13) ✅                                                                                                                                                                                                                                                                                                                                         |
+| 5. 可选：UDP 传输、TLS 封装、Blowfish 认证                    | ⏸ 已推迟  | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16)                                                                                                                                                                                                                                |
+| 6. 在 camex 中复用上层模块                                    | ⏸ 已推迟  | [#17](https://github.com/compot-dev/vtesse/issues/17)                                                                                                                                                                                                                                                                                                                                            |
+| 通用：测试、许可证                                            | ✅ 已完成 | [#9](https://github.com/compot-dev/vtesse/issues/9) ✅ [#18](https://github.com/compot-dev/vtesse/issues/18) ✅                                                                                                                                                                                                                                                                                  |
 
 ✅ — 已关闭的 issue。 ⏸ — 已推迟。
 

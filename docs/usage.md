@@ -31,12 +31,12 @@ Static musl binaries for cameras and routers are built by
 QEMU=1 ci/build-musl.sh arm32 dist     # downloads the toolchain, runs the tests under qemu
 ```
 
-| Target | Toolchain | Devices |
-|---|---|---|
-| `arm32` | OpenIPC `hisilicon-hi3516cv100` (arm musleabi) | 32-bit ARM cameras |
+| Target   | Toolchain                                        | Devices                                                                 |
+|----------|--------------------------------------------------|-------------------------------------------------------------------------|
+| `arm32`  | OpenIPC `hisilicon-hi3516cv100` (arm musleabi)   | 32-bit ARM cameras                                                      |
 | `mipsel` | OpenWrt 23.05 `ramips/mt7621` (musl, soft-float) | Ingenic cameras, little-endian MIPS routers (MediaTek MT7620/7621/7628) |
-| `arm64` | Bootlin aarch64 musl | 64-bit ARM |
-| `mips` | OpenWrt 23.05 `ath79/generic` (musl, soft-float) | big-endian MIPS routers (Atheros ath79 and others) |
+| `arm64`  | Bootlin aarch64 musl                             | 64-bit ARM                                                              |
+| `mips`   | OpenWrt 23.05 `ath79/generic` (musl, soft-float) | big-endian MIPS routers (Atheros ath79 and others)                      |
 
 MIPS builds are soft-float: router SoCs have no FPU and their kernels often lack FPU
 emulation, so hard-float binaries end with `Illegal instruction` there (found on an
@@ -45,12 +45,12 @@ OpenWrt MT7620 router, #30).
 
 Optional modules (#29), `vtesse-cli --version` lists what a binary contains:
 
-| Switch | Leaves out | arm32/x86_64 code saved |
-|---|---|---|
-| `LWIP=0` | lwIP stack, port forwards, SOCKS5, UDP relay (TAP/TUN backend only) | ~75 % |
-| `SOCKS=0` | SOCKS5 server (port forwards stay) | ~1.7 KB |
-| `UDP_RELAY=0` | UDP relay | ~2 KB |
-| `TAP=0` | TAP/TUN backend (kernel interface) | ~5 KB |
+| Switch        | Leaves out                                                          | arm32/x86_64 code saved |
+|---------------|---------------------------------------------------------------------|-------------------------|
+| `LWIP=0`      | lwIP stack, port forwards, SOCKS5, UDP relay (TAP/TUN backend only) | ~75 %                   |
+| `SOCKS=0`     | SOCKS5 server (port forwards stay)                                  | ~1.7 KB                 |
+| `UDP_RELAY=0` | UDP relay                                                           | ~2 KB                   |
+| `TAP=0`       | TAP/TUN backend (kernel interface)                                  | ~5 KB                   |
 
 A disabled feature is refused with a clear message (`--socks: built without SOCKS5`).
 Release binaries contain everything; `vtesse-tap-<arch>` is the `LWIP=0` build.
@@ -72,20 +72,20 @@ vtesse-cli [--config FILE] [--seconds N] [-v]
 vtesse-cli [--config FILE] [--seconds N] --tap [--ifname NAME] [--hook SCRIPT]
 ```
 
-| Option | Meaning |
-|---|---|
-| `--config FILE` | configuration file, default `~/.config/vtesse/probe.conf` |
-| `--seconds N` | stop after N seconds (default: run until SIGINT/SIGTERM) |
-| `--id-from IFACE` | [device ID](#device-id) = MAC of the local interface `IFACE` (overrides `session`/`id_from` of the file) |
-| `--socks PORT` | SOCKS5 server on `LISTEN:PORT` |
-| `--forward LPORT:IP:RPORT` | TCP forward `LISTEN:LPORT → IP:RPORT` through the tunnel (repeatable, up to 16) |
-| `--listen ADDR` | address of the local listeners, default `127.0.0.1` |
-| `--udp-relay PORT[:LOCAL_PORT]` | [UDP relay](#udp-relay-rtp-from-cameras): datagrams to the tunnel address on `PORT` go to `127.0.0.1:LOCAL_PORT` (default the same port); repeatable, up to 3 |
-| `--fetch URL` | one HTTP GET through the stack once an address is bound (diagnostics) |
-| `--ip A.B.C.D/P`, `--gw A.B.C.D` | [manual IPv4](#manual-ipv4-type-tun) instead of DHCP; override `ip`/`gw` of the file (`--debug-ip`/`--debug-gw` are accepted as old names) |
-| `--tap` | [TAP backend](#tap-backend): kernel interface instead of lwIP (Linux, root) |
-| `--ifname NAME` | interface name for `--tap`, default `vtesse%d` |
-| `--hook SCRIPT` | script run on interface events for `--tap` |
+| Option                           | Meaning                                                                                                                                                       |
+|----------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--config FILE`                  | configuration file, default `~/.config/vtesse/probe.conf`                                                                                                     |
+| `--seconds N`                    | stop after N seconds (default: run until SIGINT/SIGTERM)                                                                                                      |
+| `--id-from IFACE`                | [device ID](#device-id) = MAC of the local interface `IFACE` (overrides `session`/`id_from` of the file)                                                      |
+| `--socks PORT`                   | SOCKS5 server on `LISTEN:PORT`                                                                                                                                |
+| `--forward LPORT:IP:RPORT`       | TCP forward `LISTEN:LPORT → IP:RPORT` through the tunnel (repeatable, up to 16)                                                                               |
+| `--listen ADDR`                  | address of the local listeners, default `127.0.0.1`                                                                                                           |
+| `--udp-relay PORT[:LOCAL_PORT]`  | [UDP relay](#udp-relay-rtp-from-cameras): datagrams to the tunnel address on `PORT` go to `127.0.0.1:LOCAL_PORT` (default the same port); repeatable, up to 3 |
+| `--fetch URL`                    | one HTTP GET through the stack once an address is bound (diagnostics)                                                                                         |
+| `--ip A.B.C.D/P`, `--gw A.B.C.D` | [manual IPv4](#manual-ipv4-type-tun) instead of DHCP; override `ip`/`gw` of the file (`--debug-ip`/`--debug-gw` are accepted as old names)                    |
+| `--tap`                          | [TAP backend](#tap-backend): kernel interface instead of lwIP (Linux, root)                                                                                   |
+| `--ifname NAME`                  | interface name for `--tap`, default `vtesse%d`                                                                                                                |
+| `--hook SCRIPT`                  | script run on interface events for `--tap`                                                                                                                    |
 
 The CLI brings the tunnel and the userspace stack up, prints link events, the DHCP
 address and routes, runs the local proxy and prints proxy statistics on exit. Exit
@@ -151,17 +151,17 @@ vtesse-cli --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vt
 `key=value` lines, `#` starts a comment. Credentials are read only from this file,
 never from the command line; keep it outside the repository with mode 600.
 
-| Key | Meaning |
-|---|---|
-| `host` | VTun server name or IPv4 address |
-| `port` | VTun server TCP port |
-| `session` | session name = [device ID](#device-id) |
-| `id_from` | instead of `session`: take the device ID from the MAC of this interface, e.g. `eth0` |
-| `udp_relay` | `PORT[:LOCAL_PORT]`, repeatable: [UDP relay](#udp-relay-rtp-from-cameras) (lwIP backend) |
-| `ip`, `gw`, `route` | [manual IPv4](#manual-ipv4-type-tun): `ip=A.B.C.D/P`, optional `gw=A.B.C.D`, `route=NET/P` (repeatable, up to 16); required for `type tun` |
-| `password` | session password |
-| `auth` | challenge response, `xor` (default; servers built without OpenSSL) |
-| `socks_user`, `socks_password` | optional SOCKS5 username/password (RFC 1929) |
+| Key                            | Meaning                                                                                                                                    |
+|--------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
+| `host`                         | VTun server name or IPv4 address                                                                                                           |
+| `port`                         | VTun server TCP port                                                                                                                       |
+| `session`                      | session name = [device ID](#device-id)                                                                                                     |
+| `id_from`                      | instead of `session`: take the device ID from the MAC of this interface, e.g. `eth0`                                                       |
+| `udp_relay`                    | `PORT[:LOCAL_PORT]`, repeatable: [UDP relay](#udp-relay-rtp-from-cameras) (lwIP backend)                                                   |
+| `ip`, `gw`, `route`            | [manual IPv4](#manual-ipv4-type-tun): `ip=A.B.C.D/P`, optional `gw=A.B.C.D`, `route=NET/P` (repeatable, up to 16); required for `type tun` |
+| `password`                     | session password                                                                                                                           |
+| `auth`                         | challenge response, `xor` (default; servers built without OpenSSL)                                                                         |
+| `socks_user`, `socks_password` | optional SOCKS5 username/password (RFC 1929)                                                                                               |
 
 ## Device ID
 
@@ -303,18 +303,18 @@ via `--udp-relay 1559:5600`).
 Link events printed by the CLI (`down` = retried automatically with backoff 1–30 s,
 `failed` = final):
 
-| Message | Kind | Meaning |
-|---|---|---|
-| wrong session name or password | failed | server replied `ERR` (unknown session, wrong password, wrong auth mode, or session locked with `multi no`) |
-| compression is enabled on the server | failed | session flags contain `C`/`L` |
-| encryption is enabled on the server | failed | session flags contain `E` |
-| unsupported transport (UDP) | failed | session flags contain `U` |
-| unsupported session type | failed | `type tty` / `type pipe` |
-| protocol error (not a VTun server?) | failed | unexpected greeting or flags |
-| closed by server (possibly taken over by another connection) | down | `CONN_CLOSE` or EOF, e.g. another client logged in with the same session and `multi killold` |
-| no response from server (keepalive) | down | 5 keepalive intervals without any frame |
-| timeout | down | a handshake step timed out |
-| cannot resolve / cannot connect to server | down | DNS or TCP connect failure |
+| Message                                                      | Kind   | Meaning                                                                                                    |
+|--------------------------------------------------------------|--------|------------------------------------------------------------------------------------------------------------|
+| wrong session name or password                               | failed | server replied `ERR` (unknown session, wrong password, wrong auth mode, or session locked with `multi no`) |
+| compression is enabled on the server                         | failed | session flags contain `C`/`L`                                                                              |
+| encryption is enabled on the server                          | failed | session flags contain `E`                                                                                  |
+| unsupported transport (UDP)                                  | failed | session flags contain `U`                                                                                  |
+| unsupported session type                                     | failed | `type tty` / `type pipe`                                                                                   |
+| protocol error (not a VTun server?)                          | failed | unexpected greeting or flags                                                                               |
+| closed by server (possibly taken over by another connection) | down   | `CONN_CLOSE` or EOF, e.g. another client logged in with the same session and `multi killold`               |
+| no response from server (keepalive)                          | down   | 5 keepalive intervals without any frame                                                                    |
+| timeout                                                      | down   | a handshake step timed out                                                                                 |
+| cannot resolve / cannot connect to server                    | down   | DNS or TCP connect failure                                                                                 |
 
 ## Probe tool
 

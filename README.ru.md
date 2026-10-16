@@ -29,13 +29,13 @@
 
 Статические бинарники (без зависимостей) — на [странице релизов](https://github.com/compot-dev/vtesse/releases): [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) пересобирается при каждом push в `main` (постоянные имена файлов, используются ниже). Версия VTesse указана в заголовке релиза; история изменений — в [CHANGELOG.md](CHANGELOG.md).
 
-| Платформа | `ARCH` |
-|---|---|
-| Камеры OpenIPC: HiSilicon, Goke, SigmaStar, другие 32-битные ARM; Raspberry Pi с 32-битной ОС | `arm32` |
-| Камеры OpenIPC: Ingenic (T31 и другие); роутеры MIPS little-endian (MediaTek MT7621, MT7628) | `mipsel` |
-| Роутеры MIPS big-endian (Qualcomm Atheros ath79 и другие) | `mips` |
-| 64-битный ARM: Raspberry Pi с 64-битной ОС, Rockchip, другие платы ARM64 | `arm64` |
-| ПК и серверы | `x86_64` |
+| Платформа                                                                                     | `ARCH`   |
+|-----------------------------------------------------------------------------------------------|----------|
+| Камеры OpenIPC: HiSilicon, Goke, SigmaStar, другие 32-битные ARM; Raspberry Pi с 32-битной ОС | `arm32`  |
+| Камеры OpenIPC: Ingenic (T31 и другие); роутеры MIPS little-endian (MediaTek MT7621, MT7628)  | `mipsel` |
+| Роутеры MIPS big-endian (Qualcomm Atheros ath79 и другие)                                     | `mips`   |
+| 64-битный ARM: Raspberry Pi с 64-битной ОС, Rockchip, другие платы ARM64                      | `arm64`  |
+| ПК и серверы                                                                                  | `x86_64` |
 
 На каждую платформу два бинарника: `vtesse-ARCH` (режимы lwIP и TAP: SOCKS5 / проброс портов без root или интерфейс ядра с `--tap`) и `vtesse-tap-ARCH` (только TAP, примерно вдвое меньше). Режиму TAP нужны root, драйвер `tun` (`/dev/net/tun`) и хук-скрипты `vtesse-hook.sh` и `vtesse-udhcpc.script`.
 
@@ -142,31 +142,31 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 
 Документация на английском языке.
 
-| Документ | Содержание |
-|---|---|
-| [Usage](docs/usage.md) | сборка, опции `vtesse-cli`, файл конфигурации, ID устройства, DHCP и маршруты, локальный прокси, сообщения об ошибках, утилита-зонд |
-| [VTun protocol](docs/protocol.md) | рукопожатие, ответ на challenge, флаги сессии, кадры, keepalive, особенности сервера, важные для клиента, UDP |
-| [Architecture](docs/architecture.md) | слои, `tunnel_ops_t`, клиент VTun, стек lwIP, прокси и управление потоком, структура репозитория |
-| [Embedding](docs/embedding.md) | использование библиотек в другом приложении, интеграция с циклом событий, пример |
-| [Security](docs/security.md) | слабые места аутентификации VTun, открытый трафик, доступ к локальному прокси |
-| [VTun server](server/README.md) | сборки vtund с патчами, бинарники в релизах, список патчей |
-| [Testing](docs/testing.md) | юнит-тесты, санитайзеры, big-endian MIPS, тестовый стенд в Docker и приёмочные тесты |
+| Документ                             | Содержание                                                                                                                          |
+|--------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| [Usage](docs/usage.md)               | сборка, опции `vtesse-cli`, файл конфигурации, ID устройства, DHCP и маршруты, локальный прокси, сообщения об ошибках, утилита-зонд |
+| [VTun protocol](docs/protocol.md)    | рукопожатие, ответ на challenge, флаги сессии, кадры, keepalive, особенности сервера, важные для клиента, UDP                       |
+| [Architecture](docs/architecture.md) | слои, `tunnel_ops_t`, клиент VTun, стек lwIP, прокси и управление потоком, структура репозитория                                    |
+| [Embedding](docs/embedding.md)       | использование библиотек в другом приложении, интеграция с циклом событий, пример                                                    |
+| [Security](docs/security.md)         | слабые места аутентификации VTun, открытый трафик, доступ к локальному прокси                                                       |
+| [VTun server](server/README.md)      | сборки vtund с патчами, бинарники в релизах, список патчей                                                                          |
+| [Testing](docs/testing.md)           | юнит-тесты, санитайзеры, big-endian MIPS, тестовый стенд в Docker и приёмочные тесты                                                |
 
 ## План работ
 
 Этапы и задачи ведутся в [GitHub Issues](https://github.com/compot-dev/vtesse/issues):
 
-| Этап | Статус | Задачи |
-|---|---|---|
-| 0. Тестовый стенд (VTun 3.0.2 в Docker, мост, DHCP с опцией 121) | ✅ Готово | [#1](https://github.com/compot-dev/vtesse/issues/1) ✅ |
-| 1. Прототип CLI для Linux: TCP + `type ether` + DHCP поверх lwIP | ✅ Готово | [#2](https://github.com/compot-dev/vtesse/issues/2) ✅ [#3](https://github.com/compot-dev/vtesse/issues/3) ✅ [#4](https://github.com/compot-dev/vtesse/issues/4) ✅ [#5](https://github.com/compot-dev/vtesse/issues/5) ✅ [#6](https://github.com/compot-dev/vtesse/issues/6) ✅ [#7](https://github.com/compot-dev/vtesse/issues/7) ✅ [#8](https://github.com/compot-dev/vtesse/issues/8) ✅ |
-| 2. Локальный прокси: SOCKS5 и проброс портов | ✅ Готово | [#10](https://github.com/compot-dev/vtesse/issues/10) ✅ [#11](https://github.com/compot-dev/vtesse/issues/11) ✅ |
-| 3. Встраиваемый Linux: кросс-сборка ARM/MIPS, размер и память, CI | ✅ Готово | [#12](https://github.com/compot-dev/vtesse/issues/12) ✅ [#20](https://github.com/compot-dev/vtesse/issues/20) ✅ |
-| 3. Режим TAP/TUN (интерфейс ядра вместо lwIP, Linux) | ✅ Готово | [#19](https://github.com/compot-dev/vtesse/issues/19) ✅ |
-| 4. Приложение для Android (без VpnService) | ✅ Готово | [#13](https://github.com/compot-dev/vtesse/issues/13) ✅ |
-| 5. Опционально: транспорт UDP, обёртка TLS, аутентификация Blowfish | ⏸ Отложено | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16) |
-| 6. Повторное использование верхних слоёв в camex | ⏸ Отложено | [#17](https://github.com/compot-dev/vtesse/issues/17) |
-| Общее: тесты, лицензия | ✅ Готово | [#9](https://github.com/compot-dev/vtesse/issues/9) ✅ [#18](https://github.com/compot-dev/vtesse/issues/18) ✅ |
+| Этап                                                                | Статус     | Задачи                                                                                                                                                                                                                                                                                                                                                                                           |
+|---------------------------------------------------------------------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0. Тестовый стенд (VTun 3.0.2 в Docker, мост, DHCP с опцией 121)    | ✅ Готово  | [#1](https://github.com/compot-dev/vtesse/issues/1) ✅                                                                                                                                                                                                                                                                                                                                           |
+| 1. Прототип CLI для Linux: TCP + `type ether` + DHCP поверх lwIP    | ✅ Готово  | [#2](https://github.com/compot-dev/vtesse/issues/2) ✅ [#3](https://github.com/compot-dev/vtesse/issues/3) ✅ [#4](https://github.com/compot-dev/vtesse/issues/4) ✅ [#5](https://github.com/compot-dev/vtesse/issues/5) ✅ [#6](https://github.com/compot-dev/vtesse/issues/6) ✅ [#7](https://github.com/compot-dev/vtesse/issues/7) ✅ [#8](https://github.com/compot-dev/vtesse/issues/8) ✅ |
+| 2. Локальный прокси: SOCKS5 и проброс портов                        | ✅ Готово  | [#10](https://github.com/compot-dev/vtesse/issues/10) ✅ [#11](https://github.com/compot-dev/vtesse/issues/11) ✅                                                                                                                                                                                                                                                                                |
+| 3. Встраиваемый Linux: кросс-сборка ARM/MIPS, размер и память, CI   | ✅ Готово  | [#12](https://github.com/compot-dev/vtesse/issues/12) ✅ [#20](https://github.com/compot-dev/vtesse/issues/20) ✅                                                                                                                                                                                                                                                                                |
+| 3. Режим TAP/TUN (интерфейс ядра вместо lwIP, Linux)                | ✅ Готово  | [#19](https://github.com/compot-dev/vtesse/issues/19) ✅                                                                                                                                                                                                                                                                                                                                         |
+| 4. Приложение для Android (без VpnService)                          | ✅ Готово  | [#13](https://github.com/compot-dev/vtesse/issues/13) ✅                                                                                                                                                                                                                                                                                                                                         |
+| 5. Опционально: транспорт UDP, обёртка TLS, аутентификация Blowfish | ⏸ Отложено | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16)                                                                                                                                                                                                                                |
+| 6. Повторное использование верхних слоёв в camex                    | ⏸ Отложено | [#17](https://github.com/compot-dev/vtesse/issues/17)                                                                                                                                                                                                                                                                                                                                            |
+| Общее: тесты, лицензия                                              | ✅ Готово  | [#9](https://github.com/compot-dev/vtesse/issues/9) ✅ [#18](https://github.com/compot-dev/vtesse/issues/18) ✅                                                                                                                                                                                                                                                                                  |
 
 ✅ — задача закрыта. ⏸ — отложено.
 

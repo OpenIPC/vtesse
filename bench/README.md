@@ -35,15 +35,15 @@ logged with the session name and the reason, e.g.
 
 ## Sessions (`vtund.conf`)
 
-| Session | Purpose | Flags |
-|---|---|---|
-| `02BE0C000001` | main: `type ether`, bridge + DHCP, `keepalive 10:5`, `multi killold` | `<TeK>` |
-| `02BE0C000002` | second ether client | `<TeK>` |
-| `02BE0C000003` | inherits `speed 512:512` from `default` | `<TeS512K>` |
-| `02BE0C000004` | `compress zlib:9` (client must refuse) | `<TeC9K>` |
-| `02BE0C000005` | `multi no` (second login → `ERR`) | `<TeK>` |
-| `02BE0C000006` | `type tun`, manual addressing (`10.76.0.1` ↔ `10.76.0.2`) | `<TuK>` |
-| `02BE0C000007`, `02BE0C000008` | more ether clients for real devices on the LAN (`BENCH_BIND`) | `<TeK>` |
+| Session                        | Purpose                                                              | Flags       |
+|--------------------------------|----------------------------------------------------------------------|-------------|
+| `02BE0C000001`                 | main: `type ether`, bridge + DHCP, `keepalive 10:5`, `multi killold` | `<TeK>`     |
+| `02BE0C000002`                 | second ether client                                                  | `<TeK>`     |
+| `02BE0C000003`                 | inherits `speed 512:512` from `default`                              | `<TeS512K>` |
+| `02BE0C000004`                 | `compress zlib:9` (client must refuse)                               | `<TeC9K>`   |
+| `02BE0C000005`                 | `multi no` (second login → `ERR`)                                    | `<TeK>`     |
+| `02BE0C000006`                 | `type tun`, manual addressing (`10.76.0.1` ↔ `10.76.0.2`)            | `<TuK>`     |
+| `02BE0C000007`, `02BE0C000008` | more ether clients for real devices on the LAN (`BENCH_BIND`)        | `<TeK>`     |
 
 Passwords are in `vtund.conf`.
 
