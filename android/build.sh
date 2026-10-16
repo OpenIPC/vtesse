@@ -36,17 +36,19 @@ if [ -n "${VTESSE_KEYSTORE:-}" ]; then
 fi
 
 IMAGE=${VTESSE_ANDROID_IMAGE:-}
+ENTRY=
 if [ -z "$IMAGE" ]; then
     IMAGE=vtesse-android
     docker build -q -t "$IMAGE" -f "$ROOT/ci/Dockerfile.android" "$ROOT/ci" >/dev/null
 else
-    docker run --rm "$IMAGE" sh -c 'command -v gradle >/dev/null && [ -n "${ANDROID_HOME:-}${ANDROID_SDK_ROOT:-}" ]' || {
+    ENTRY=--entrypoint=   # a ready image's own ENTRYPOINT must not swallow the commands
+    docker run --rm $ENTRY "$IMAGE" sh -c 'command -v gradle >/dev/null && [ -n "${ANDROID_HOME:-}${ANDROID_SDK_ROOT:-}" ]' || {
         echo "$IMAGE: needs gradle on PATH and ANDROID_HOME or ANDROID_SDK_ROOT set" >&2; exit 1; }
 fi
 mkdir -p "$HERE/.gradle-cache/home"
-# shellcheck disable=SC2086  # SIGN is a list of docker options
+# shellcheck disable=SC2086  # SIGN and ENTRY are lists of docker options
 docker run --rm --user "$(id -u):$(id -g)" -e GRADLE_USER_HOME=/src/android/.gradle-cache \
-    -e HOME=/src/android/.gradle-cache/home $SIGN \
+    -e HOME=/src/android/.gradle-cache/home $SIGN $ENTRY \
     -v "$ROOT:/src" -w /src/android "$IMAGE" \
     gradle --no-daemon -q ${*:-assembleDebug assembleRelease}
 ls -l "$HERE"/app/build/outputs/apk/*/*.apk
