@@ -4,8 +4,8 @@
 
 [English](README.md) | [Русский](README.ru.md) | **简体中文**
 
-[![Build](https://github.com/compot-dev/vtesse/actions/workflows/build.yml/badge.svg)](https://github.com/compot-dev/vtesse/actions/workflows/build.yml)
-[![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/compot-dev/vtesse/releases/tag/latest)
+[![Build](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml/badge.svg)](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml)
+[![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/OpenIPC/vtesse/releases/tag/latest)
 [![License](https://img.shields.io/badge/license-Prosperity%203.0-blue)](LICENSE.md)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android-brightgreen)](docs/architecture.md)
 [![Status](https://img.shields.io/badge/status-prototype-orange)](docs/security.md)
@@ -27,7 +27,7 @@
 
 ## 下载
 
-静态二进制文件（无依赖）发布在 [Releases 页面](https://github.com/compot-dev/vtesse/releases)：[`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) 随 `main` 的每次推送重新构建（文件名固定，下文使用）。发布标题中注明 VTesse 版本；变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+静态二进制文件（无依赖）发布在 [Releases 页面](https://github.com/OpenIPC/vtesse/releases)：[`latest`](https://github.com/OpenIPC/vtesse/releases/tag/latest) 随 `main` 的每次推送重新构建（文件名固定，下文使用）。发布标题中注明 VTesse 版本；变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 | 平台                                                                           | `ARCH`   |
 |--------------------------------------------------------------------------------|----------|
@@ -62,7 +62,7 @@ chmod 600 /etc/vtesse.conf
 ```sh
 # 以 root 运行；ARCH = arm32 或 mipsel，见上表
 ARCH=arm32
-URL=https://github.com/compot-dev/vtesse/releases/download/latest
+URL=https://github.com/OpenIPC/vtesse/releases/download/latest
 # 先建目录，再把每个文件直接下载到目标位置，下载成功后设置权限
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
@@ -87,7 +87,7 @@ vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse
 opkg update && opkg install curl kmod-tun   # kmod-tun 仅在使用 --tap 时需要；OpenWrt 25+ 使用：apk add curl kmod-tun
 # ARCH = mipsel（MT7621、MT7628）、mips（ath79）、arm64 或 arm32，见上表
 ARCH=mipsel
-URL=https://github.com/compot-dev/vtesse/releases/download/latest
+URL=https://github.com/OpenIPC/vtesse/releases/download/latest
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
 curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
@@ -107,14 +107,14 @@ curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtess
 ```sh
 ARCH=x86_64   # x86_64；64 位 / 32 位系统的树莓派用 arm64 / arm32
 mkdir -p ~/.local/bin
-curl -fsSL -o ~/.local/bin/vtesse https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
+curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/download/latest/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
 # 无需 root：127.0.0.1:1080 上的 SOCKS5，以及到摄像机 RTSP 的转发
 ~/.local/bin/vtesse --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
 
 ### Android
 
-Android 5.0 及以上（包括电视盒子）：[`vtesse-android.apk`](https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-android.apk)。无需 VPN 权限、没有 VPN 图标——带普通通知的服务维持隧道，并在 `127.0.0.1` 上提供 SOCKS5 和端口转发；播放器（如 OpenIPC Decoder 或 VLC）即可打开 `rtsp://127.0.0.1:1551/...`（服务器 1 的摄像机 1）。最多三台服务器，每台最多 8 台摄像机，端口固定。设备 ID 在首次启动时生成（长按可复制），需要在服务器上添加为会话。最多三个服务器配置，一键切换。详见 [android/README.md](android/README.md)。
+Android 5.0 及以上（包括电视盒子）：[`vtesse-android.apk`](https://github.com/OpenIPC/vtesse/releases/download/latest/vtesse-android.apk)。无需 VPN 权限、没有 VPN 图标——带普通通知的服务维持隧道，并在 `127.0.0.1` 上提供 SOCKS5 和端口转发；播放器（如 OpenIPC Decoder 或 VLC）即可打开 `rtsp://127.0.0.1:1551/...`（服务器 1 的摄像机 1）。最多三台服务器，每台最多 8 台摄像机，端口固定。设备 ID 在首次启动时生成（长按可复制），需要在服务器上添加为会话。最多三个服务器配置，一键切换。详见 [android/README.md](android/README.md)。
 
 ![VTesse Android 版：服务器配置与摄像头（示例数据）](docs/img/android-settings.png)
 
@@ -154,19 +154,19 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 
 ## 路线图
 
-各阶段与任务记录在 [GitHub Issues](https://github.com/compot-dev/vtesse/issues) 中：
+各阶段与任务记录在 [GitHub Issues](https://github.com/OpenIPC/vtesse/issues) 中：
 
-| 阶段                                                          | 状态      | Issues                                                                                                                                                                                                                                                                                                                                                                                           |
-|---------------------------------------------------------------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0. 测试台（Docker 中的 VTun 3.0.2、网桥、带选项 121 的 DHCP） | ✅ 已完成 | [#1](https://github.com/compot-dev/vtesse/issues/1) ✅                                                                                                                                                                                                                                                                                                                                           |
-| 1. Linux 命令行原型：TCP + `type ether` + 基于 lwIP 的 DHCP   | ✅ 已完成 | [#2](https://github.com/compot-dev/vtesse/issues/2) ✅ [#3](https://github.com/compot-dev/vtesse/issues/3) ✅ [#4](https://github.com/compot-dev/vtesse/issues/4) ✅ [#5](https://github.com/compot-dev/vtesse/issues/5) ✅ [#6](https://github.com/compot-dev/vtesse/issues/6) ✅ [#7](https://github.com/compot-dev/vtesse/issues/7) ✅ [#8](https://github.com/compot-dev/vtesse/issues/8) ✅ |
-| 2. 本地代理：SOCKS5 与端口转发                                | ✅ 已完成 | [#10](https://github.com/compot-dev/vtesse/issues/10) ✅ [#11](https://github.com/compot-dev/vtesse/issues/11) ✅                                                                                                                                                                                                                                                                                |
-| 3. 嵌入式 Linux：ARM/MIPS 交叉编译、体积与内存、CI            | ✅ 已完成 | [#12](https://github.com/compot-dev/vtesse/issues/12) ✅ [#20](https://github.com/compot-dev/vtesse/issues/20) ✅                                                                                                                                                                                                                                                                                |
-| 3. TAP/TUN 后端（用内核接口代替 lwIP，Linux 平台）            | ✅ 已完成 | [#19](https://github.com/compot-dev/vtesse/issues/19) ✅                                                                                                                                                                                                                                                                                                                                         |
-| 4. Android 应用（不使用 VpnService）                          | ✅ 已完成 | [#13](https://github.com/compot-dev/vtesse/issues/13) ✅                                                                                                                                                                                                                                                                                                                                         |
-| 5. 可选：UDP 传输、TLS 封装、Blowfish 认证                    | ⏸ 已推迟  | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16)                                                                                                                                                                                                                                |
-| 6. 在 camex 中复用上层模块                                    | ⏸ 已推迟  | [#17](https://github.com/compot-dev/vtesse/issues/17)                                                                                                                                                                                                                                                                                                                                            |
-| 通用：测试、许可证                                            | ✅ 已完成 | [#9](https://github.com/compot-dev/vtesse/issues/9) ✅ [#18](https://github.com/compot-dev/vtesse/issues/18) ✅                                                                                                                                                                                                                                                                                  |
+| 阶段                                                          | 状态      | Issues                                                                                                                                                                                                                                                                                                                                                                      |
+|---------------------------------------------------------------|-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0. 测试台（Docker 中的 VTun 3.0.2、网桥、带选项 121 的 DHCP） | ✅ 已完成 | [#1](https://github.com/OpenIPC/vtesse/issues/1) ✅                                                                                                                                                                                                                                                                                                                         |
+| 1. Linux 命令行原型：TCP + `type ether` + 基于 lwIP 的 DHCP   | ✅ 已完成 | [#2](https://github.com/OpenIPC/vtesse/issues/2) ✅ [#3](https://github.com/OpenIPC/vtesse/issues/3) ✅ [#4](https://github.com/OpenIPC/vtesse/issues/4) ✅ [#5](https://github.com/OpenIPC/vtesse/issues/5) ✅ [#6](https://github.com/OpenIPC/vtesse/issues/6) ✅ [#7](https://github.com/OpenIPC/vtesse/issues/7) ✅ [#8](https://github.com/OpenIPC/vtesse/issues/8) ✅ |
+| 2. 本地代理：SOCKS5 与端口转发                                | ✅ 已完成 | [#10](https://github.com/OpenIPC/vtesse/issues/10) ✅ [#11](https://github.com/OpenIPC/vtesse/issues/11) ✅                                                                                                                                                                                                                                                                 |
+| 3. 嵌入式 Linux：ARM/MIPS 交叉编译、体积与内存、CI            | ✅ 已完成 | [#12](https://github.com/OpenIPC/vtesse/issues/12) ✅ [#20](https://github.com/OpenIPC/vtesse/issues/20) ✅                                                                                                                                                                                                                                                                 |
+| 3. TAP/TUN 后端（用内核接口代替 lwIP，Linux 平台）            | ✅ 已完成 | [#19](https://github.com/OpenIPC/vtesse/issues/19) ✅                                                                                                                                                                                                                                                                                                                       |
+| 4. Android 应用（不使用 VpnService）                          | ✅ 已完成 | [#13](https://github.com/OpenIPC/vtesse/issues/13) ✅                                                                                                                                                                                                                                                                                                                       |
+| 5. 可选：UDP 传输、TLS 封装、Blowfish 认证                    | ⏸ 已推迟  | [#14](https://github.com/OpenIPC/vtesse/issues/14) [#15](https://github.com/OpenIPC/vtesse/issues/15) [#16](https://github.com/OpenIPC/vtesse/issues/16)                                                                                                                                                                                                                    |
+| 6. 在 camex 中复用上层模块                                    | ⏸ 已推迟  | [#17](https://github.com/OpenIPC/vtesse/issues/17)                                                                                                                                                                                                                                                                                                                          |
+| 通用：测试、许可证                                            | ✅ 已完成 | [#9](https://github.com/OpenIPC/vtesse/issues/9) ✅ [#18](https://github.com/OpenIPC/vtesse/issues/18) ✅                                                                                                                                                                                                                                                                   |
 
 ✅ — 已关闭的 issue。 ⏸ — 已推迟。
 
@@ -176,7 +176,7 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 
 ## 支持
 
-- 问题与缺陷报告：[GitHub Issues](https://github.com/compot-dev/vtesse/issues)
+- 问题与缺陷报告：[GitHub Issues](https://github.com/OpenIPC/vtesse/issues)
 - 文档：[docs/](docs/)
 
 [![Telegram](https://openipc.org/images/telegram_button.svg)](https://openipc.org/our-channels)

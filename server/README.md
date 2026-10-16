@@ -20,7 +20,7 @@ challenge response), no LZO, no zlib. Requirements: a C compiler, `bison`, `flex
 ## Releases
 
 CI builds a static musl vtund for PCs and servers only (x86_64, `ci/build-musl.sh`)
-and attaches it to the [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest)
+and attaches it to the [`latest`](https://github.com/OpenIPC/vtesse/releases/tag/latest)
 release as `vtund-<VTun version>-x86_64`, e.g. `vtund-3.0.2-x86_64`. The name carries the
 original VTun version, not the VTesse version; the applied patches are listed below.
 The binary reports itself as upstream does (`VTun ver 3.X <build date>`),

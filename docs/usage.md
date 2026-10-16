@@ -59,7 +59,7 @@ Each target gives `vtesse-<target>` (lwIP + TAP) and `vtesse-tap-<target>` (TAP
 only); x86_64 also `vtund-3.0.2-x86_64`, the VTun server with our patches
 ([server/README.md](../server/README.md)). Use musl builds on devices: a static glibc binary cannot resolve host names
 without the NSS libraries of the same glibc. Prebuilt binaries are on the
-[releases page](https://github.com/compot-dev/vtesse/releases) (`latest` is rebuilt
+[releases page](https://github.com/OpenIPC/vtesse/releases) (`latest` is rebuilt
 from every push to `main`).
 
 ## vtesse-cli

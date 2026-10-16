@@ -4,8 +4,8 @@
 
 **English** | [Русский](README.ru.md) | [简体中文](README.zh-CN.md)
 
-[![Build](https://github.com/compot-dev/vtesse/actions/workflows/build.yml/badge.svg)](https://github.com/compot-dev/vtesse/actions/workflows/build.yml)
-[![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/compot-dev/vtesse/releases/tag/latest)
+[![Build](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml/badge.svg)](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml)
+[![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/OpenIPC/vtesse/releases/tag/latest)
 [![License](https://img.shields.io/badge/license-Prosperity%203.0-blue)](LICENSE.md)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android-brightgreen)](docs/architecture.md)
 [![Status](https://img.shields.io/badge/status-prototype-orange)](docs/security.md)
@@ -27,7 +27,7 @@ A resource access microsystem: a client for existing **VTun** servers (`vtund -s
 
 ## Download
 
-Static binaries (no dependencies) are on the [releases page](https://github.com/compot-dev/vtesse/releases): [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) is rebuilt from every push to `main` (stable file names, used below). The release title shows the VTesse version; the change history is in [CHANGELOG.md](CHANGELOG.md).
+Static binaries (no dependencies) are on the [releases page](https://github.com/OpenIPC/vtesse/releases): [`latest`](https://github.com/OpenIPC/vtesse/releases/tag/latest) is rebuilt from every push to `main` (stable file names, used below). The release title shows the VTesse version; the change history is in [CHANGELOG.md](CHANGELOG.md).
 
 | Platform                                                                                        | `ARCH`   |
 |-------------------------------------------------------------------------------------------------|----------|
@@ -62,7 +62,7 @@ On a camera or router the ID can come from the device's own MAC instead: replace
 ```sh
 # as root; ARCH = arm32 or mipsel, see the table
 ARCH=arm32
-URL=https://github.com/compot-dev/vtesse/releases/download/latest
+URL=https://github.com/OpenIPC/vtesse/releases/download/latest
 # directories, then each file straight to its place, executable on success
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
@@ -87,7 +87,7 @@ Start at boot (`S99vtesse` is already installed; settings can be overridden in `
 opkg update && opkg install curl kmod-tun   # kmod-tun is needed for --tap only; apk add curl kmod-tun on OpenWrt 25+
 # ARCH = mipsel (MT7621, MT7628), mips (ath79), arm64 or arm32, see the table
 ARCH=mipsel
-URL=https://github.com/compot-dev/vtesse/releases/download/latest
+URL=https://github.com/OpenIPC/vtesse/releases/download/latest
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
 curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
@@ -107,14 +107,14 @@ Tried on a Netcraze Explorer NC-1621 (Keenetic rebrand, NDMS 5.2 beta, MIPS, 128
 ```sh
 ARCH=x86_64   # x86_64; arm64 / arm32 on a Raspberry Pi with a 64-bit / 32-bit OS
 mkdir -p ~/.local/bin
-curl -fsSL -o ~/.local/bin/vtesse https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
+curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/download/latest/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
 # no root needed: SOCKS5 on 127.0.0.1:1080 and a forward to a camera's RTSP
 ~/.local/bin/vtesse --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
 
 ### Android
 
-Android 5.0 and later, including Android TV boxes: [`vtesse-android.apk`](https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-android.apk). No VPN permission and no VPN icon — a service with a regular notification runs the tunnel and offers SOCKS5 and port forwards on `127.0.0.1`; a player such as OpenIPC Decoder or VLC opens e.g. `rtsp://127.0.0.1:1551/...` (camera 1 of server 1). Up to three servers with up to 8 cameras each on fixed ports. The device ID is generated on first start (long press copies it) and must be added as a session on the server. Up to three server profiles, switched with one press. See [android/README.md](android/README.md).
+Android 5.0 and later, including Android TV boxes: [`vtesse-android.apk`](https://github.com/OpenIPC/vtesse/releases/download/latest/vtesse-android.apk). No VPN permission and no VPN icon — a service with a regular notification runs the tunnel and offers SOCKS5 and port forwards on `127.0.0.1`; a player such as OpenIPC Decoder or VLC opens e.g. `rtsp://127.0.0.1:1551/...` (camera 1 of server 1). Up to three servers with up to 8 cameras each on fixed ports. The device ID is generated on first start (long press copies it) and must be added as a session on the server. Up to three server profiles, switched with one press. See [android/README.md](android/README.md).
 
 ![VTesse for Android: server profiles and cameras (example data)](docs/img/android-settings.png)
 
@@ -152,19 +152,19 @@ The session name is the device ID (12 characters `0-9A-F`, also used as the MAC)
 
 ## Roadmap
 
-Stages and tasks are tracked as [GitHub issues](https://github.com/compot-dev/vtesse/issues):
+Stages and tasks are tracked as [GitHub issues](https://github.com/OpenIPC/vtesse/issues):
 
-| Stage                                                                | Status     | Issues                                                                                                                                                                                                                                                                                                                                                                                           |
-|----------------------------------------------------------------------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0. Test bench (VTun 3.0.2 in Docker, bridge, DHCP with option 121)   | ✅ Done    | [#1](https://github.com/compot-dev/vtesse/issues/1) ✅                                                                                                                                                                                                                                                                                                                                           |
-| 1. CLI prototype on Linux: TCP + `type ether` + DHCP over lwIP       | ✅ Done    | [#2](https://github.com/compot-dev/vtesse/issues/2) ✅ [#3](https://github.com/compot-dev/vtesse/issues/3) ✅ [#4](https://github.com/compot-dev/vtesse/issues/4) ✅ [#5](https://github.com/compot-dev/vtesse/issues/5) ✅ [#6](https://github.com/compot-dev/vtesse/issues/6) ✅ [#7](https://github.com/compot-dev/vtesse/issues/7) ✅ [#8](https://github.com/compot-dev/vtesse/issues/8) ✅ |
-| 2. Local proxy: SOCKS5 and port forwarding                           | ✅ Done    | [#10](https://github.com/compot-dev/vtesse/issues/10) ✅ [#11](https://github.com/compot-dev/vtesse/issues/11) ✅                                                                                                                                                                                                                                                                                |
-| 3. Embedded Linux: ARM/MIPS cross builds, footprint, CI              | ✅ Done    | [#12](https://github.com/compot-dev/vtesse/issues/12) ✅ [#20](https://github.com/compot-dev/vtesse/issues/20) ✅                                                                                                                                                                                                                                                                                |
-| 3. TAP/TUN backend (kernel interface instead of lwIP, Linux targets) | ✅ Done    | [#19](https://github.com/compot-dev/vtesse/issues/19) ✅                                                                                                                                                                                                                                                                                                                                         |
-| 4. Android app (no VpnService)                                       | ✅ Done    | [#13](https://github.com/compot-dev/vtesse/issues/13) ✅                                                                                                                                                                                                                                                                                                                                         |
-| 5. Optional: UDP transport, TLS wrapper, Blowfish auth               | ⏸ Deferred | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16)                                                                                                                                                                                                                                |
-| 6. Reuse of the upper layers for camex                               | ⏸ Deferred | [#17](https://github.com/compot-dev/vtesse/issues/17)                                                                                                                                                                                                                                                                                                                                            |
-| Cross-cutting: tests, license                                        | ✅ Done    | [#9](https://github.com/compot-dev/vtesse/issues/9) ✅ [#18](https://github.com/compot-dev/vtesse/issues/18) ✅                                                                                                                                                                                                                                                                                  |
+| Stage                                                                | Status     | Issues                                                                                                                                                                                                                                                                                                                                                                      |
+|----------------------------------------------------------------------|------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0. Test bench (VTun 3.0.2 in Docker, bridge, DHCP with option 121)   | ✅ Done    | [#1](https://github.com/OpenIPC/vtesse/issues/1) ✅                                                                                                                                                                                                                                                                                                                         |
+| 1. CLI prototype on Linux: TCP + `type ether` + DHCP over lwIP       | ✅ Done    | [#2](https://github.com/OpenIPC/vtesse/issues/2) ✅ [#3](https://github.com/OpenIPC/vtesse/issues/3) ✅ [#4](https://github.com/OpenIPC/vtesse/issues/4) ✅ [#5](https://github.com/OpenIPC/vtesse/issues/5) ✅ [#6](https://github.com/OpenIPC/vtesse/issues/6) ✅ [#7](https://github.com/OpenIPC/vtesse/issues/7) ✅ [#8](https://github.com/OpenIPC/vtesse/issues/8) ✅ |
+| 2. Local proxy: SOCKS5 and port forwarding                           | ✅ Done    | [#10](https://github.com/OpenIPC/vtesse/issues/10) ✅ [#11](https://github.com/OpenIPC/vtesse/issues/11) ✅                                                                                                                                                                                                                                                                 |
+| 3. Embedded Linux: ARM/MIPS cross builds, footprint, CI              | ✅ Done    | [#12](https://github.com/OpenIPC/vtesse/issues/12) ✅ [#20](https://github.com/OpenIPC/vtesse/issues/20) ✅                                                                                                                                                                                                                                                                 |
+| 3. TAP/TUN backend (kernel interface instead of lwIP, Linux targets) | ✅ Done    | [#19](https://github.com/OpenIPC/vtesse/issues/19) ✅                                                                                                                                                                                                                                                                                                                       |
+| 4. Android app (no VpnService)                                       | ✅ Done    | [#13](https://github.com/OpenIPC/vtesse/issues/13) ✅                                                                                                                                                                                                                                                                                                                       |
+| 5. Optional: UDP transport, TLS wrapper, Blowfish auth               | ⏸ Deferred | [#14](https://github.com/OpenIPC/vtesse/issues/14) [#15](https://github.com/OpenIPC/vtesse/issues/15) [#16](https://github.com/OpenIPC/vtesse/issues/16)                                                                                                                                                                                                                    |
+| 6. Reuse of the upper layers for camex                               | ⏸ Deferred | [#17](https://github.com/OpenIPC/vtesse/issues/17)                                                                                                                                                                                                                                                                                                                          |
+| Cross-cutting: tests, license                                        | ✅ Done    | [#9](https://github.com/OpenIPC/vtesse/issues/9) ✅ [#18](https://github.com/OpenIPC/vtesse/issues/18) ✅                                                                                                                                                                                                                                                                   |
 
 ✅ — closed issue. ⏸ — deferred.
 
@@ -174,7 +174,7 @@ Stages and tasks are tracked as [GitHub issues](https://github.com/compot-dev/vt
 
 ## Support
 
-- Questions and bug reports: [GitHub Issues](https://github.com/compot-dev/vtesse/issues)
+- Questions and bug reports: [GitHub Issues](https://github.com/OpenIPC/vtesse/issues)
 - Documentation: [docs/](docs/)
 
 [![Telegram](https://openipc.org/images/telegram_button.svg)](https://openipc.org/our-channels)

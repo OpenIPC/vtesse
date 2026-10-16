@@ -50,7 +50,7 @@ the tunnel; there is no system network interface.
   big-endian MIPS.
 - **Small footprint:** `-Os`, strip; lwIP memory profiles (see below); optional
   modules `LWIP=0`, `SOCKS=0`, `UDP_RELAY=0`, `TAP=0`
-  ([#29](https://github.com/compot-dev/vtesse/issues/29), [usage](usage.md#building)).
+  ([#29](https://github.com/OpenIPC/vtesse/issues/29), [usage](usage.md#building)).
 - **Protocol-agnostic upper layers.** Everything above the transport talks to
   `tunnel_ops_t` only, so the stack, proxy and Android layers can later serve another
   tunnel protocol (e.g. [camex](https://github.com/openipc/camex)).
@@ -196,7 +196,7 @@ or its output buffer is full; frames from the tunnel are written non-blocking.
 
 ## Android
 
-Planned ([#13](https://github.com/compot-dev/vtesse/issues/13)): foreground service
+Planned ([#13](https://github.com/OpenIPC/vtesse/issues/13)): foreground service
 with a regular notification (not a VPN), no `VpnService`, no `BIND_VPN_SERVICE`.
 Android 14+ requires a `foregroundServiceType`; Doze and network changes are handled
 by reconnecting (`NetworkCallback`).
