@@ -7,13 +7,13 @@ session `02BE0C000001`, bench password `c79e01d2e49d80eafd192c043c5142bd5a65b5a9
 
 ## Handshake (each message is exactly 50 bytes, NUL padded)
 
-| Dir | Text |
-|---|---|
-| S→C | `VTUN server ver 3.X 10/13/2026\n` |
-| C→S | `HOST: 02BE0C000001\n` |
+| Dir | Text                                            |
+|-----|-------------------------------------------------|
+| S→C | `VTUN server ver 3.X 10/13/2026\n`              |
+| C→S | `HOST: 02BE0C000001\n`                          |
 | S→C | `OK CHAL: <djhdglocepfoaejahdbnealodcbnjgbl>\n` |
-| C→S | `CHAL: <fkeefcihhpgpgakcbgcjhjnkakcnpdhk>\n` |
-| S→C | `OK FLAGS: <TeK>\n` |
+| C→S | `CHAL: <fkeefcihhpgpgakcbgcjhjnkakcnpdhk>\n`    |
+| S→C | `OK FLAGS: <TeK>\n`                             |
 
 XOR check: `cl2cs(cs2cl(chal) XOR password)` must equal the client `CHAL`.
 

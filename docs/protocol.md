@@ -48,10 +48,10 @@ in `<` `>`. Exactly 32 characters.
 
 **Challenge response** (`encrypt_chal`) depends on how the server was built:
 
-| Server build | Response |
-|---|---|
+| Server build                      | Response                                                                                             |
+|-----------------------------------|------------------------------------------------------------------------------------------------------|
 | without OpenSSL (`--disable-ssl`) | `resp[i] = chal[i] ^ pwd[i % strlen(pwd)]`, i = 0..15 — only the first 16 password characters matter |
-| with OpenSSL | Blowfish-ECB over two 8-byte blocks, key = `MD5(password)` (16 bytes) |
+| with OpenSSL                      | Blowfish-ECB over two 8-byte blocks, key = `MD5(password)` (16 bytes)                                |
 
 The client cannot detect the variant in advance; the auth mode is a setting.
 VTesse implements XOR; Blowfish is planned
@@ -73,16 +73,16 @@ login with `multi` other than `yes` gets `ERR`.
 `OK FLAGS: <...>` (`bf2cf` / `cf2bf`), server order: transport, type, `S<n>`,
 `C<n>`, `L<n>`, `K`, `E<n>`, `>`. Example: `<TeK>`.
 
-| Flag | Meaning | VTesse |
-|---|---|---|
-| `T` / `U` | TCP / UDP transport | TCP; `U` → error "UDP not supported" (deferred) |
-| `u` / `e` | `type tun` / `type ether` | supported |
-| `t` / `p` | `type tty` / `type pipe` | error |
-| `K` | keepalive | must answer `ECHO_REQ` |
-| `C<n>` / `L<n>` | zlib / LZO compression | error "compression enabled on server" |
-| `E` / `E<n>` | encryption (`E0`/`E` legacy, else cipher id) | error "encryption enabled on server" |
-| `S<n>` | shaper | ignored |
-| `F` | reserved | ignored |
+| Flag            | Meaning                                      | VTesse                                          |
+|-----------------|----------------------------------------------|-------------------------------------------------|
+| `T` / `U`       | TCP / UDP transport                          | TCP; `U` → error "UDP not supported" (deferred) |
+| `u` / `e`       | `type tun` / `type ether`                    | supported                                       |
+| `t` / `p`       | `type tty` / `type pipe`                     | error                                           |
+| `K`             | keepalive                                    | must answer `ECHO_REQ`                          |
+| `C<n>` / `L<n>` | zlib / LZO compression                       | error "compression enabled on server"           |
+| `E` / `E<n>`    | encryption (`E0`/`E` legacy, else cipher id) | error "encryption enabled on server"            |
+| `S<n>`          | shaper                                       | ignored                                         |
+| `F`             | reserved                                     | ignored                                         |
 
 An unknown flag character, a missing number after `C`/`L`/`S` or a missing `>` is an
 error (as in the reference `cf2bf`). A session `speed 0:0` removes a shaper inherited
@@ -99,12 +99,12 @@ Right after `OK FLAGS` the same TCP connection carries frames:
 hdr, big-endian: bits 0..11 = length (VTUN_FSIZE_MASK 0x0fff), bits 12..15 = flags
 ```
 
-| Flag | Name | Meaning |
-|---|---|---|
+| Flag     | Name              | Meaning                                                      |
+|----------|-------------------|--------------------------------------------------------------|
 | `0x1000` | `VTUN_CONN_CLOSE` | peer closes the session (also sent when kicked by `killold`) |
-| `0x2000` | `VTUN_ECHO_REQ` | keepalive request |
-| `0x4000` | `VTUN_ECHO_REP` | keepalive reply |
-| `0x8000` | `VTUN_BAD_FRAME` | internal return code of `tcp_read`, never on the wire |
+| `0x2000` | `VTUN_ECHO_REQ`   | keepalive request                                            |
+| `0x4000` | `VTUN_ECHO_REP`   | keepalive reply                                              |
+| `0x8000` | `VTUN_BAD_FRAME`  | internal return code of `tcp_read`, never on the wire        |
 
 - A flag frame is a bare header (length 0).
 - Max payload `VTUN_FRAME_SIZE` = 2048; the receiver accepts up to 2048 + 100

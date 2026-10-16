@@ -57,22 +57,22 @@ the tunnel; there is no system network interface.
 
 ## Repository layout
 
-| Path | Contents |
-|---|---|
-| `include/netcore/`, `netcore/` | `tunnel_ops_t`, poll loop helper, route table, lwIP stack glue, proxy, TAP backend (protocol-agnostic) |
-| `include/vtesse/`, `vtun/` | VTun wire format helpers and the VTun client |
-| `cli/` | `vtesse-cli` |
-| `port/lwip/` | lwIP configuration (`lwipopts.h`), `arch/cc.h`, hook prototypes |
-| `third_party/lwip/` | vendored lwIP 2.2.1, unmodified subset |
-| `tests/` | unit tests and client scenarios |
-| `bench/` | Docker test bench |
-| `android/` | Android app: Gradle project, JNI bridge, foreground service ([android/README.md](../android/README.md)) |
-| `server/` | vtund build script and our VTun server patches (bench and release builds) |
-| `ci/` | cross builds (`build-musl.sh`), build containers, big-endian MIPS tests under qemu |
-| `.github/workflows/` | CI: tests, cross builds, test bench, releases |
-| `tools/` | probe script |
-| `scripts/` | hook and udhcpc scripts for the TAP backend, service scripts (`S99vtesse`, `vtesse.init`) |
-| `docs/` | documentation |
+| Path                           | Contents                                                                                                |
+|--------------------------------|---------------------------------------------------------------------------------------------------------|
+| `include/netcore/`, `netcore/` | `tunnel_ops_t`, poll loop helper, route table, lwIP stack glue, proxy, TAP backend (protocol-agnostic)  |
+| `include/vtesse/`, `vtun/`     | VTun wire format helpers and the VTun client                                                            |
+| `cli/`                         | `vtesse-cli`                                                                                            |
+| `port/lwip/`                   | lwIP configuration (`lwipopts.h`), `arch/cc.h`, hook prototypes                                         |
+| `third_party/lwip/`            | vendored lwIP 2.2.1, unmodified subset                                                                  |
+| `tests/`                       | unit tests and client scenarios                                                                         |
+| `bench/`                       | Docker test bench                                                                                       |
+| `android/`                     | Android app: Gradle project, JNI bridge, foreground service ([android/README.md](../android/README.md)) |
+| `server/`                      | vtund build script and our VTun server patches (bench and release builds)                               |
+| `ci/`                          | cross builds (`build-musl.sh`), build containers, big-endian MIPS tests under qemu                      |
+| `.github/workflows/`           | CI: tests, cross builds, test bench, releases                                                           |
+| `tools/`                       | probe script                                                                                            |
+| `scripts/`                     | hook and udhcpc scripts for the TAP backend, service scripts (`S99vtesse`, `vtesse.init`)               |
+| `docs/`                        | documentation                                                                                           |
 
 ## Tunnel interface
 
@@ -178,15 +178,15 @@ device), for RTP pushed by cameras. User-facing: [usage](usage.md#udp-relay-rtp-
 
 Two consumers of `tunnel_ops_t`:
 
-| | lwIP (default) | TAP ([`tapdev.h`](../include/netcore/tapdev.h)) |
-|---|---|---|
-| Interface in the system | none | `vtesse0` (TAP for `type ether`, TUN for `type tun`) |
-| Who can use the tunnel | the application, programs using its proxy | every program |
-| Inbound connections | no | yes |
-| Addressing | built-in DHCP client (lwIP) | system DHCP client via the hook script |
-| Privileges | none | root or `CAP_NET_ADMIN`, `tun` driver |
-| Platforms | Linux, Android | Linux |
-| Code size (x86_64, `-Os`) | ~107 KiB code + lwIP pools | ~23 KiB (`make LWIP=0`) |
+|                           | lwIP (default)                            | TAP ([`tapdev.h`](../include/netcore/tapdev.h))      |
+|---------------------------|-------------------------------------------|------------------------------------------------------|
+| Interface in the system   | none                                      | `vtesse0` (TAP for `type ether`, TUN for `type tun`) |
+| Who can use the tunnel    | the application, programs using its proxy | every program                                        |
+| Inbound connections       | no                                        | yes                                                  |
+| Addressing                | built-in DHCP client (lwIP)               | system DHCP client via the hook script               |
+| Privileges                | none                                      | root or `CAP_NET_ADMIN`, `tun` driver                |
+| Platforms                 | Linux, Android                            | Linux                                                |
+| Code size (x86_64, `-Os`) | ~107 KiB code + lwIP pools                | ~23 KiB (`make LWIP=0`)                              |
 
 The TAP backend creates the interface on the first tunnel `UP`, keeps it across
 reconnects and switches the carrier off while the tunnel is down
