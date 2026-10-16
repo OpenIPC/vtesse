@@ -5,9 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Local builds and checks run in Docker
 
 Nothing is installed on the host: no toolchains, JDK, Android SDK or ffmpeg. Every image tag
-below is pinned, and each one runs with `--pull never`, so a check never pulls a different
-version than the last run. Toolchains are cached on the host in
-`~/.cache/compot/toolchains`, mounted read-only.
+below is pinned. The direct `docker run` commands also pass `--pull never`, so a check never
+pulls a different version than the last run. `android/build.sh` calls `docker run` without
+that flag; with a local image Docker does not pull anyway.
+
+Toolchains are cached on the host in `~/.cache/compot/toolchains` and mounted read-only at
+`/opt/tc`. The image sets `TOOLCHAIN_CACHE=/opt/tc`, and `ci/build-musl.sh` reads its cache
+from there instead of its default `~/.cache/vtesse-toolchains`. A read-only mount cannot
+take a new toolchain: to download one for the first time, mount it read-write once.
 
 ```sh
 # native build and unit tests (what the CI "Unit tests" job runs)
