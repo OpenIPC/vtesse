@@ -7,8 +7,10 @@
 # dependency cache live in android/.gradle-cache (not in the repository).
 #
 # VTESSE_ANDROID_IMAGE=<image> uses a ready Android image instead of building
-# ci/Dockerfile.android (it needs JDK 17, the SDK/NDK/CMake of that Dockerfile
-# and `gradle` on PATH); without it the image is built as vtesse-android.
+# ci/Dockerfile.android. The image must provide JDK 17, the SDK/NDK/CMake of
+# that Dockerfile, `gradle` on PATH, and export ANDROID_HOME (or
+# ANDROID_SDK_ROOT) - the script checks the last two before building. Without
+# the variable the image is built as vtesse-android.
 #
 # Release signing (optional; without it the release APK is unsigned):
 #   VTESSE_KEYSTORE=/path/to/key.jks plus VTESSE_KEYSTORE_PASSWORD, VTESSE_KEY_ALIAS,
@@ -37,6 +39,9 @@ IMAGE=${VTESSE_ANDROID_IMAGE:-}
 if [ -z "$IMAGE" ]; then
     IMAGE=vtesse-android
     docker build -q -t "$IMAGE" -f "$ROOT/ci/Dockerfile.android" "$ROOT/ci" >/dev/null
+else
+    docker run --rm "$IMAGE" sh -c 'command -v gradle >/dev/null && [ -n "${ANDROID_HOME:-}${ANDROID_SDK_ROOT:-}" ]' || {
+        echo "$IMAGE: needs gradle on PATH and ANDROID_HOME or ANDROID_SDK_ROOT set" >&2; exit 1; }
 fi
 mkdir -p "$HERE/.gradle-cache/home"
 # shellcheck disable=SC2086  # SIGN is a list of docker options
