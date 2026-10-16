@@ -6,6 +6,10 @@
 # Output: android/app/build/outputs/apk/{debug,release}/. Gradle and its
 # dependency cache live in android/.gradle-cache (not in the repository).
 #
+# VTESSE_ANDROID_IMAGE=<image> uses a ready Android image instead of building
+# ci/Dockerfile.android (it needs JDK 17, the SDK/NDK/CMake of that Dockerfile
+# and `gradle` on PATH); without it the image is built as vtesse-android.
+#
 # Release signing (optional; without it the release APK is unsigned):
 #   VTESSE_KEYSTORE=/path/to/key.jks plus VTESSE_KEYSTORE_PASSWORD, VTESSE_KEY_ALIAS,
 #   VTESSE_KEY_PASSWORD in the environment (CI: from repository secrets), or
@@ -29,11 +33,15 @@ if [ -n "${VTESSE_KEYSTORE:-}" ]; then
     export VTESSE_KEYSTORE_PASSWORD VTESSE_KEY_ALIAS VTESSE_KEY_PASSWORD
 fi
 
-docker build -q -t vtesse-android -f "$ROOT/ci/Dockerfile.android" "$ROOT/ci" >/dev/null
+IMAGE=${VTESSE_ANDROID_IMAGE:-}
+if [ -z "$IMAGE" ]; then
+    IMAGE=vtesse-android
+    docker build -q -t "$IMAGE" -f "$ROOT/ci/Dockerfile.android" "$ROOT/ci" >/dev/null
+fi
 mkdir -p "$HERE/.gradle-cache/home"
 # shellcheck disable=SC2086  # SIGN is a list of docker options
 docker run --rm --user "$(id -u):$(id -g)" -e GRADLE_USER_HOME=/src/android/.gradle-cache \
     -e HOME=/src/android/.gradle-cache/home $SIGN \
-    -v "$ROOT:/src" -w /src/android vtesse-android \
+    -v "$ROOT:/src" -w /src/android "$IMAGE" \
     gradle --no-daemon -q ${*:-assembleDebug assembleRelease}
 ls -l "$HERE"/app/build/outputs/apk/*/*.apk
