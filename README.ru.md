@@ -4,8 +4,8 @@
 
 [English](README.md) | **Русский** | [简体中文](README.zh-CN.md)
 
-[![Build](https://github.com/compot-dev/vtesse/actions/workflows/build.yml/badge.svg)](https://github.com/compot-dev/vtesse/actions/workflows/build.yml)
-[![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/compot-dev/vtesse/releases/tag/latest)
+[![Build](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml/badge.svg)](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml)
+[![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/OpenIPC/vtesse/releases/tag/latest)
 [![License](https://img.shields.io/badge/license-Prosperity%203.0-blue)](LICENSE.md)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android-brightgreen)](docs/architecture.md)
 [![Status](https://img.shields.io/badge/status-prototype-orange)](docs/security.md)
@@ -27,7 +27,7 @@
 
 ## Скачивание
 
-Статические бинарники (без зависимостей) — на [странице релизов](https://github.com/compot-dev/vtesse/releases): [`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) пересобирается при каждом push в `main` (постоянные имена файлов, используются ниже). Версия VTesse указана в заголовке релиза; история изменений — в [CHANGELOG.md](CHANGELOG.md).
+Статические бинарники (без зависимостей) — на [странице релизов](https://github.com/OpenIPC/vtesse/releases): [`latest`](https://github.com/OpenIPC/vtesse/releases/tag/latest) пересобирается при каждом push в `main` (постоянные имена файлов, используются ниже). Версия VTesse указана в заголовке релиза; история изменений — в [CHANGELOG.md](CHANGELOG.md).
 
 | Платформа                                                                                     | `ARCH`   |
 |-----------------------------------------------------------------------------------------------|----------|
@@ -62,7 +62,7 @@ chmod 600 /etc/vtesse.conf
 ```sh
 # от root; ARCH = arm32 или mipsel, см. таблицу
 ARCH=arm32
-URL=https://github.com/compot-dev/vtesse/releases/download/latest
+URL=https://github.com/OpenIPC/vtesse/releases/download/latest
 # каталоги, затем каждый файл сразу на своё место, права — после успешной загрузки
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
@@ -87,7 +87,7 @@ vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse
 opkg update && opkg install curl kmod-tun   # kmod-tun нужен только для --tap; на OpenWrt 25+: apk add curl kmod-tun
 # ARCH = mipsel (MT7621, MT7628), mips (ath79), arm64 или arm32, см. таблицу
 ARCH=mipsel
-URL=https://github.com/compot-dev/vtesse/releases/download/latest
+URL=https://github.com/OpenIPC/vtesse/releases/download/latest
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
 curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
@@ -107,14 +107,14 @@ curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtess
 ```sh
 ARCH=x86_64   # x86_64; arm64 / arm32 на Raspberry Pi с 64- / 32-битной ОС
 mkdir -p ~/.local/bin
-curl -fsSL -o ~/.local/bin/vtesse https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
+curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/download/latest/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
 # root не нужен: SOCKS5 на 127.0.0.1:1080 и проброс на RTSP камеры
 ~/.local/bin/vtesse --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
 
 ### Android
 
-Android 5.0 и новее, включая ТВ-приставки: [`vtesse-android.apk`](https://github.com/compot-dev/vtesse/releases/download/latest/vtesse-android.apk). Без разрешения VPN и без значка VPN — сервис с обычным уведомлением держит туннель и даёт SOCKS5 и проброс портов на `127.0.0.1`; плеер, например OpenIPC Decoder или VLC, открывает `rtsp://127.0.0.1:1551/...` (камера 1 сервера 1). До трёх серверов и до 8 камер на каждом, на фиксированных портах. ID устройства генерируется при первом запуске (долгое нажатие копирует его), его нужно добавить как сессию на сервере. До трёх профилей серверов, переключение одним нажатием. Подробнее — [android/README.md](android/README.md).
+Android 5.0 и новее, включая ТВ-приставки: [`vtesse-android.apk`](https://github.com/OpenIPC/vtesse/releases/download/latest/vtesse-android.apk). Без разрешения VPN и без значка VPN — сервис с обычным уведомлением держит туннель и даёт SOCKS5 и проброс портов на `127.0.0.1`; плеер, например OpenIPC Decoder или VLC, открывает `rtsp://127.0.0.1:1551/...` (камера 1 сервера 1). До трёх серверов и до 8 камер на каждом, на фиксированных портах. ID устройства генерируется при первом запуске (долгое нажатие копирует его), его нужно добавить как сессию на сервере. До трёх профилей серверов, переключение одним нажатием. Подробнее — [android/README.md](android/README.md).
 
 ![VTesse для Android: профили серверов и камеры (пример данных)](docs/img/android-settings.png)
 
@@ -154,19 +154,19 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 
 ## План работ
 
-Этапы и задачи ведутся в [GitHub Issues](https://github.com/compot-dev/vtesse/issues):
+Этапы и задачи ведутся в [GitHub Issues](https://github.com/OpenIPC/vtesse/issues):
 
-| Этап                                                                | Статус     | Задачи                                                                                                                                                                                                                                                                                                                                                                                           |
-|---------------------------------------------------------------------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0. Тестовый стенд (VTun 3.0.2 в Docker, мост, DHCP с опцией 121)    | ✅ Готово  | [#1](https://github.com/compot-dev/vtesse/issues/1) ✅                                                                                                                                                                                                                                                                                                                                           |
-| 1. Прототип CLI для Linux: TCP + `type ether` + DHCP поверх lwIP    | ✅ Готово  | [#2](https://github.com/compot-dev/vtesse/issues/2) ✅ [#3](https://github.com/compot-dev/vtesse/issues/3) ✅ [#4](https://github.com/compot-dev/vtesse/issues/4) ✅ [#5](https://github.com/compot-dev/vtesse/issues/5) ✅ [#6](https://github.com/compot-dev/vtesse/issues/6) ✅ [#7](https://github.com/compot-dev/vtesse/issues/7) ✅ [#8](https://github.com/compot-dev/vtesse/issues/8) ✅ |
-| 2. Локальный прокси: SOCKS5 и проброс портов                        | ✅ Готово  | [#10](https://github.com/compot-dev/vtesse/issues/10) ✅ [#11](https://github.com/compot-dev/vtesse/issues/11) ✅                                                                                                                                                                                                                                                                                |
-| 3. Встраиваемый Linux: кросс-сборка ARM/MIPS, размер и память, CI   | ✅ Готово  | [#12](https://github.com/compot-dev/vtesse/issues/12) ✅ [#20](https://github.com/compot-dev/vtesse/issues/20) ✅                                                                                                                                                                                                                                                                                |
-| 3. Режим TAP/TUN (интерфейс ядра вместо lwIP, Linux)                | ✅ Готово  | [#19](https://github.com/compot-dev/vtesse/issues/19) ✅                                                                                                                                                                                                                                                                                                                                         |
-| 4. Приложение для Android (без VpnService)                          | ✅ Готово  | [#13](https://github.com/compot-dev/vtesse/issues/13) ✅                                                                                                                                                                                                                                                                                                                                         |
-| 5. Опционально: транспорт UDP, обёртка TLS, аутентификация Blowfish | ⏸ Отложено | [#14](https://github.com/compot-dev/vtesse/issues/14) [#15](https://github.com/compot-dev/vtesse/issues/15) [#16](https://github.com/compot-dev/vtesse/issues/16)                                                                                                                                                                                                                                |
-| 6. Повторное использование верхних слоёв в camex                    | ⏸ Отложено | [#17](https://github.com/compot-dev/vtesse/issues/17)                                                                                                                                                                                                                                                                                                                                            |
-| Общее: тесты, лицензия                                              | ✅ Готово  | [#9](https://github.com/compot-dev/vtesse/issues/9) ✅ [#18](https://github.com/compot-dev/vtesse/issues/18) ✅                                                                                                                                                                                                                                                                                  |
+| Этап                                                                | Статус     | Задачи                                                                                                                                                                                                                                                                                                                                                                      |
+|---------------------------------------------------------------------|------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0. Тестовый стенд (VTun 3.0.2 в Docker, мост, DHCP с опцией 121)    | ✅ Готово  | [#1](https://github.com/OpenIPC/vtesse/issues/1) ✅                                                                                                                                                                                                                                                                                                                         |
+| 1. Прототип CLI для Linux: TCP + `type ether` + DHCP поверх lwIP    | ✅ Готово  | [#2](https://github.com/OpenIPC/vtesse/issues/2) ✅ [#3](https://github.com/OpenIPC/vtesse/issues/3) ✅ [#4](https://github.com/OpenIPC/vtesse/issues/4) ✅ [#5](https://github.com/OpenIPC/vtesse/issues/5) ✅ [#6](https://github.com/OpenIPC/vtesse/issues/6) ✅ [#7](https://github.com/OpenIPC/vtesse/issues/7) ✅ [#8](https://github.com/OpenIPC/vtesse/issues/8) ✅ |
+| 2. Локальный прокси: SOCKS5 и проброс портов                        | ✅ Готово  | [#10](https://github.com/OpenIPC/vtesse/issues/10) ✅ [#11](https://github.com/OpenIPC/vtesse/issues/11) ✅                                                                                                                                                                                                                                                                 |
+| 3. Встраиваемый Linux: кросс-сборка ARM/MIPS, размер и память, CI   | ✅ Готово  | [#12](https://github.com/OpenIPC/vtesse/issues/12) ✅ [#20](https://github.com/OpenIPC/vtesse/issues/20) ✅                                                                                                                                                                                                                                                                 |
+| 3. Режим TAP/TUN (интерфейс ядра вместо lwIP, Linux)                | ✅ Готово  | [#19](https://github.com/OpenIPC/vtesse/issues/19) ✅                                                                                                                                                                                                                                                                                                                       |
+| 4. Приложение для Android (без VpnService)                          | ✅ Готово  | [#13](https://github.com/OpenIPC/vtesse/issues/13) ✅                                                                                                                                                                                                                                                                                                                       |
+| 5. Опционально: транспорт UDP, обёртка TLS, аутентификация Blowfish | ⏸ Отложено | [#14](https://github.com/OpenIPC/vtesse/issues/14) [#15](https://github.com/OpenIPC/vtesse/issues/15) [#16](https://github.com/OpenIPC/vtesse/issues/16)                                                                                                                                                                                                                    |
+| 6. Повторное использование верхних слоёв в camex                    | ⏸ Отложено | [#17](https://github.com/OpenIPC/vtesse/issues/17)                                                                                                                                                                                                                                                                                                                          |
+| Общее: тесты, лицензия                                              | ✅ Готово  | [#9](https://github.com/OpenIPC/vtesse/issues/9) ✅ [#18](https://github.com/OpenIPC/vtesse/issues/18) ✅                                                                                                                                                                                                                                                                   |
 
 ✅ — задача закрыта. ⏸ — отложено.
 
@@ -176,7 +176,7 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 
 ## Поддержка
 
-- Вопросы и сообщения об ошибках: [GitHub Issues](https://github.com/compot-dev/vtesse/issues)
+- Вопросы и сообщения об ошибках: [GitHub Issues](https://github.com/OpenIPC/vtesse/issues)
 - Документация: [docs/](docs/)
 
 [![Telegram](https://openipc.org/images/telegram_button.svg)](https://openipc.org/our-channels)

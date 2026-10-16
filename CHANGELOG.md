@@ -1,7 +1,7 @@
 # Changelog
 
 The version lives in `include/vtesse/version.h`. Binaries are published only as the
-[`latest`](https://github.com/compot-dev/vtesse/releases/tag/latest) release, rebuilt
+[`latest`](https://github.com/OpenIPC/vtesse/releases/tag/latest) release, rebuilt
 from every push to `main`; this file is the change history.
 
 ## 1.12 — 2026-10-15

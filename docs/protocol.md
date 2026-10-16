@@ -55,7 +55,7 @@ in `<` `>`. Exactly 32 characters.
 
 The client cannot detect the variant in advance; the auth mode is a setting.
 VTesse implements XOR; Blowfish is planned
-([#16](https://github.com/compot-dev/vtesse/issues/16)).
+([#16](https://github.com/OpenIPC/vtesse/issues/16)).
 
 Reference vectors from the stock client are in
 [`bench/vectors/`](../bench/vectors/README.md).
@@ -152,7 +152,7 @@ address and port as the TCP socket and `connect()`s it to the client's TCP peer
 address plus the reported port; there is no `nat_hack`. Behind a NAT that does not
 preserve the source port (typical carrier-grade NAT) the client's datagrams are
 silently dropped. VTesse currently supports TCP only
-([#14](https://github.com/compot-dev/vtesse/issues/14)).
+([#14](https://github.com/OpenIPC/vtesse/issues/14)).
 
 ## Not provided by VTun
 

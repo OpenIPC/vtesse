@@ -17,7 +17,7 @@
   VTun's own encryption has no integrity protection anyway.
 - Use only over trusted networks or inside an external secure channel (TLS /
   stunnel, an operator VPN). A TLS wrapper for the TCP transport is planned
-  ([#15](https://github.com/compot-dev/vtesse/issues/15)).
+  ([#15](https://github.com/OpenIPC/vtesse/issues/15)).
 
 ## Sessions
 
