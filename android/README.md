@@ -65,6 +65,7 @@ carries several Mbit/s per connection (#24).
 
 ```sh
 android/build.sh                    # debug + release APK in Docker (ci/Dockerfile.android)
+VTESSE_ANDROID_IMAGE=<image> android/build.sh   # use a ready image (JDK 17, SDK/NDK/CMake, gradle, ANDROID_HOME)
 adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
