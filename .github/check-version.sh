@@ -7,7 +7,8 @@
 # MAJOR.MINOR.PATCH without leading zeros, greater than the base one, and
 # have its section in CHANGELOG.md ("## <version> — YYYY-MM-DD") that the
 # base branch does not have yet.  The sources, android/ (except its unit
-# tests), the Makefile, ci/ and scripts/ count as code or build; docs,
+# tests), the Makefile, ci/ and scripts/ count as code or build, without the
+# Markdown files in them (server/README.md, android/README.md); docs,
 # tests/, bench/, screenshots and the workflows in .github/ need no new
 # version.  The format is checked only when the version changes, so the
 # MAJOR.MM versions up to 1.12 stay valid until the next code change.
@@ -37,7 +38,8 @@ new=$(ver HEAD < "$header")
 old=$(git show "$base:$header" | ver "$base")
 
 # shellcheck disable=SC2086 # $code is a list of paths
-changed=$(git diff --name-only "$base"...HEAD -- $code ':(exclude)android/app/src/test')
+changed=$(git diff --name-only "$base"...HEAD -- $code ':(exclude)android/app/src/test' \
+	':(exclude,glob)**/*.md')
 
 if [ "$new" = "$old" ]; then
 	if [ -n "$changed" ]; then

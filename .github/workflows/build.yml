@@ -206,7 +206,9 @@ jobs:
   release:
     name: Release
     needs: [tests, build, bench, android]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # a manual run of main publishes too: it shares the push group and may take the
+    # place of a waiting push, so it must not skip the release
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
