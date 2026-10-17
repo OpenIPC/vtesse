@@ -2,32 +2,41 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Local builds and checks run in Docker
+## Local builds and checks
 
-Nothing is installed on the host: no toolchains, JDK, Android SDK or ffmpeg. Every image tag
-below is pinned. The direct `docker run` commands also pass `--pull never`, so a check never
-pulls a different version than the last run. `android/build.sh` calls `docker run` without
-that flag; with a local image Docker does not pull anyway.
+Everything runs in Docker. Nothing is installed on the host: no toolchains, JDK, Android SDK
+or ffmpeg. Every image tag below is pinned. The direct `docker run` commands pass
+`--pull never`, so a check never pulls a different version than the last run.
+`android/build.sh` calls `docker run` without that flag; with a local image Docker does not
+pull anyway.
 
-Toolchains are cached on the host in `~/.cache/compot/toolchains` and mounted read-only at
-`/opt/tc`. The image sets `TOOLCHAIN_CACHE=/opt/tc`, and `ci/build-musl.sh` reads its cache
-from there instead of its default `~/.cache/vtesse-toolchains`. A read-only mount cannot
-take a new toolchain: to download one for the first time, mount it read-write once.
+`compot/*` images are not published. They are built on a maintainer's development machine
+from Dockerfiles kept outside this repository. Elsewhere, use the equivalent command marked
+*without compot*; it gives the same result. Here the equivalents are the repository's own
+images from `ci/`, the same ones CI uses.
 
 ```sh
 # native build and unit tests (what the CI "Unit tests" job runs)
 docker run --rm --pull never -u "$(id -u):$(id -g)" -v "$PWD:/src" -w /src compot/cross:2026.10 \
   sh -c 'make -j"$(nproc)" BUILD=build-dev && make -j"$(nproc)" BUILD=build-dev test'
+#   without compot: docker build -t vtesse-ci-native -f ci/Dockerfile.native ci, then the same run with vtesse-ci-native
 
 # static musl binaries for a camera or router target, unit tests under qemu-user
 docker run --rm --pull never -u "$(id -u):$(id -g)" -v "$PWD:/src" \
   -v ~/.cache/compot/toolchains:/opt/tc:ro -w /src compot/cross:2026.10 \
   sh -c 'QEMU=1 ci/build-musl.sh arm32 dist'
+#   without compot: docker build -t vtesse-ci-cross -f ci/Dockerfile.cross ci, then the same run
+#   with vtesse-ci-cross and -e TOOLCHAIN_CACHE=/opt/tc
 
 # Android APKs
 VTESSE_ANDROID_IMAGE=compot/android:2026.10 android/build.sh assembleDebug
+#   without compot: android/build.sh assembleDebug (builds ci/Dockerfile.android as vtesse-android)
 ```
 
+Toolchains are cached on the host in `~/.cache/compot/toolchains` and mounted read-only at
+`/opt/tc`. `compot/cross` sets `TOOLCHAIN_CACHE=/opt/tc`, and `ci/build-musl.sh` reads its
+cache from there instead of its default `~/.cache/vtesse-toolchains`. A read-only mount cannot
+take a new toolchain: to download one for the first time, mount it read-write once.
 `build-*/` and `dist/` are gitignored.
 
 ## Checking an RTSP stream
@@ -45,6 +54,7 @@ docker run --rm --pull never --network host jrottenberg/ffmpeg:6.1-alpine \
 
 ## Rules
 
+- Never build on the host. `make` outside a container leaves host-built objects in `build*/`.
 - Local builds are for development only. Releases, pre-releases and builds for testers come
   from CI.
 - `bench/bench.sh` builds and runs its own `vtesse-bench` image. The `vtesse-bench-server`
