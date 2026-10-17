@@ -6,7 +6,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Version from include/vtesse/version.h ("MAJOR.MM" -> versionCode MAJOR*100+MM).
+// Version from include/vtesse/version.h, MAJOR.MINOR.PATCH (the MAJOR.MM versions up
+// to 1.12 count as MAJOR.MM.0): versionCode MAJOR*10000 + MINOR*100 + PATCH, so it
+// keeps growing past the old MAJOR*100+MM (1.12 was 112) and an update installs.
 val vtesseVersion: String = Regex("#define VTESSE_VERSION \"([0-9.]+)\"")
     .find(rootProject.file("../include/vtesse/version.h").readText())!!.groupValues[1]
 
@@ -28,7 +30,12 @@ android {
         minSdk = 21
         targetSdk = 35
         versionName = vtesseVersion
-        versionCode = vtesseVersion.split(".").let { it[0].toInt() * 100 + it[1].toInt() }
+        versionCode = vtesseVersion.split(".").map { it.toInt() }.let {
+            val minor = it[1]
+            val patch = it.getOrElse(2) { 0 }
+            require(minor < 100 && patch < 100) { "VTESSE_VERSION $vtesseVersion: MINOR and PATCH must be below 100" }
+            it[0] * 10000 + minor * 100 + patch
+        }
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
         }

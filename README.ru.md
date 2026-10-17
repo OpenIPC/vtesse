@@ -37,7 +37,7 @@
 | 64-битный ARM: Raspberry Pi с 64-битной ОС, Rockchip, другие платы ARM64                      | `arm64`  |
 | ПК и серверы                                                                                  | `x86_64` |
 
-На каждую платформу два бинарника: `vtesse-ARCH` (режимы lwIP и TAP: SOCKS5 / проброс портов без root или интерфейс ядра с `--tap`) и `vtesse-tap-ARCH` (только TAP, примерно вдвое меньше). Режиму TAP нужны root, драйвер `tun` (`/dev/net/tun`) и хук-скрипты `vtesse-hook.sh` и `vtesse-udhcpc.script`.
+На каждую платформу один бинарник, `vtesse-ARCH`, с обоими режимами: lwIP (SOCKS5 / проброс портов без root) и TAP (интерфейс ядра с `--tap`). Режиму TAP нужны root, драйвер `tun` (`/dev/net/tun`) и хук-скрипты `vtesse-hook.sh` и `vtesse-udhcpc.script`. До версии 1.12 выкладывался ещё `vtesse-tap-ARCH` (только TAP); его ссылки теперь отдают 404, вместо него — `vtesse-ARCH --tap`.
 
 В релизах также есть сервер VTun для ПК и серверов, `vtund-3.0.2-x86_64`: оригинальный VTun 3.0.2 с нашими патчами (отказ во входе пишется в лог с ID устройства и причиной), см. [server/README.md](server/README.md). Для камер и роутеров vtund при необходимости собирается в среде OpenIPC.
 
@@ -65,7 +65,7 @@ ARCH=arm32
 URL=https://github.com/OpenIPC/vtesse/releases/download/latest
 # каталоги, затем каждый файл сразу на своё место, права — после успешной загрузки
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
-curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
+curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
 curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
 curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
 curl -fsSL -o /etc/init.d/S99vtesse $URL/S99vtesse && chmod 755 /etc/init.d/S99vtesse
@@ -89,7 +89,7 @@ opkg update && opkg install curl kmod-tun   # kmod-tun нужен только �
 ARCH=mipsel
 URL=https://github.com/OpenIPC/vtesse/releases/download/latest
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
-curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
+curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
 curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
 curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
 curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtesse

@@ -53,10 +53,10 @@ Optional modules (#29), `vtesse-cli --version` lists what a binary contains:
 | `TAP=0`       | TAP/TUN backend (kernel interface)                                  | ~5 KB                   |
 
 A disabled feature is refused with a clear message (`--socks: built without SOCKS5`).
-Release binaries contain everything; `vtesse-tap-<arch>` is the `LWIP=0` build.
+Release binaries contain everything, one per platform; the `LWIP=0` build is not published
+(build it with `make LWIP=0` when the flash is tight).
 
-Each target gives `vtesse-<target>` (lwIP + TAP) and `vtesse-tap-<target>` (TAP
-only); x86_64 also `vtund-3.0.2-x86_64`, the VTun server with our patches
+Each target gives `vtesse-<target>` (lwIP and TAP backends, `--tap`); x86_64 also `vtund-3.0.2-x86_64`, the VTun server with our patches
 ([server/README.md](../server/README.md)). Use musl builds on devices: a static glibc binary cannot resolve host names
 without the NSS libraries of the same glibc. Prebuilt binaries are on the
 [releases page](https://github.com/OpenIPC/vtesse/releases) (`latest` is rebuilt

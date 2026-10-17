@@ -9,8 +9,8 @@
 #                 MediaTek/Atheros routers (MT7620/7621/7628, ath79), whose kernels often
 #                 lack FPU emulation, so hard-float code dies with SIGILL (#30)
 #         arm64 | x86_64 | armv5 | armv7   Bootlin musl toolchains
-# Produces <outdir>/vtesse-<target> (lwIP + TAP) and <outdir>/vtesse-tap-<target>
-# (TAP only, LWIP=0), stripped. For x86_64 also <outdir>/vtund-<vtun version>-x86_64:
+# Produces <outdir>/vtesse-<target> (lwIP and TAP backends, --tap), stripped; a TAP-only
+# build stays a build option (make LWIP=0) and is not published. For x86_64 also <outdir>/vtund-<vtun version>-x86_64:
 # the VTun server with our patches (server/build-vtund.sh), a PC/server binary only;
 # VTUND=1 builds it for another target too, VTUND=0 skips it. With QEMU=1 the unit tests are run under
 # qemu-user as well. musl is used because a static glibc binary cannot resolve
@@ -100,14 +100,12 @@ esac
 
 mkdir -p "$OUT"
 cd "$ROOT"
-for variant in full tap; do
-    if [ $variant = full ]; then lwip=1; bin=vtesse-$TARGET; else lwip=0; bin=vtesse-tap-$TARGET; fi
-    build=build-$TARGET-$variant
-    rm -rf "$build"     # objects of another toolchain or profile are never rebuilt by make
-    make -s BUILD="$build" CROSS_COMPILE="$CROSS" STATIC=1 LWIP=$lwip LWIP_PROFILE=$PROFILE CFLAGS=-Os all tests
-    "${CROSS}strip" --strip-unneeded -o "$OUT/$bin" "$build/vtesse-cli"
-    echo "$bin: $(wc -c < "$OUT/$bin") bytes (lwIP profile $PROFILE)"
-done
+build=build-$TARGET-full
+bin=vtesse-$TARGET
+rm -rf "$build"     # objects of another toolchain or profile are never rebuilt by make
+make -s BUILD="$build" CROSS_COMPILE="$CROSS" STATIC=1 LWIP=1 LWIP_PROFILE=$PROFILE CFLAGS=-Os all tests
+"${CROSS}strip" --strip-unneeded -o "$OUT/$bin" "$build/vtesse-cli"
+echo "$bin: $(wc -c < "$OUT/$bin") bytes (lwIP profile $PROFILE)"
 
 # vtund: PC/server only by default; for cameras and routers it is built in the OpenIPC
 # environment when needed (server/README.md)
@@ -126,7 +124,6 @@ if [ "${QEMU:-0}" = 1 ]; then
         echo "$out" | tail -1
     done
     "$QEMU_BIN" "$OUT/vtesse-$TARGET" --version
-    "$QEMU_BIN" "$OUT/vtesse-tap-$TARGET" --version
     # vtund has no --version; -h prints "VTun ver ..." and the usage, exit code 1
     [ -z "$VTUND_BIN" ] || "$QEMU_BIN" "$OUT/$VTUND_BIN" -h 2>&1 | grep "^VTun ver"
 fi

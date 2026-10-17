@@ -37,7 +37,7 @@ Static binaries (no dependencies) are on the [releases page](https://github.com/
 | 64-bit ARM: Raspberry Pi with a 64-bit OS, Rockchip, other ARM64 boards                         | `arm64`  |
 | PCs and servers                                                                                 | `x86_64` |
 
-Two binaries per platform: `vtesse-ARCH` (lwIP and TAP backends: SOCKS5 / port forwards without root, or a kernel interface with `--tap`) and `vtesse-tap-ARCH` (TAP only, about half the size). The TAP backend needs root and the `tun` driver (`/dev/net/tun`), and the hook scripts `vtesse-hook.sh` and `vtesse-udhcpc.script`.
+One binary per platform, `vtesse-ARCH`, with both backends: lwIP (SOCKS5 / port forwards without root) and TAP (a kernel interface with `--tap`). The TAP backend needs root and the `tun` driver (`/dev/net/tun`), and the hook scripts `vtesse-hook.sh` and `vtesse-udhcpc.script`. Until 1.12 a TAP-only `vtesse-tap-ARCH` was published too; its links now return 404, use `vtesse-ARCH --tap` instead.
 
 The releases also carry the VTun server for PCs and servers, `vtund-3.0.2-x86_64`: the original VTun 3.0.2 with our patches (a refused login is logged with the device ID and the reason), see [server/README.md](server/README.md). For cameras and routers vtund is built in the OpenIPC environment when needed.
 
@@ -65,7 +65,7 @@ ARCH=arm32
 URL=https://github.com/OpenIPC/vtesse/releases/download/latest
 # directories, then each file straight to its place, executable on success
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
-curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
+curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
 curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
 curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
 curl -fsSL -o /etc/init.d/S99vtesse $URL/S99vtesse && chmod 755 /etc/init.d/S99vtesse
@@ -89,7 +89,7 @@ opkg update && opkg install curl kmod-tun   # kmod-tun is needed for --tap only;
 ARCH=mipsel
 URL=https://github.com/OpenIPC/vtesse/releases/download/latest
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
-curl -fsSL -o /usr/bin/vtesse $URL/vtesse-tap-$ARCH && chmod 755 /usr/bin/vtesse
+curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
 curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
 curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
 curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtesse
