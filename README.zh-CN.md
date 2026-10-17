@@ -5,7 +5,7 @@
 [English](README.md) | [Русский](README.ru.md) | **简体中文**
 
 [![Build](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml/badge.svg)](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml)
-[![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/OpenIPC/vtesse/releases/tag/latest)
+[![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/OpenIPC/vtesse/releases/latest)
 [![License](https://img.shields.io/badge/license-Prosperity%203.0-blue)](LICENSE.md)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android-brightgreen)](docs/architecture.md)
 [![Status](https://img.shields.io/badge/status-prototype-orange)](docs/security.md)
@@ -27,7 +27,7 @@
 
 ## 下载
 
-静态二进制文件（无依赖）发布在 [Releases 页面](https://github.com/OpenIPC/vtesse/releases)：[`latest`](https://github.com/OpenIPC/vtesse/releases/tag/latest) 随 `main` 的每次推送重新构建（文件名固定，下文使用）。发布标题中注明 VTesse 版本；变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+静态二进制文件（无依赖）发布在 [Releases 页面](https://github.com/OpenIPC/vtesse/releases)：[`latest`](https://github.com/OpenIPC/vtesse/releases/latest) 随 `main` 的每次推送重新构建（文件名固定，下文使用）。发布标题中注明 VTesse 版本；变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 | 平台                                                                           | `ARCH`   |
 |--------------------------------------------------------------------------------|----------|
@@ -40,6 +40,31 @@
 每个平台只提供一个二进制文件 `vtesse-ARCH`，包含两种后端：lwIP（无需 root 的 SOCKS5 / 端口转发）和 TAP（使用 `--tap` 的内核接口）。TAP 后端需要 root、`tun` 驱动（`/dev/net/tun`）以及钩子脚本 `vtesse-hook.sh` 和 `vtesse-udhcpc.script`。在 1.12 及之前还发布仅含 TAP 的 `vtesse-tap-ARCH`；其链接现在返回 404，请改用 `vtesse-ARCH --tap`。
 
 发布页还提供面向 PC 和服务器的 VTun 服务器 `vtund-3.0.2-x86_64`：原版 VTun 3.0.2 加上我们的补丁（登录被拒时日志会记录设备 ID 和原因），详见 [server/README.md](server/README.md)。摄像头和路由器如需 vtund，请在 OpenIPC 环境中构建。
+
+### 永久链接
+
+只有一个发布：[`latest`](https://github.com/OpenIPC/vtesse/releases/latest)，标题为 `VTesse <版本>`；每次推送到 `main` 都会重新构建它，不保留按版本的发布。文件名不含版本号（只有 VTun 服务器的文件名带 VTun 版本），因此以下链接始终不变：
+
+| 文件                   | 说明                                                   | 永久链接                                                                          |
+|------------------------|--------------------------------------------------------|-----------------------------------------------------------------------------------|
+| `vtesse-arm32`         | 客户端，32 位 ARM                                      | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32>         |
+| `vtesse-mipsel`        | 客户端，MIPS 小端                                      | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mipsel>        |
+| `vtesse-mips`          | 客户端，MIPS 大端                                      | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mips>          |
+| `vtesse-arm64`         | 客户端，64 位 ARM                                      | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm64>         |
+| `vtesse-x86_64`        | 客户端，PC 和服务器                                    | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-x86_64>        |
+| `vtesse-android.apk`   | Android 应用                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk>   |
+| `vtund-3.0.2-x86_64`   | 带我们补丁的 VTun 服务器，PC（文件名随 VTun 版本变化） | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtund-3.0.2-x86_64>   |
+| `vtesse-hook.sh`       | TAP 钩子脚本                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-hook.sh>       |
+| `vtesse-udhcpc.script` | TAP 接口的 udhcpc 脚本                                 | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
+| `S99vtesse`            | 启动脚本，OpenIPC（BusyBox）                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
+| `vtesse.init`          | 启动脚本，OpenWrt（procd）                             | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
+| `SHA256SUMS`           | 所有文件的校验和                                       | <https://github.com/OpenIPC/vtesse/releases/latest/download/SHA256SUMS>           |
+
+```sh
+curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32
+curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/SHA256SUMS
+grep ' vtesse-arm32$' SHA256SUMS | sha256sum -c - && chmod 755 vtesse-arm32
+```
 
 ### 配置
 
@@ -62,7 +87,7 @@ chmod 600 /etc/vtesse.conf
 ```sh
 # 以 root 运行；ARCH = arm32 或 mipsel，见上表
 ARCH=arm32
-URL=https://github.com/OpenIPC/vtesse/releases/download/latest
+URL=https://github.com/OpenIPC/vtesse/releases/latest/download
 # 先建目录，再把每个文件直接下载到目标位置，下载成功后设置权限
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
@@ -87,7 +112,7 @@ vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse
 opkg update && opkg install curl kmod-tun   # kmod-tun 仅在使用 --tap 时需要；OpenWrt 25+ 使用：apk add curl kmod-tun
 # ARCH = mipsel（MT7621、MT7628）、mips（ath79）、arm64 或 arm32，见上表
 ARCH=mipsel
-URL=https://github.com/OpenIPC/vtesse/releases/download/latest
+URL=https://github.com/OpenIPC/vtesse/releases/latest/download
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
 curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
@@ -107,14 +132,14 @@ curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtess
 ```sh
 ARCH=x86_64   # x86_64；64 位 / 32 位系统的树莓派用 arm64 / arm32
 mkdir -p ~/.local/bin
-curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/download/latest/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
+curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
 # 无需 root：127.0.0.1:1080 上的 SOCKS5，以及到摄像机 RTSP 的转发
 ~/.local/bin/vtesse --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
 
 ### Android
 
-Android 5.0 及以上（包括电视盒子）：[`vtesse-android.apk`](https://github.com/OpenIPC/vtesse/releases/download/latest/vtesse-android.apk)。无需 VPN 权限、没有 VPN 图标——带普通通知的服务维持隧道，并在 `127.0.0.1` 上提供 SOCKS5 和端口转发；播放器（如 OpenIPC Decoder 或 VLC）即可打开 `rtsp://127.0.0.1:1551/...`（服务器 1 的摄像机 1）。最多三台服务器，每台最多 8 台摄像机，端口固定。设备 ID 在首次启动时生成（长按可复制），需要在服务器上添加为会话。最多三个服务器配置，一键切换。详见 [android/README.md](android/README.md)。
+Android 5.0 及以上（包括电视盒子）：[`vtesse-android.apk`](https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk)。无需 VPN 权限、没有 VPN 图标——带普通通知的服务维持隧道，并在 `127.0.0.1` 上提供 SOCKS5 和端口转发；播放器（如 OpenIPC Decoder 或 VLC）即可打开 `rtsp://127.0.0.1:1551/...`（服务器 1 的摄像机 1）。最多三台服务器，每台最多 8 台摄像机，端口固定。设备 ID 在首次启动时生成（长按可复制），需要在服务器上添加为会话。最多三个服务器配置，一键切换。详见 [android/README.md](android/README.md)。
 
 ![VTesse Android 版：服务器配置与摄像头（示例数据）](docs/img/android-settings.png)
 

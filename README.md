@@ -5,7 +5,7 @@
 **English** | [Русский](README.ru.md) | [简体中文](README.zh-CN.md)
 
 [![Build](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml/badge.svg)](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml)
-[![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/OpenIPC/vtesse/releases/tag/latest)
+[![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/OpenIPC/vtesse/releases/latest)
 [![License](https://img.shields.io/badge/license-Prosperity%203.0-blue)](LICENSE.md)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android-brightgreen)](docs/architecture.md)
 [![Status](https://img.shields.io/badge/status-prototype-orange)](docs/security.md)
@@ -27,7 +27,7 @@ A resource access microsystem: a client for existing **VTun** servers (`vtund -s
 
 ## Download
 
-Static binaries (no dependencies) are on the [releases page](https://github.com/OpenIPC/vtesse/releases): [`latest`](https://github.com/OpenIPC/vtesse/releases/tag/latest) is rebuilt from every push to `main` (stable file names, used below). The release title shows the VTesse version; the change history is in [CHANGELOG.md](CHANGELOG.md).
+Static binaries (no dependencies) are on the [releases page](https://github.com/OpenIPC/vtesse/releases): [`latest`](https://github.com/OpenIPC/vtesse/releases/latest) is rebuilt from every push to `main` (stable file names, used below). The release title shows the VTesse version; the change history is in [CHANGELOG.md](CHANGELOG.md).
 
 | Platform                                                                                        | `ARCH`   |
 |-------------------------------------------------------------------------------------------------|----------|
@@ -40,6 +40,31 @@ Static binaries (no dependencies) are on the [releases page](https://github.com/
 One binary per platform, `vtesse-ARCH`, with both backends: lwIP (SOCKS5 / port forwards without root) and TAP (a kernel interface with `--tap`). The TAP backend needs root and the `tun` driver (`/dev/net/tun`), and the hook scripts `vtesse-hook.sh` and `vtesse-udhcpc.script`. Until 1.12 a TAP-only `vtesse-tap-ARCH` was published too; its links now return 404, use `vtesse-ARCH --tap` instead.
 
 The releases also carry the VTun server for PCs and servers, `vtund-3.0.2-x86_64`: the original VTun 3.0.2 with our patches (a refused login is logged with the device ID and the reason), see [server/README.md](server/README.md). For cameras and routers vtund is built in the OpenIPC environment when needed.
+
+### Permanent links
+
+There is one release, [`latest`](https://github.com/OpenIPC/vtesse/releases/latest), titled `VTesse <version>`; every push to `main` rebuilds it, and no versioned releases are kept. File names carry no version (only the VTun server's follows the VTun version), so these links never change:
+
+| File                   | What it is                                                   | Permanent link                                                                    |
+|------------------------|--------------------------------------------------------------|-----------------------------------------------------------------------------------|
+| `vtesse-arm32`         | client, 32-bit ARM                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32>         |
+| `vtesse-mipsel`        | client, MIPS little-endian                                   | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mipsel>        |
+| `vtesse-mips`          | client, MIPS big-endian                                      | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mips>          |
+| `vtesse-arm64`         | client, 64-bit ARM                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm64>         |
+| `vtesse-x86_64`        | client, PCs and servers                                      | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-x86_64>        |
+| `vtesse-android.apk`   | Android app                                                  | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk>   |
+| `vtund-3.0.2-x86_64`   | VTun server with our patches, PCs (follows the VTun version) | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtund-3.0.2-x86_64>   |
+| `vtesse-hook.sh`       | TAP hook script                                              | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-hook.sh>       |
+| `vtesse-udhcpc.script` | udhcpc script for the TAP interface                          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
+| `S99vtesse`            | init script, OpenIPC (BusyBox)                               | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
+| `vtesse.init`          | init script, OpenWrt (procd)                                 | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
+| `SHA256SUMS`           | checksums of all files                                       | <https://github.com/OpenIPC/vtesse/releases/latest/download/SHA256SUMS>           |
+
+```sh
+curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32
+curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/SHA256SUMS
+grep ' vtesse-arm32$' SHA256SUMS | sha256sum -c - && chmod 755 vtesse-arm32
+```
 
 ### Configuration
 
@@ -62,7 +87,7 @@ On a camera or router the ID can come from the device's own MAC instead: replace
 ```sh
 # as root; ARCH = arm32 or mipsel, see the table
 ARCH=arm32
-URL=https://github.com/OpenIPC/vtesse/releases/download/latest
+URL=https://github.com/OpenIPC/vtesse/releases/latest/download
 # directories, then each file straight to its place, executable on success
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
@@ -87,7 +112,7 @@ Start at boot (`S99vtesse` is already installed; settings can be overridden in `
 opkg update && opkg install curl kmod-tun   # kmod-tun is needed for --tap only; apk add curl kmod-tun on OpenWrt 25+
 # ARCH = mipsel (MT7621, MT7628), mips (ath79), arm64 or arm32, see the table
 ARCH=mipsel
-URL=https://github.com/OpenIPC/vtesse/releases/download/latest
+URL=https://github.com/OpenIPC/vtesse/releases/latest/download
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
 curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
@@ -107,14 +132,14 @@ Tried on a Netcraze Explorer NC-1621 (Keenetic rebrand, NDMS 5.2 beta, MIPS, 128
 ```sh
 ARCH=x86_64   # x86_64; arm64 / arm32 on a Raspberry Pi with a 64-bit / 32-bit OS
 mkdir -p ~/.local/bin
-curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/download/latest/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
+curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
 # no root needed: SOCKS5 on 127.0.0.1:1080 and a forward to a camera's RTSP
 ~/.local/bin/vtesse --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
 
 ### Android
 
-Android 5.0 and later, including Android TV boxes: [`vtesse-android.apk`](https://github.com/OpenIPC/vtesse/releases/download/latest/vtesse-android.apk). No VPN permission and no VPN icon — a service with a regular notification runs the tunnel and offers SOCKS5 and port forwards on `127.0.0.1`; a player such as OpenIPC Decoder or VLC opens e.g. `rtsp://127.0.0.1:1551/...` (camera 1 of server 1). Up to three servers with up to 8 cameras each on fixed ports. The device ID is generated on first start (long press copies it) and must be added as a session on the server. Up to three server profiles, switched with one press. See [android/README.md](android/README.md).
+Android 5.0 and later, including Android TV boxes: [`vtesse-android.apk`](https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk). No VPN permission and no VPN icon — a service with a regular notification runs the tunnel and offers SOCKS5 and port forwards on `127.0.0.1`; a player such as OpenIPC Decoder or VLC opens e.g. `rtsp://127.0.0.1:1551/...` (camera 1 of server 1). Up to three servers with up to 8 cameras each on fixed ports. The device ID is generated on first start (long press copies it) and must be added as a session on the server. Up to three server profiles, switched with one press. See [android/README.md](android/README.md).
 
 ![VTesse for Android: server profiles and cameras (example data)](docs/img/android-settings.png)
 
