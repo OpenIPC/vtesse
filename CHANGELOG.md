@@ -2,7 +2,9 @@
 
 The version lives in `include/vtesse/version.h`. Binaries are published only as the
 [`latest`](https://github.com/OpenIPC/vtesse/releases/tag/latest) release, rebuilt
-from every push to `main`; this file is the change history.
+from every push to `main`; this file is the change history. Versions after 1.12 are
+`MAJOR.MINOR.PATCH` (1.12 is followed by 1.12.1 or 1.13.0); the headings below keep the
+numbers as released.
 
 ## 1.12 — 2026-10-15
 
