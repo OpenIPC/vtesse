@@ -60,8 +60,8 @@
 | `vtesse.init`          | 启动脚本，OpenWrt（procd）                             | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
 
 ```sh
-curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32
-chmod 755 vtesse-arm32
+curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32 &&
+  chmod 755 vtesse-arm32
 ```
 
 ### 配置
