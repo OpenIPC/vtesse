@@ -6,6 +6,21 @@ from every push to `main`; this file is the change history. Versions after 1.12 
 `MAJOR.MINOR.PATCH` (1.12 is followed by 1.12.1 or 1.13.0); the headings below keep the
 numbers as released.
 
+## 1.13.0 — 2026-10-17
+
+One binary per platform (#43) and the `MAJOR.MINOR.PATCH` versions (#44).
+
+- The release has one binary per platform, `vtesse-<arch>`, with both backends (lwIP, and
+  TAP with `--tap`). The TAP-only `vtesse-tap-<arch>` is no longer published: its links
+  return 404, use `vtesse-<arch> --tap`; the binary name on the device and the command line
+  stay the same. It costs 72–83 KiB per binary (31–44 KiB compressed on flash); the release
+  goes from 17 files to 12. `make LWIP=0` still builds a TAP-only binary (CI and the bench
+  test it).
+- Versions are `MAJOR.MINOR.PATCH` from this one on; CI checks that a code or build change
+  comes with a new version and its section here. The Android `versionCode` is
+  `MAJOR*10000 + MINOR*100 + PATCH` (11300; 1.12 was 112), so the update installs.
+- READMEs: the OpenIPC and OpenWrt install commands fetch `vtesse-$ARCH`.
+
 ## 1.12 — 2026-10-15
 
 Fixes from the first Qodo review of the whole codebase (#34, PR #35):

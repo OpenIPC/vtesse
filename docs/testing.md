@@ -21,25 +21,27 @@
 [`.github/workflows/build.yml`](../.github/workflows/build.yml) runs on every push
 and pull request:
 
-| Job                                          | What it does                                                                                                                                                                |
-|----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `tests`                                      | `make test`, the same under ASan/UBSan, the `LWIP=0` build                                                                                                                  |
-| `build` (arm32, mipsel, arm64, mips, x86_64) | static musl binaries with `ci/build-musl.sh` (`vtesse`, `vtesse-tap`; patched `vtund` in the x86_64 job), unit tests and a `vtund -h` smoke test under qemu-user, artifacts |
-| `bench`                                      | the Docker test bench (vtund built with our patches): `selftest`, `cli-test`, `proxy-test`, `tap-test`, `tun-test`, `udp-test`, `fault-test`                                |
-| `android`                                    | the APKs in Docker (`android/build.sh`, `ci/Dockerfile.android`); the release APK is signed with the key from the repository secrets                                        |
-| `release`                                    | push to `main`: replaces the `latest` release; binaries, `vtund-<VTun version>-x86_64`, hook scripts, service scripts, `SHA256SUMS`                                         |
+| Job                                          | What it does                                                                                                                                                  |
+|----------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `tests`                                      | `make test`, the same under ASan/UBSan, the `LWIP=0` build                                                                                                    |
+| `build` (arm32, mipsel, arm64, mips, x86_64) | static musl binaries with `ci/build-musl.sh` (`vtesse`; patched `vtund` in the x86_64 job), unit tests and a `vtund -h` smoke test under qemu-user, artifacts |
+| `bench`                                      | the Docker test bench (vtund built with our patches): `selftest`, `cli-test`, `proxy-test`, `tap-test`, `tun-test`, `udp-test`, `fault-test`                  |
+| `android`                                    | the APKs in Docker (`android/build.sh`, `ci/Dockerfile.android`); the release APK is signed with the key from the repository secrets                          |
+| `release`                                    | push to `main`: replaces the `latest` release; binaries, `vtund-<VTun version>-x86_64`, hook scripts, service scripts, `SHA256SUMS`                           |
 
 ### Versions and releases
 
 The version lives in one place, `include/vtesse/version.h`:
 `#define VTESSE_VERSION "MAJOR.MINOR.PATCH"` (shown by `vtesse-cli --version`). Up to 1.12
-it was `MAJOR.MM` (`1.00`, `1.01`, …); 1.12 is followed by 1.12.1 or 1.13.0.
+it was `MAJOR.MM` (`1.00`, `1.01`, …); 1.12 is followed by 1.13.0. The Android `versionCode`
+is `MAJOR*10000 + MINOR*100 + PATCH` (1.13.0 → 11300), larger than the old `MAJOR*100+MM`
+(1.12 → 112), so an update installs over the app.
 
 - There is one release, `latest`: every push to `main` replaces it (tag moved to that
   commit). No versioned releases are kept.
 - Its title is `VTesse <version>`; the notes are one short line. The change history is
   [CHANGELOG.md](../CHANGELOG.md), the patch list [server/README.md](../server/README.md).
-- File names are stable: `vtesse-<arch>`, `vtesse-tap-<arch>`, and
+- File names are stable: `vtesse-<arch>` (one binary per platform, lwIP and TAP), and
   `vtund-<VTun version>-x86_64` (e.g. `vtund-3.0.2-x86_64`) for the VTun server, PCs only.
 - PATCH for fixes and small changes, MINOR for a new feature, MAJOR for an incompatible
   change or a large update, only when the maintainer decides. A pull request that changes
