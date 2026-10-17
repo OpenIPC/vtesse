@@ -58,12 +58,10 @@ There is one release, [`latest`](https://github.com/OpenIPC/vtesse/releases/late
 | `vtesse-udhcpc.script` | udhcpc script for the TAP interface                          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
 | `S99vtesse`            | init script, OpenIPC (BusyBox)                               | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
 | `vtesse.init`          | init script, OpenWrt (procd)                                 | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
-| `SHA256SUMS`           | checksums of all files                                       | <https://github.com/OpenIPC/vtesse/releases/latest/download/SHA256SUMS>           |
 
 ```sh
 curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32
-curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/SHA256SUMS
-grep ' vtesse-arm32$' SHA256SUMS | sha256sum -c - && chmod 755 vtesse-arm32
+chmod 755 vtesse-arm32
 ```
 
 ### Configuration

@@ -58,12 +58,10 @@
 | `vtesse-udhcpc.script` | TAP 接口的 udhcpc 脚本                                 | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
 | `S99vtesse`            | 启动脚本，OpenIPC（BusyBox）                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
 | `vtesse.init`          | 启动脚本，OpenWrt（procd）                             | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
-| `SHA256SUMS`           | 所有文件的校验和                                       | <https://github.com/OpenIPC/vtesse/releases/latest/download/SHA256SUMS>           |
 
 ```sh
 curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32
-curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/SHA256SUMS
-grep ' vtesse-arm32$' SHA256SUMS | sha256sum -c - && chmod 755 vtesse-arm32
+chmod 755 vtesse-arm32
 ```
 
 ### 配置

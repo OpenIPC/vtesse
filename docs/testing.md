@@ -27,7 +27,7 @@ and pull request:
 | `build` (arm32, mipsel, arm64, mips, x86_64) | static musl binaries with `ci/build-musl.sh` (`vtesse`; patched `vtund` in the x86_64 job), unit tests and a `vtund -h` smoke test under qemu-user, artifacts |
 | `bench`                                      | the Docker test bench (vtund built with our patches): `selftest`, `cli-test`, `proxy-test`, `tap-test`, `tun-test`, `udp-test`, `fault-test`                  |
 | `android`                                    | the APKs in Docker (`android/build.sh`, `ci/Dockerfile.android`); the release APK is signed with the key from the repository secrets                          |
-| `release`                                    | push to `main`: replaces the `latest` release; binaries, `vtund-<VTun version>-x86_64`, hook scripts, service scripts, `SHA256SUMS`                           |
+| `release`                                    | push to `main`: replaces the `latest` release; binaries, `vtund-<VTun version>-x86_64`, hook scripts, service scripts                                         |
 
 ### Versions and releases
 

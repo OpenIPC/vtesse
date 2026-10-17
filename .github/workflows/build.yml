@@ -242,7 +242,6 @@ jobs:
           [ -n "$apk" ] || { echo "::error::no signed release APK"; exit 1; }
           cp "$apk" release/vtesse-android.apk
           cp scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse scripts/vtesse.init release/
-          (cd release && sha256sum * > SHA256SUMS)
           ls -l release
 
       - name: Publish "latest"
