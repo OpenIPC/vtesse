@@ -32,16 +32,23 @@ and pull request:
 ### Versions and releases
 
 The version lives in one place, `include/vtesse/version.h`:
-`#define VTESSE_VERSION "MAJOR.MM"` (two-digit minor: `1.00`, `1.01`, …; shown by
-`vtesse-cli --version`).
+`#define VTESSE_VERSION "MAJOR.MINOR.PATCH"` (shown by `vtesse-cli --version`). Up to 1.12
+it was `MAJOR.MM` (`1.00`, `1.01`, …); 1.12 is followed by 1.12.1 or 1.13.0.
 
 - There is one release, `latest`: every push to `main` replaces it (tag moved to that
   commit). No versioned releases are kept.
-- Its title is `VTesse MAJOR.MM`; the notes are one short line. The change history is
+- Its title is `VTesse <version>`; the notes are one short line. The change history is
   [CHANGELOG.md](../CHANGELOG.md), the patch list [server/README.md](../server/README.md).
 - File names are stable: `vtesse-<arch>`, `vtesse-tap-<arch>`, and
   `vtund-<VTun version>-x86_64` (e.g. `vtund-3.0.2-x86_64`) for the VTun server, PCs only.
-- A new version: bump `VTESSE_VERSION` and add a `CHANGELOG.md` entry in the same commit.
+- PATCH for fixes and small changes, MINOR for a new feature, MAJOR for an incompatible
+  change or a large update, only when the maintainer decides. A pull request that changes
+  the code or the build (the sources, `android/` except its unit tests, the `Makefile`,
+  `ci/`, `scripts/`) bumps `VTESSE_VERSION` as its last commit before the merge, together
+  with its `CHANGELOG.md` section (`## <version> — YYYY-MM-DD`). Docs, `tests/`, `bench/`
+  and `.github/` changes do not. CI checks this on every pull request
+  (`.github/check-version.sh`): a new number must be canonical (no leading zeros), greater
+  than the base one, and come with its own section.
 
 ## Test bench
 

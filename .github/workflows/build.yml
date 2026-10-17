@@ -14,9 +14,11 @@
 # (ci/build-musl.sh).
 #
 # Release: one release only, "latest", replaced by every push to main. Its title
-# carries the version from include/vtesse/version.h (VTESSE_VERSION "MAJOR.MM")
-# and its notes are one short line; the change history lives in CHANGELOG.md.
-# No versioned releases are kept.
+# carries the version from include/vtesse/version.h (VTESSE_VERSION,
+# MAJOR.MINOR.PATCH) and its notes are one short line; the change history lives
+# in CHANGELOG.md. No versioned releases are kept.
+# On pull requests, .github/check-version.sh checks that a change to the code or
+# the build comes with a new VTESSE_VERSION and its CHANGELOG.md section.
 #
 
 name: VTesse CI
@@ -28,13 +30,32 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# One run per branch and event: a newer push cancels the older run, so
-# "latest" always carries the build of the newest commit.
+# One run per branch: on pull requests a newer push cancels the older run; on
+# main it waits instead (only the newest waits), so "latest" still ends with the
+# build of the newest commit and the release job is never stopped between
+# deleting the old "latest" and creating the new one. A manual run shares the
+# push group.
 concurrency:
-  group: build-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: build-${{ github.event_name == 'pull_request' && 'pull_request' || 'push' }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # ---------------------------------------------------------------- version
+  version:
+    name: Version bump
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # The checkout is the pull request's merge commit: its first parent is the
+      # base it was made from, so both versions come from the same base.
+      - name: Code changes come with a new version
+        run: .github/check-version.sh HEAD^1
+
   # ------------------------------------------------------------------ tests
   tests:
     name: Unit tests (native, sanitizers)
@@ -185,7 +206,9 @@ jobs:
   release:
     name: Release
     needs: [tests, build, bench, android]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # a manual run of main publishes too: it shares the push group and may take the
+    # place of a waiting push, so it must not skip the release
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
