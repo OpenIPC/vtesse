@@ -5,7 +5,7 @@
 [English](README.md) | **Русский** | [简体中文](README.zh-CN.md)
 
 [![Build](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml/badge.svg)](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml)
-[![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/OpenIPC/vtesse/releases/tag/latest)
+[![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/OpenIPC/vtesse/releases/latest)
 [![License](https://img.shields.io/badge/license-Prosperity%203.0-blue)](LICENSE.md)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android-brightgreen)](docs/architecture.md)
 [![Status](https://img.shields.io/badge/status-prototype-orange)](docs/security.md)
@@ -27,7 +27,7 @@
 
 ## Скачивание
 
-Статические бинарники (без зависимостей) — на [странице релизов](https://github.com/OpenIPC/vtesse/releases): [`latest`](https://github.com/OpenIPC/vtesse/releases/tag/latest) пересобирается при каждом push в `main` (постоянные имена файлов, используются ниже). Версия VTesse указана в заголовке релиза; история изменений — в [CHANGELOG.md](CHANGELOG.md).
+Статические бинарники (без зависимостей) — на [странице релизов](https://github.com/OpenIPC/vtesse/releases): [`latest`](https://github.com/OpenIPC/vtesse/releases/latest) пересобирается при каждом push в `main` (постоянные имена файлов, используются ниже). Версия VTesse указана в заголовке релиза; история изменений — в [CHANGELOG.md](CHANGELOG.md).
 
 | Платформа                                                                                     | `ARCH`   |
 |-----------------------------------------------------------------------------------------------|----------|
@@ -40,6 +40,31 @@
 На каждую платформу один бинарник, `vtesse-ARCH`, с обоими режимами: lwIP (SOCKS5 / проброс портов без root) и TAP (интерфейс ядра с `--tap`). Режиму TAP нужны root, драйвер `tun` (`/dev/net/tun`) и хук-скрипты `vtesse-hook.sh` и `vtesse-udhcpc.script`. До версии 1.12 выкладывался ещё `vtesse-tap-ARCH` (только TAP); его ссылки теперь отдают 404, вместо него — `vtesse-ARCH --tap`.
 
 В релизах также есть сервер VTun для ПК и серверов, `vtund-3.0.2-x86_64`: оригинальный VTun 3.0.2 с нашими патчами (отказ во входе пишется в лог с ID устройства и причиной), см. [server/README.md](server/README.md). Для камер и роутеров vtund при необходимости собирается в среде OpenIPC.
+
+### Постоянные ссылки
+
+Релиз один — [`latest`](https://github.com/OpenIPC/vtesse/releases/latest), с заголовком `VTesse <версия>`; он пересобирается при каждом push в `main`, релизы по версиям не хранятся. В именах файлов нет версии (только у сервера VTun — версия VTun), поэтому эти ссылки не меняются:
+
+| Файл                   | Что это                                                        | Постоянная ссылка                                                                 |
+|------------------------|----------------------------------------------------------------|-----------------------------------------------------------------------------------|
+| `vtesse-arm32`         | клиент, 32-битный ARM                                          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32>         |
+| `vtesse-mipsel`        | клиент, MIPS little-endian                                     | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mipsel>        |
+| `vtesse-mips`          | клиент, MIPS big-endian                                        | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mips>          |
+| `vtesse-arm64`         | клиент, 64-битный ARM                                          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm64>         |
+| `vtesse-x86_64`        | клиент, ПК и серверы                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-x86_64>        |
+| `vtesse-android.apk`   | приложение для Android                                         | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk>   |
+| `vtund-3.0.2-x86_64`   | сервер VTun с нашими патчами, ПК (имя меняется с версией VTun) | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtund-3.0.2-x86_64>   |
+| `vtesse-hook.sh`       | хук-скрипт режима TAP                                          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-hook.sh>       |
+| `vtesse-udhcpc.script` | скрипт udhcpc для интерфейса TAP                               | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
+| `S99vtesse`            | init-скрипт, OpenIPC (BusyBox)                                 | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
+| `vtesse.init`          | init-скрипт, OpenWrt (procd)                                   | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
+| `SHA256SUMS`           | контрольные суммы всех файлов                                  | <https://github.com/OpenIPC/vtesse/releases/latest/download/SHA256SUMS>           |
+
+```sh
+curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32
+curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/SHA256SUMS
+grep ' vtesse-arm32$' SHA256SUMS | sha256sum -c - && chmod 755 vtesse-arm32
+```
 
 ### Конфигурация
 
@@ -62,7 +87,7 @@ chmod 600 /etc/vtesse.conf
 ```sh
 # от root; ARCH = arm32 или mipsel, см. таблицу
 ARCH=arm32
-URL=https://github.com/OpenIPC/vtesse/releases/download/latest
+URL=https://github.com/OpenIPC/vtesse/releases/latest/download
 # каталоги, затем каждый файл сразу на своё место, права — после успешной загрузки
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
@@ -87,7 +112,7 @@ vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse
 opkg update && opkg install curl kmod-tun   # kmod-tun нужен только для --tap; на OpenWrt 25+: apk add curl kmod-tun
 # ARCH = mipsel (MT7621, MT7628), mips (ath79), arm64 или arm32, см. таблицу
 ARCH=mipsel
-URL=https://github.com/OpenIPC/vtesse/releases/download/latest
+URL=https://github.com/OpenIPC/vtesse/releases/latest/download
 mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
 curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
 curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
@@ -107,14 +132,14 @@ curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtess
 ```sh
 ARCH=x86_64   # x86_64; arm64 / arm32 на Raspberry Pi с 64- / 32-битной ОС
 mkdir -p ~/.local/bin
-curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/download/latest/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
+curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
 # root не нужен: SOCKS5 на 127.0.0.1:1080 и проброс на RTSP камеры
 ~/.local/bin/vtesse --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
 
 ### Android
 
-Android 5.0 и новее, включая ТВ-приставки: [`vtesse-android.apk`](https://github.com/OpenIPC/vtesse/releases/download/latest/vtesse-android.apk). Без разрешения VPN и без значка VPN — сервис с обычным уведомлением держит туннель и даёт SOCKS5 и проброс портов на `127.0.0.1`; плеер, например OpenIPC Decoder или VLC, открывает `rtsp://127.0.0.1:1551/...` (камера 1 сервера 1). До трёх серверов и до 8 камер на каждом, на фиксированных портах. ID устройства генерируется при первом запуске (долгое нажатие копирует его), его нужно добавить как сессию на сервере. До трёх профилей серверов, переключение одним нажатием. Подробнее — [android/README.md](android/README.md).
+Android 5.0 и новее, включая ТВ-приставки: [`vtesse-android.apk`](https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk). Без разрешения VPN и без значка VPN — сервис с обычным уведомлением держит туннель и даёт SOCKS5 и проброс портов на `127.0.0.1`; плеер, например OpenIPC Decoder или VLC, открывает `rtsp://127.0.0.1:1551/...` (камера 1 сервера 1). До трёх серверов и до 8 камер на каждом, на фиксированных портах. ID устройства генерируется при первом запуске (долгое нажатие копирует его), его нужно добавить как сессию на сервере. До трёх профилей серверов, переключение одним нажатием. Подробнее — [android/README.md](android/README.md).
 
 ![VTesse для Android: профили серверов и камеры (пример данных)](docs/img/android-settings.png)
 
