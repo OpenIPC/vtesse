@@ -6,6 +6,41 @@ from every push to `main`; this file is the change history. Versions after 1.12 
 `MAJOR.MINOR.PATCH` (1.12 is followed by 1.12.1 or 1.13.0); the headings below keep the
 numbers as released.
 
+## 1.14.0 — 2026-10-18
+
+Self-install (#52), environment detection (#51), install paths (#50).
+
+- `vtesse --install` installs the running binary as a service: it detects OpenIPC,
+  OpenWrt, a Linux PC with systemd or another BusyBox system, copies itself to
+  `/usr/bin/vtesse` (`/usr/local/bin` on a PC), writes `/etc/vtesse.conf` from
+  `--host`, `--port`, `--password` (`-` reads standard input), `--session` or
+  `--id-from`, `--ip`, `--gw`, writes the init script (`S99vtesse`, procd `vtesse.init`
+  with its `rc.d` link, or `vtesse.service`) and starts it. A new configuration gets
+  `port=5000` and the device ID from the interface of the default route unless they are
+  given; an existing one keeps its other lines. On OpenWrt
+  `/lib/upgrade/keep.d/vtesse` keeps the installation across `sysupgrade` (before, the
+  binary and the scripts were lost on an upgrade). Running it again updates the binary
+  and the scripts.
+- `vtesse --uninstall` stops the service and removes everything, `/etc/vtesse.conf`
+  included.
+- The hook scripts are built into the binary. `--tap` without `--hook` now runs the
+  built-in hook (DHCP through udhcpc with the built-in `vtesse-udhcpc.script`; before, no
+  hook ran), or `<prefix>/libexec/vtesse/vtesse-hook.sh` when it exists
+  (`--install --scripts` writes it there to be edited); `--hook none` runs no hook, as
+  before without `--hook`. The built-in hook needs BusyBox `udhcpc` and does not fall
+  back to `dhclient`, whose stock script may replace `/etc/resolv.conf` and add a default
+  route through the tunnel. Hook scripts in `/usr/share/vtesse` (1.13 and older) are
+  moved to `/usr/libexec/vtesse` by `--install` and stay in use when
+  `/etc/default/vtesse` names them; otherwise they are kept there as inactive `*.1.13`
+  copies and the built-in scripts run.
+- `S99vtesse` and `vtesse.init` no longer pass `--hook /usr/share/vtesse/...`; the
+  service files load the `tun` module when `/dev/net/tun` is missing. `S99vtesse`
+  stop/status find the daemon by name, so they still work after the binary is
+  replaced. New `scripts/vtesse.service` for systemd.
+- The binaries grow by ~33 KiB (arm32 177 → 210 KiB), of which 8 KiB are the scripts.
+- READMEs: one install command for OpenIPC, OpenWrt and a PC instead of downloading
+  each file. The scripts stay on the release page for `--hook FILE` and manual setups.
+
 ## 1.13.0 — 2026-10-17
 
 One binary per platform (#43) and the `MAJOR.MINOR.PATCH` versions (#44).
