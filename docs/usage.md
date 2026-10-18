@@ -164,12 +164,12 @@ vtesse --uninstall
 
 1. It detects the system, or takes `--system`:
 
-   | System                 | Detected by                            | Binary                  | Service                                                                           | Hook copies (`--scripts`)   |
-   |------------------------|----------------------------------------|-------------------------|-----------------------------------------------------------------------------------|-----------------------------|
-   | `openwrt`              | `/etc/openwrt_release`                 | `/usr/bin/vtesse`       | `/etc/init.d/vtesse` (procd), `/etc/rc.d/S99vtesse`, `/lib/upgrade/keep.d/vtesse` | `/usr/libexec/vtesse`       |
-   | `openipc`              | `OPENIPC_VERSION` in `/etc/os-release` | `/usr/bin/vtesse`       | `/etc/init.d/S99vtesse`                                                           | `/usr/libexec/vtesse`       |
-   | `systemd` (a Linux PC) | `/run/systemd/system`                  | `/usr/local/bin/vtesse` | `/etc/systemd/system/vtesse.service`                                              | `/usr/local/libexec/vtesse` |
-   | `busybox`              | `/etc/init.d`                          | `/usr/bin/vtesse`       | `/etc/init.d/S99vtesse`                                                           | `/usr/libexec/vtesse`       |
+   | System                 | Detected by                                              | Binary                  | Service                                                                           | Hook copies (`--scripts`)   |
+   |------------------------|----------------------------------------------------------|-------------------------|-----------------------------------------------------------------------------------|-----------------------------|
+   | `openwrt`              | `/etc/openwrt_release`                                   | `/usr/bin/vtesse`       | `/etc/init.d/vtesse` (procd), `/etc/rc.d/S99vtesse`, `/lib/upgrade/keep.d/vtesse` | `/usr/libexec/vtesse`       |
+   | `openipc`              | `OPENIPC_VERSION` in `/etc/os-release`                   | `/usr/bin/vtesse`       | `/etc/init.d/S99vtesse`                                                           | `/usr/libexec/vtesse`       |
+   | `systemd` (a Linux PC) | `/run/systemd/system`                                    | `/usr/local/bin/vtesse` | `/etc/systemd/system/vtesse.service`                                              | `/usr/local/libexec/vtesse` |
+   | `busybox`              | BusyBox init: `/etc/init.d/rcS` runs `S??*` (not OpenRC) | `/usr/bin/vtesse`       | `/etc/init.d/S99vtesse`                                                           | `/usr/libexec/vtesse`       |
 
 2. It writes `/etc/vtesse.conf` (mode 600) from the keys `--host`, `--port`, `--password`,
    `--session` or `--id-from`, `--ip`, `--gw` ([configuration file](#configuration-file)).
@@ -199,7 +199,8 @@ and the given keys. `--uninstall` stops the service and removes everything `--in
 may have written, in any of the layouts, `/etc/vtesse.conf` and `/etc/default/vtesse`
 included; if the service does not stop, nothing is removed. On a clean system it is not
 an error. `--root DIR` does the same below `DIR` without touching the service
-(tests, preparing a firmware image).
+(tests, preparing a firmware image); an empty `DIR` or `/` is refused. A system with
+`/etc/init.d` but another init (OpenRC, sysvinit) is not guessed: name it with `--system`.
 
 The service files are also in [`scripts/`](../scripts): `S99vtesse`
 (`start|stop|restart|status`, overrides in `/etc/default/vtesse`, loads the `tun`
