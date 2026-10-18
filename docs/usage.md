@@ -3,6 +3,7 @@
 - [Building](#building)
 - [vtesse-cli](#vtesse-cli)
 - [TAP backend](#tap-backend)
+- [Installation](#installation)
 - [Configuration file](#configuration-file)
 - [Device ID](#device-id)
 - [Addressing (DHCP)](#addressing-dhcp)
@@ -69,7 +70,11 @@ vtesse-cli [--config FILE] [--seconds N] [-v]
            [--socks PORT] [--forward LPORT:IP:RPORT]... [--listen ADDR]
            [--fetch http://IP[:PORT]/PATH] [--udp-relay PORT[:LOCAL_PORT]]...
            [--ip A.B.C.D/P [--gw A.B.C.D]]
-vtesse-cli [--config FILE] [--seconds N] --tap [--ifname NAME] [--hook SCRIPT]
+vtesse-cli [--config FILE] [--seconds N] --tap [--ifname NAME] [--hook SCRIPT|none]
+vtesse --install [--host SERVER] [--port N] [--password PASSWORD|-]
+                 [--session ID | --id-from IFACE] [--ip A.B.C.D/P] [--gw A.B.C.D]
+                 [--scripts] [--no-start] [--system SYSTEM] [--root DIR]
+vtesse --uninstall [--system SYSTEM] [--root DIR]
 ```
 
 | Option                           | Meaning                                                                                                                                                       |
@@ -85,7 +90,8 @@ vtesse-cli [--config FILE] [--seconds N] --tap [--ifname NAME] [--hook SCRIPT]
 | `--ip A.B.C.D/P`, `--gw A.B.C.D` | [manual IPv4](#manual-ipv4-type-tun) instead of DHCP; override `ip`/`gw` of the file (`--debug-ip`/`--debug-gw` are accepted as old names)                    |
 | `--tap`                          | [TAP backend](#tap-backend): kernel interface instead of lwIP (Linux, root)                                                                                   |
 | `--ifname NAME`                  | interface name for `--tap`, default `vtesse%d`                                                                                                                |
-| `--hook SCRIPT`                  | script run on interface events for `--tap`                                                                                                                    |
+| `--hook SCRIPT`                  | script run on interface events for `--tap`; default: the [built-in hook](#tap-backend), `none`: no hook                                                       |
+| `--install`, `--uninstall`       | [install](#installation) the binary as a service, or remove it                                                                                                |
 
 The CLI brings the tunnel and the userspace stack up, prints link events, the DHCP
 address and routes, runs the local proxy and prints proxy statistics on exit. Exit
@@ -118,13 +124,19 @@ userspace stack. Every program on the device then uses the tunnel, including
   also clears the kernel's ARP neighbours, see
   [protocol](protocol.md#server-behaviour-that-affects-clients)), so addresses and
   routes survive a reconnect.
-- Addressing is done by the system. `--hook` runs `SCRIPT <event>` with
+- Addressing is done by the system: a hook runs `SCRIPT <event>` with
   `VTESSE_EVENT`, `VTESSE_IFNAME`, `VTESSE_LINK` (`ether`/`tun`) and
   `VTESSE_SESSION` in the environment; events: `up` (interface created), `reconnect`,
   `down`, `stop`.
 
-[`scripts/vtesse-hook.sh`](../scripts/vtesse-hook.sh) starts BusyBox `udhcpc` with
-[`scripts/vtesse-udhcpc.script`](../scripts/vtesse-udhcpc.script), which
+The hook scripts are built into the binary (#52). Without `--hook` it runs
+`<prefix>/libexec/vtesse/vtesse-hook.sh` next to its `<prefix>/bin` if that file exists
+(`vtesse --install --scripts` writes it, to be edited), otherwise its built-in copy of
+[`scripts/vtesse-hook.sh`](../scripts/vtesse-hook.sh); the binary itself then serves as
+the `udhcpc` script (called with `VTESSE_RUN=udhcpc-script`, it runs its built-in copy of
+[`scripts/vtesse-udhcpc.script`](../scripts/vtesse-udhcpc.script)). `--hook FILE` runs
+that file, `--hook none` runs no hook. The hook starts BusyBox `udhcpc` with
+`vtesse-udhcpc.script`, which
 
 - sets the address and installs the option 121 (or 249) routes via the interface;
 - **never touches `/etc/resolv.conf`** — stock DHCP scripts replace the device's
@@ -136,15 +148,54 @@ userspace stack. Every program on the device then uses the tunnel, including
 
 `dhclient` is a fallback in the hook; its stock script has the two problems above.
 
-Service scripts: [`scripts/S99vtesse`](../scripts/S99vtesse) for OpenIPC and other
-BusyBox systems (`start|stop|restart|status`, overrides in `/etc/default/vtesse`) and
-[`scripts/vtesse.init`](../scripts/vtesse.init) for OpenWrt (procd, respawn). Both are
-published with every release next to the binaries and the hook scripts; see the README
-for the installation commands.
+```sh
+vtesse-cli --config /etc/vtesse.conf --tap --ifname vtesse0
+```
+
+## Installation
+
+`vtesse --install` installs the running binary as a service (#50, #51, #52):
 
 ```sh
-vtesse-cli --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
+curl -fsSL -o /tmp/vtesse https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32 &&
+  chmod 755 /tmp/vtesse && /tmp/vtesse --install --host vtun.example.org --password secret
+vtesse --uninstall
 ```
+
+1. It detects the system, or takes `--system`:
+
+   | System                 | Detected by                            | Binary                  | Service                                                                           | Hook copies (`--scripts`)   |
+   |------------------------|----------------------------------------|-------------------------|-----------------------------------------------------------------------------------|-----------------------------|
+   | `openwrt`              | `/etc/openwrt_release`                 | `/usr/bin/vtesse`       | `/etc/init.d/vtesse` (procd), `/etc/rc.d/S99vtesse`, `/lib/upgrade/keep.d/vtesse` | `/usr/libexec/vtesse`       |
+   | `openipc`              | `OPENIPC_VERSION` in `/etc/os-release` | `/usr/bin/vtesse`       | `/etc/init.d/S99vtesse`                                                           | `/usr/libexec/vtesse`       |
+   | `systemd` (a Linux PC) | `/run/systemd/system`                  | `/usr/local/bin/vtesse` | `/etc/systemd/system/vtesse.service`                                              | `/usr/local/libexec/vtesse` |
+   | `busybox`              | `/etc/init.d`                          | `/usr/bin/vtesse`       | `/etc/init.d/S99vtesse`                                                           | `/usr/libexec/vtesse`       |
+
+2. It writes `/etc/vtesse.conf` (mode 600) from the keys `--host`, `--port`, `--password`,
+   `--session` or `--id-from`, `--ip`, `--gw` ([configuration file](#configuration-file)).
+   An existing file keeps its other lines and gets the given keys replaced; a new one
+   needs at least `--host` and `--password` and gets `port=5000` and, without `--session`,
+   `id_from=` the interface of the default route. `--password -` reads the password from
+   standard input instead of the command line (which other users can see in `ps`).
+   Without a configuration and without keys nothing is installed.
+3. It copies itself, writes the service file from its built-in copy and (re)starts the
+   service; `--no-start` only installs. Only the binary, the service file and the
+   configuration are written: the hook scripts run from the binary. `--scripts` also
+   writes them to the libexec directory, where the binary finds them.
+4. On OpenWrt `sysupgrade` keeps only the changed files under `/etc`: the keep list in
+   `/lib/upgrade/keep.d/vtesse` carries the binary and the scripts over.
+5. Hook scripts of 1.13 and older in `/usr/share/vtesse` are moved to the libexec
+   directory, so a hand-edited copy keeps working; delete them to use the built-in ones.
+
+Running `--install` again updates the binary and the service file (the upgrade path)
+and the given keys. `--uninstall` stops the service and removes everything `--install`
+may have written, in any of the layouts, `/etc/vtesse.conf` included; on a clean system
+it is not an error. `--root DIR` does the same below `DIR` without touching the service
+(tests, preparing a firmware image).
+
+The service files are also in [`scripts/`](../scripts): `S99vtesse`
+(`start|stop|restart|status`, overrides in `/etc/default/vtesse`, loads the `tun`
+module), `vtesse.init` (procd, respawn) and `vtesse.service` (systemd, restart).
 
 ## Configuration file
 
@@ -231,13 +282,13 @@ tunnel. Outbound TCP and IPv4 only.
 - **SOCKS5** (RFC 1928) `CONNECT`; no authentication by default, optional
   username/password (RFC 1929). Reply codes:
 
-  | Code | When |
-  |---|---|
-  | `3` network unreachable | no route via the tunnel, or no DHCP address yet |
-  | `4` host unreachable | connect timeout (15 s) |
-  | `5` connection refused | the destination port is closed |
-  | `7` command not supported | anything but `CONNECT` |
-  | `8` address type not supported | host names (no DNS in the stack) and IPv6 |
+  | Code                           | When                                            |
+  |--------------------------------|-------------------------------------------------|
+  | `3` network unreachable        | no route via the tunnel, or no DHCP address yet |
+  | `4` host unreachable           | connect timeout (15 s)                          |
+  | `5` connection refused         | the destination port is closed                  |
+  | `7` command not supported      | anything but `CONNECT`                          |
+  | `8` address type not supported | host names (no DNS in the stack) and IPv6       |
 
   A domain field holding an IPv4 literal is accepted (`socks5h` clients).
 - **Port forwards** `LPORT:IP:RPORT` for players without proxy support (RTSP 554,

@@ -37,7 +37,7 @@
 | 64-битный ARM: Raspberry Pi с 64-битной ОС, Rockchip, другие платы ARM64                      | `arm64`  |
 | ПК и серверы                                                                                  | `x86_64` |
 
-На каждую платформу один бинарник, `vtesse-ARCH`, с обоими режимами: lwIP (SOCKS5 / проброс портов без root) и TAP (интерфейс ядра с `--tap`). Режиму TAP нужны root, драйвер `tun` (`/dev/net/tun`) и хук-скрипты `vtesse-hook.sh` и `vtesse-udhcpc.script`. До версии 1.12 выкладывался ещё `vtesse-tap-ARCH` (только TAP); его ссылки теперь отдают 404, вместо него — `vtesse-ARCH --tap`.
+На каждую платформу один бинарник, `vtesse-ARCH`, с обоими режимами: lwIP (SOCKS5 / проброс портов без root) и TAP (интерфейс ядра с `--tap`). Режиму TAP нужны root и драйвер `tun` (`/dev/net/tun`); хук-скрипты `vtesse-hook.sh` и `vtesse-udhcpc.script` встроены в бинарник. До версии 1.12 выкладывался ещё `vtesse-tap-ARCH` (только TAP); его ссылки теперь отдают 404, вместо него — `vtesse-ARCH --tap`.
 
 В релизах также есть сервер VTun для ПК и серверов, `vtund-3.0.2-x86_64`: оригинальный VTun 3.0.2 с нашими патчами (отказ во входе пишется в лог с ID устройства и причиной), см. [server/README.md](server/README.md). Для камер и роутеров vtund при необходимости собирается в среде OpenIPC.
 
@@ -54,70 +54,35 @@
 | `vtesse-x86_64`        | клиент, ПК и серверы                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-x86_64>        |
 | `vtesse-android.apk`   | приложение для Android                                         | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk>   |
 | `vtund-3.0.2-x86_64`   | сервер VTun с нашими патчами, ПК (имя меняется с версией VTun) | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtund-3.0.2-x86_64>   |
-| `vtesse-hook.sh`       | хук-скрипт режима TAP                                          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-hook.sh>       |
-| `vtesse-udhcpc.script` | скрипт udhcpc для интерфейса TAP                               | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
-| `S99vtesse`            | init-скрипт, OpenIPC (BusyBox)                                 | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
-| `vtesse.init`          | init-скрипт, OpenWrt (procd)                                   | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
+| `vtesse-hook.sh`       | хук-скрипт режима TAP (встроен в бинарник; для `--hook FILE`)  | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-hook.sh>       |
+| `vtesse-udhcpc.script` | скрипт udhcpc для интерфейса TAP (встроен)                     | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
+| `S99vtesse`            | init-скрипт, OpenIPC (BusyBox; его пишет `--install`)          | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
+| `vtesse.init`          | init-скрипт, OpenWrt (procd; его пишет `--install`)            | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
 
 ```sh
 curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32 &&
   chmod 755 vtesse-arm32
 ```
 
-### Конфигурация
+### Установка службой: камера OpenIPC, роутер OpenWrt, Linux на ПК
 
-Все варианты установки ниже читают `/etc/vtesse.conf` (имя сессии — ID устройства: 12 символов `0-9A-F`, он же MAC-адрес):
-
-```sh
-cat > /etc/vtesse.conf <<EOF
-host=vtun.example.org
-port=5555
-session=02AB34CD56EF
-password=secret
-EOF
-chmod 600 /etc/vtesse.conf
-```
-
-На камере или роутере ID можно брать из собственного MAC устройства: вместо `session=…` укажите `id_from=eth0` (см. [Device ID](docs/usage.md#device-id)).
-
-### Камера OpenIPC
+От root: скачайте бинарник для своего `ARCH` (см. таблицу) и дайте ему установить себя. Он определяет систему, копирует себя в `/usr/bin/vtesse` (на ПК — в `/usr/local/bin`), пишет `/etc/vtesse.conf` (права 600) из ключей и init-скрипт (OpenIPC — `S99vtesse`, OpenWrt — procd `vtesse.init`, systemd — `vtesse.service`) и запускает службу сразу и при каждой загрузке. Хук-скрипты встроены. На OpenWrt установка переживает `sysupgrade`.
 
 ```sh
-# от root; ARCH = arm32 или mipsel, см. таблицу
-ARCH=arm32
-URL=https://github.com/OpenIPC/vtesse/releases/latest/download
-# каталоги, затем каждый файл сразу на своё место, права — после успешной загрузки
-mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
-curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
-curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
-curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
-curl -fsSL -o /etc/init.d/S99vtesse $URL/S99vtesse && chmod 755 /etc/init.d/S99vtesse
-vtesse --version
-# запуск в терминале (остановка — Ctrl+C)
-vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
+ARCH=arm32   # arm32 или mipsel на камерах, mipsel / mips / arm64 на роутерах, x86_64 на ПК
+curl -fsSL -o /tmp/vtesse https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-$ARCH &&
+  chmod 755 /tmp/vtesse &&
+  /tmp/vtesse --install --host vtun.example.org --port 5555 --password secret
 ```
 
-Автозапуск при загрузке (`S99vtesse` уже установлен; настройки можно переопределить в `/etc/default/vtesse`):
+- Имя сессии — ID устройства: 12 символов `0-9A-F`, он же MAC-адрес. Без `--session 02AB34CD56EF` он берётся из MAC интерфейса с маршрутом по умолчанию (`id_from=`, см. [Device ID](docs/usage.md#device-id)); `--id-from eth0` задаёт интерфейс.
+- `--password -` читает пароль со стандартного ввода, а не из командной строки. Без `--port` порт — 5000.
+- Существующий `/etc/vtesse.conf` сохраняется: `vtesse --install` без ключей только обновляет бинарник и init-скрипт, заданные снова ключи заменяют свои строки. Файл — обычные строки `key=value` ([configuration file](docs/usage.md#configuration-file)).
+- `vtesse --uninstall` останавливает службу и удаляет всё, включая `/etc/vtesse.conf`.
+- `--scripts` дополнительно пишет хук-скрипты в `/usr/libexec/vtesse` для правки; `--no-start` устанавливает без запуска. Все ключи: [Installation](docs/usage.md#installation).
+- На OpenWrt режиму TAP нужен драйвер `tun`: `opkg update && opkg install kmod-tun` (на OpenWrt 25+: `apk add kmod-tun`).
 
-```sh
-/etc/init.d/S99vtesse start
-/etc/init.d/S99vtesse status
-```
-
-### Роутер OpenWrt
-
-```sh
-opkg update && opkg install curl kmod-tun   # kmod-tun нужен только для --tap; на OpenWrt 25+: apk add curl kmod-tun
-# ARCH = mipsel (MT7621, MT7628), mips (ath79), arm64 или arm32, см. таблицу
-ARCH=mipsel
-URL=https://github.com/OpenIPC/vtesse/releases/latest/download
-mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
-curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
-curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
-curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
-curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtesse
-/etc/init.d/vtesse enable && /etc/init.d/vtesse start
-```
+Управление службой: `/etc/init.d/S99vtesse start|stop|restart|status` на OpenIPC (настройки переопределяются в `/etc/default/vtesse`), `/etc/init.d/vtesse start|stop` на OpenWrt, `systemctl status vtesse` на ПК.
 
 ### Роутер Keenetic (исследование, [#32](https://github.com/OpenIPC/vtesse/issues/32))
 
@@ -132,8 +97,10 @@ ARCH=x86_64   # x86_64; arm64 / arm32 на Raspberry Pi с 64- / 32-битной
 mkdir -p ~/.local/bin
 curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
 # root не нужен: SOCKS5 на 127.0.0.1:1080 и проброс на RTSP камеры
-~/.local/bin/vtesse --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
+~/.local/bin/vtesse --config ~/.config/vtesse/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
+
+В файле те же строки `key=value`, что в `/etc/vtesse.conf` (см. [Сборка из исходников](#сборка-из-исходников)). Режим TAP службой systemd — установкой, как выше.
 
 ### Android
 
