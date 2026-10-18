@@ -70,9 +70,12 @@ int ve_load(ve_t *e)
                 size_t size;
                 char *dst = field(e, ve_vars[i].key, &size);
 
-                /* a value that would not fit is ignored rather than cut */
+                /* a value that would not fit is ignored rather than cut, and said so */
                 if (dst && n < size)
                     memcpy(dst, v, n + 1);
+                else if (dst)
+                    fprintf(stderr, "%s: longer than %u characters, ignored\n", ve_vars[i].name,
+                            (unsigned)(size - 1));
                 break;
             }
     }

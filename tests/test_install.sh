@@ -218,6 +218,15 @@ check "env overrides the file key by key" \
 printf 'route=10.78.0.0/24\nip=10.76.0.2/32\nudp_relay=1559\n' >> "$T/f.conf"
 PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
 check "--show-config lists routes and UDP relays" 'grep -qx "route 10.78.0.0/24" "$T/log" && grep -qx "udp_relay 1559" "$T/log"'
+printf 'port=abc\n' >> "$T/f.conf"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1; rc=$?
+printf 'vtesse=env.example\nvtesse_port=7000\n' > "$T/env/vars"
+check "a port=abc in the file is not taken for 5000 (the variable wins here)" '[ $rc -eq 0 ] && grep -qx "port 7000" "$T/log"'
+echo vtesse=env.example > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "a port=abc in the file with only vtesse set: refused" '[ $rc -ne 0 ]'
+sed -i '/^port=abc$/d' "$T/f.conf"
+printf 'vtesse=env.example\nvtesse_port=7000\nbootargs=x\n' > "$T/env/vars"
 PATH=$EP "$CLI" --config "$T/f.conf" --show-config --no-env >"$T/log" 2>&1
 check "--no-env: the file only" 'grep -qx "host file.example" "$T/log" && grep -qx "port 6000" "$T/log"'
 rm -f "$T/env/vars"

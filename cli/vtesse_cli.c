@@ -188,8 +188,13 @@ static int load_config(const char *path, cfg_file_t *c, int must_exist)
         v = trim(v);
         if (!strcmp(k, "host"))
             snprintf(c->host, sizeof(c->host), "%s", v);
-        else if (!strcmp(k, "port"))
-            c->port = atoi(v);
+        else if (!strcmp(k, "port")) {
+            char *end;
+            long port = strtol(v, &end, 10);
+
+            /* -1: refused later; 0 would be taken for "not set" and become 5000 */
+            c->port = *v && !*end && port >= 1 && port <= 65535 ? (int)port : -1;
+        }
         else if (!strcmp(k, "session"))
             snprintf(c->session, sizeof(c->session), "%s", v);
         else if (!strcmp(k, "ip"))
@@ -899,10 +904,8 @@ int main(int argc, char **argv)
     if (env_mode && !c.password[0]) {
         char mac_str[18], pw_if[32];
 
-        /* the interface of the session, or (with an explicit session) the default one */
-        if (c.id_from[0])
-            snprintf(pw_if, sizeof(pw_if), "%s", c.id_from);
-        else if (ve_default_iface(pw_if, sizeof(pw_if)) < 0)
+        /* the default-route interface, as OpenIPC's tunnel does, whatever the session */
+        if (ve_default_iface(pw_if, sizeof(pw_if)) < 0)
             pw_if[0] = '\0';
         if (!pw_if[0] || ve_iface_mac(pw_if, mac_str) < 0) {
             fprintf(stderr, "no interface with a MAC for the password: set vtesse_password\n");
