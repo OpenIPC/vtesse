@@ -185,6 +185,7 @@ mkdir -p "$T/env"
 cat > "$T/env/fw_printenv" <<EOS
 #!/bin/sh
 cat "$T/env/vars" 2>/dev/null
+exit "\$(cat "$T/env/rc" 2>/dev/null || echo 0)"
 EOS
 printf '#!/bin/sh\necho "\$*" >> "%s/env/setenv.log"\n' "$T" > "$T/env/fw_setenv"
 chmod 755 "$T/env/fw_printenv" "$T/env/fw_setenv"
@@ -235,6 +236,19 @@ check "vtesse_port alone (no vtesse) still overrides the file's port" 'grep -qx 
 printf 'vtesse=h\nvtesse_session=AB CD\nvtesse_password=p\n' > "$T/env/vars"
 PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
 check "--show-config refuses a session the client would refuse" '[ $rc -eq 2 ]'
+printf 'host=file.example\nport=6000\nsession=02AB34CD56EF\npassword=filepw\nudp_relay=not-a-port\n' > "$T/r.conf"
+echo vtesse=env.example > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/r.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "--show-config refuses a udp_relay the client would refuse" '[ $rc -eq 2 ] && grep -q "udp_relay: expected" "$T/log"'
+printf 'vtesse=env.example\nvtesse_port=7000\n' > "$T/env/vars"
+echo 1 > "$T/env/rc"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
+check "a failed fw_printenv: nothing it printed is used, and it is said" \
+    'grep -q "fw_printenv failed" "$T/log" && grep -qx "host file.example" "$T/log" && grep -qx "port 6000" "$T/log"'
+: > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
+check "a failed fw_printenv without vtesse variables: silent" '! grep -q "fw_printenv failed" "$T/log"'
+rm -f "$T/env/rc"
 rm -f "$T/env/vars"
 PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
 check "no file and no vtesse variable: refused" '[ $rc -ne 0 ] && grep -q "cannot open" "$T/log"'

@@ -962,6 +962,17 @@ int main(int argc, char **argv)
         fprintf(stderr, "session '%s': no spaces, colons or control characters\n", c.session);
         return 2;
     }
+#if VTESSE_WITH_LWIP
+    /* the same check as at start, without creating the relays */
+    for (i = 0; show_config && i < c.udp_relay_count; i++) {
+        uint16_t port, local;
+
+        if (nrelays + i >= NC_UDP_RELAY_MAX || nc_udp_relay_parse(c.udp_relay[i], &port, &local) < 0) {
+            fprintf(stderr, "%s: udp_relay: expected PORT[:LOCAL_PORT] (max %d)\n", config, NC_UDP_RELAY_MAX);
+            return 2;
+        }
+    }
+#endif
     if (show_config) {
         printf("host %s\nport %d\nsession %s\npassword %s\n", c.host, c.port, c.session,
                derived_password ? c.password : "(set)");

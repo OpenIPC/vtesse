@@ -49,7 +49,9 @@ static char *field(ve_t *e, const char *key, size_t *size)
 int ve_load(ve_t *e)
 {
     char line[512];
+    size_t i;
     FILE *f;
+    int st;
 
     memset(e, 0, sizeof(*e));
     /* all variables at once: one fw_printenv instead of one per name */
@@ -58,7 +60,7 @@ int ve_load(ve_t *e)
         return 0;
     while (fgets(line, sizeof(line), f)) {
         char *v = strchr(line, '=');
-        size_t i, n;
+        size_t n;
 
         if (!v)
             continue;
@@ -80,7 +82,21 @@ int ve_load(ve_t *e)
                 break;
             }
     }
-    pclose(f);
+    st = pclose(f);
+    /* a failed fw_printenv: what it printed may be partial, none of it is used; it is
+     * only said when vtesse variables came (no fw_printenv or no fw_env.config: silent) */
+    if (st == -1 || !WIFEXITED(st) || WEXITSTATUS(st) != 0) {
+        for (i = 0; i < ve_nvars; i++) {
+            size_t size;
+            char *dst = field(e, ve_vars[i].key, &size);
+
+            if (dst && dst[0]) {
+                fprintf(stderr, "fw_printenv failed: the U-Boot environment is ignored\n");
+                break;
+            }
+        }
+        memset(e, 0, sizeof(*e));
+    }
     return e->host[0] != '\0';
 }
 
@@ -100,27 +116,6 @@ int ve_can_write(void)
         path += n + (path[n] == ':');
     }
     return 0;
-}
-
-int ve_set(const char *name, const char *value)
-{
-    pid_t pid = fork();
-    int st;
-
-    if (pid == 0) {
-        /* no value: fw_setenv NAME deletes the variable */
-        if (value)
-            execlp("fw_setenv", "fw_setenv", name, value, (char *)NULL);
-        else
-            execlp("fw_setenv", "fw_setenv", name, (char *)NULL);
-        _exit(127);
-    }
-    if (pid < 0)
-        return -1;
-    while (waitpid(pid, &st, 0) < 0)
-        if (errno != EINTR)
-            return -1;
-    return WIFEXITED(st) && WEXITSTATUS(st) == 0 ? 0 : -1;
 }
 
 /* 1 when the interface has a MAC usable as the device ID: PPPoE, WireGuard and tun
