@@ -46,11 +46,13 @@ is `MAJOR*10000 + MINOR*100 + PATCH` (1.13.0 → 11300), larger than the old `MA
 - PATCH for fixes and small changes, MINOR for a new feature, MAJOR for an incompatible
   change or a large update, only when the maintainer decides. A pull request that changes
   the code or the build (the sources, `android/` except its unit tests, the `Makefile`,
-  `ci/`, `scripts/`) bumps `VTESSE_VERSION` as its last commit before the merge, together
-  with its `CHANGELOG.md` section (`## <version> — YYYY-MM-DD`). Docs, `tests/`, `bench/`
-  and `.github/` changes do not. CI checks this on every pull request
-  (`.github/check-version.sh`): a new number must be canonical (no leading zeros), greater
-  than the base one, and come with its own section.
+  `ci/`, `scripts/`, `.github/workflows/build.yml`) bumps `VTESSE_VERSION` as its last commit
+  before the merge, together with its `CHANGELOG.md` section (`## <version> — YYYY-MM-DD`).
+  Docs, `tests/`, `bench/` and the rest of `.github/` do not; nor does a change labelled
+  `no-release`, one that leaves the release files as they are. CI checks this on every pull
+  request in its own workflow, `.github/workflows/version.yml` (`.github/check-version.sh`):
+  a new number must be canonical (no leading zeros), greater than the base one, and come with
+  its own section.
 
 ## Test bench
 
