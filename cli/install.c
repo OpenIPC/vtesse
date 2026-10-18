@@ -513,8 +513,11 @@ static int out_kv(outbuf_t *o, const char *key, const char *val)
 }
 
 /* Builds the new /etc/vtesse.conf in out (CONF_MAX + 1 bytes) from the existing text
- * (or NULL) and the given keys. Returns 0, or -1 with the reason printed. */
-static int build_config(const char *old, kv_t *set, int n, char *out)
+ * (or NULL) and the given keys. env: the U-Boot environment when it holds the server
+ * (#64), else NULL; the client then takes the server, the defaults and the derived
+ * password from there, so the file needs none of them and gets no defaults.
+ * Returns 0, or -1 with the reason printed. */
+static int build_config(const char *old, kv_t *set, int n, char *out, const ve_t *env)
 {
     static char iface[64];
     int has_host = 0, has_port = 0, bad_port = 0, has_pass = 0, has_session = 0, has_idfrom = 0, has_ip = 0,
@@ -590,7 +593,9 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
         }
         p = e + 1;
     }
-    if (!has_host || !has_pass) {
+    if (env && env->ip[0])
+        has_ip = 1;
+    if (!env && (!has_host || !has_pass)) {
         fprintf(stderr,
                 "vtesse: %s%s needs at least the server and the password:\n"
                 "  vtesse --install --host SERVER --password PASSWORD\n"
@@ -611,6 +616,8 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
         fprintf(stderr, "vtesse: gw and route need ip (--ip A.B.C.D/P)\n");
         return -1;
     }
+    if (env)
+        return 0;
     if (!has_port && out_kv(&o, "port", "5000") < 0)
         return -1;
     if (!has_session && !has_idfrom) {
@@ -639,46 +646,32 @@ static const char *env_value(const ve_t *e, const char *key)
            !strcmp(key, "gw") ? e->gw : "";
 }
 
-/* The server is in the U-Boot environment, there is no file and no fw_setenv to store
- * the given keys (#64): they go to a file of their own, the rest comes from the
- * environment. A key whose variable is set is refused, the variable would override it.
- * Returns 0, or -1 with the reason printed. */
-static int build_env_file(const ve_t *e, kv_t *set, int n, char *out)
+/* Without fw_setenv the given keys go only to the file, and a set vtesse_* variable
+ * overrides its key there at runtime (#64): such a key is refused, nothing could
+ * change it. Returns 0, or -1 with the reason printed. */
+static int env_conflict(const ve_t *e, kv_t *set, int n)
 {
-    outbuf_t o = { out, 0 };
     size_t v;
     int i;
 
-    out[0] = '\0';
-    for (i = 0; i < n; i++) {
+    for (i = 0; i < n; i++)
         for (v = 0; v < ve_nvars; v++) {
-            const char *key = ve_vars[v].key;
+            const char *key = ve_vars[v].key, *var = ve_vars[v].name;
 
             if (strcmp(key, set[i].key) != 0)
                 continue;
             /* session and id_from: either variable replaces both keys at runtime */
             if (!strcmp(key, "session") || !strcmp(key, "id_from")) {
-                if (e->session[0] || e->id_from[0]) {
-                    fprintf(stderr, "vtesse: %s is set in the U-Boot environment and overrides --%s,\n"
-                                    "  and there is no fw_setenv to change it\n",
-                            e->session[0] ? "vtesse_session" : "vtesse_id_from",
-                            !strcmp(key, "session") ? "session" : "id-from");
-                    return -1;
-                }
-            } else if (env_value(e, key)[0]) {
-                fprintf(stderr, "vtesse: %s is set in the U-Boot environment and overrides --%s,\n"
-                                "  and there is no fw_setenv to change it\n", ve_vars[v].name, key);
-                return -1;
-            }
-        }
-        if (out_kv(&o, set[i].key, set[i].val) < 0)
+                if (!e->session[0] && !e->id_from[0])
+                    continue;
+                var = e->session[0] ? "vtesse_session" : "vtesse_id_from";
+            } else if (!env_value(e, key)[0])
+                continue;
+            fprintf(stderr, "vtesse: %s is set in the U-Boot environment and overrides --%s,\n"
+                            "  and there is no fw_setenv to change it\n",
+                    var, !strcmp(key, "id_from") ? "id-from" : key);
             return -1;
-    }
-    /* the same rule as for a file: a gateway needs an address */
-    if (find(set, n, "gw") && !find(set, n, "ip") && !e->ip[0]) {
-        fprintf(stderr, "vtesse: --gw needs --ip (or vtesse_ip)\n");
-        return -1;
-    }
+        }
     return 0;
 }
 
@@ -903,7 +896,6 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
     int moved[sizeof(hook_scripts) / sizeof(hook_scripts[0])];
     size_t len;
     char *old;
-    int env_file = 0;
 
     if (!VTESSE_WITH_TAP) {
         fprintf(stderr, "vtesse: --install needs the TAP backend (this binary is built with TAP=0)\n");
@@ -934,14 +926,8 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         }
         /* helpdesk set-up (#64): the settings come from the U-Boot environment */
         conf[0] = '\0';
-    } else if (!old && env_host[0]) {
-        /* no fw_setenv: the given keys are kept in a file, the server stays in the environment */
-        if (build_env_file(&env, set, n, conf) < 0) {
-            free(old);
-            return 1;
-        }
-        env_file = 1;
-    } else if (build_config(old, set, n, conf) < 0) {
+    } else if ((n && !root[0] && !ve_can_write() && env_conflict(&env, set, n) < 0) ||
+               build_config(old, set, n, conf, env_host[0] ? &env : NULL) < 0) {
         free(old);
         return 1;
     }
@@ -962,7 +948,7 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
             return 1;
         }
         printf("%s %s\n", old ? "updated" : "wrote", rp(CONF_PATH));
-        if (env_file)
+        if (env_host[0] && n && !ve_can_write())
             printf("no fw_setenv: the given keys are kept in %s, the server comes from the U-Boot "
                    "environment (vtesse=%s)\n", rp(CONF_PATH), env_host);
     } else if (is_link(rp(CONF_PATH))) {
