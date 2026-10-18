@@ -171,21 +171,28 @@ int ve_set_script(const char *script)
     return WIFEXITED(st) && WEXITSTATUS(st) == 0 ? 0 : -1;
 }
 
-int ve_default_iface(char *out, size_t size)
+int ve_route_iface(char *out, size_t size)
 {
     FILE *f = fopen("/proc/net/route", "r");
     char line[256], ifname[64];
     unsigned long dst;
 
-    if (f) {
-        while (fgets(line, sizeof(line), f))
-            if (sscanf(line, "%63s %lx", ifname, &dst) == 2 && dst == 0 && has_mac(ifname)) {
-                snprintf(out, size, "%s", ifname);
-                fclose(f);
-                return 0;
-            }
-        fclose(f);
-    }
+    if (!f)
+        return -1;
+    while (fgets(line, sizeof(line), f))
+        if (sscanf(line, "%63s %lx", ifname, &dst) == 2 && dst == 0 && has_mac(ifname)) {
+            snprintf(out, size, "%s", ifname);
+            fclose(f);
+            return 0;
+        }
+    fclose(f);
+    return -1;
+}
+
+int ve_default_iface(char *out, size_t size)
+{
+    if (ve_route_iface(out, size) == 0)
+        return 0;
     snprintf(out, size, "eth0");
     return has_mac(out) ? 0 : -1;
 }

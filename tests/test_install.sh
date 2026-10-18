@@ -239,6 +239,10 @@ check "vtesse_port alone (no vtesse) still overrides the file's port" 'grep -qx 
 printf 'vtesse=h\nvtesse_session=AB CD\nvtesse_password=p\n' > "$T/env/vars"
 PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
 check "--show-config refuses a session the client would refuse" '[ $rc -eq 2 ]'
+printf 'vtesse=h\nvtesse_session=02AB34CD56EF\nvtesse_id_from=eth9\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "vtesse_session and vtesse_id_from both set: refused, not picked by order" \
+    '[ $rc -eq 2 ] && grep -q "both set" "$T/log"'
 printf 'host=file.example\nport=6000\nsession=02AB34CD56EF\npassword=filepw\nudp_relay=not-a-port\n' > "$T/r.conf"
 echo vtesse=env.example > "$T/env/vars"
 PATH=$EP "$CLI" --config "$T/r.conf" --show-config >"$T/log" 2>&1; rc=$?

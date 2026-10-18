@@ -41,6 +41,9 @@ int ve_can_write(void);
  * so the values stay out of the process list and are written together; 0 on success */
 int ve_set_script(const char *script);
 
+/* The interface of the default route if it has a MAC; -1: none (yet) */
+int ve_route_iface(char *out, size_t size);
+
 /* The interface of the default route (/proc/net/route), as OpenIPC's VTun
  * client picks it, if it has a MAC (PPPoE, WireGuard and tun have none); else
  * eth0 if that has one. -1: none of them. */

@@ -228,6 +228,11 @@ so it reaches the same server with the same credentials:
 - session = that MAC without colons (the [device ID](#device-id));
 - password = `echo "$MAC" | sha1sum`: SHA-1 of the MAC with colons **and a newline**.
 
+At boot the uplink may get its default route after the service starts (Wi-Fi with a
+background DHCP client): the client then waits up to 60 s for it before it falls back
+to `eth0`. `vtesse_session` and `vtesse_id_from` exclude each other; with both set the
+client refuses to start.
+
 Optional variables override these and the file, one key at a time:
 
 | Variable                            | Key                   |

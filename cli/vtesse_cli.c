@@ -86,6 +86,7 @@ void nc_udp_relay_destroy(nc_udp_relay_t *r)
 #endif
 
 #define DEFAULT_CONFIG "~/.config/vtesse/probe.conf"
+#define ENV_ROUTE_WAIT 60       /* seconds: environment mode waits for the uplink at boot */
 
 typedef struct cfg_file {
     char host[256];
@@ -877,12 +878,31 @@ int main(int argc, char **argv)
         return 2;
     /* every vtesse_* variable overrides its key; only "vtesse" (the server) also
      * allows a missing file and brings the VTun defaults */
+    /* which one is meant cannot be told: the other one may be stale */
+    if (!no_env && env.session[0] && env.id_from[0]) {
+        fprintf(stderr, "vtesse_session and vtesse_id_from are both set in the U-Boot environment: "
+                        "clear one (fw_setenv vtesse_id_from)\n");
+        return 2;
+    }
     if (!no_env && env_any(&env))
         apply_env(&c, &env);
     if (env_mode) {
         /* only the server given: the VTun defaults of OpenIPC's tunnel */
         if (!c.port)
             c.port = 5000;
+        /* at boot the uplink (wlan0 with a background udhcpc) may get its default
+         * route after the service starts: the MAC must be the uplink's, not eth0's */
+        if (!show_config && (!c.password[0] || (!c.session[0] && !c.id_from[0] && !id_from))) {
+            char ifname[32];
+            int waited;
+
+            for (waited = 0; waited < ENV_ROUTE_WAIT && ve_route_iface(ifname, sizeof(ifname)) < 0; waited++) {
+                if (!waited)
+                    printf("waiting up to %d s for a default route (the MAC for the VTun defaults)\n",
+                           ENV_ROUTE_WAIT);
+                sleep(1);
+            }
+        }
         if (!c.session[0] && !c.id_from[0] && !id_from &&
             ve_default_iface(c.id_from, sizeof(c.id_from)) < 0) {
             fprintf(stderr, "no interface with a MAC for the device ID: set vtesse_session or vtesse_id_from\n");
