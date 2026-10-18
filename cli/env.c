@@ -96,7 +96,8 @@ int ve_load(ve_t *e)
             }
         }
         memset(e, 0, sizeof(*e));
-    }
+    } else
+        e->ok = 1;
     return e->host[0] != '\0';
 }
 

@@ -19,6 +19,7 @@ typedef struct ve {
     char id_from[32];
     char password[128];
     char ip[32], gw[32];
+    int ok;                 /* fw_printenv ran and succeeded: the environment is usable */
 } ve_t;
 
 /* the variables and the configuration keys they hold */
@@ -29,8 +30,8 @@ typedef struct ve_var {
 extern const ve_var_t ve_vars[];
 extern const size_t ve_nvars;
 
-/* Reads the vtesse variables with fw_printenv; all empty without fw_printenv.
- * Returns 1 when "vtesse" (the server) is set. */
+/* Reads the vtesse variables with fw_printenv; all empty (ok = 0) without fw_printenv
+ * or when it fails. Returns 1 when "vtesse" (the server) is set. */
 int ve_load(ve_t *e);
 
 /* 1 when fw_setenv is in PATH */

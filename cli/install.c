@@ -909,6 +909,7 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
     int moved[sizeof(hook_scripts) / sizeof(hook_scripts[0])];
     size_t len;
     char *old;
+    int env_write;
 
     if (!VTESSE_WITH_TAP) {
         fprintf(stderr, "vtesse: --install needs the TAP backend (this binary is built with TAP=0)\n");
@@ -919,6 +920,8 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
     memset(&env, 0, sizeof(env));
     if (!root[0] && ve_load(&env))
         snprintf(env_host, sizeof(env_host), "%s", env.host);
+    /* fw_setenv alone is not enough: u-boot-tools on a PC without fw_env.config */
+    env_write = !root[0] && env.ok && ve_can_write();
 
     /* the configuration first: nothing is written when it is incomplete */
     old = read_file(rp(CONF_PATH), &len);
@@ -928,7 +931,7 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
     }
     /* the server is in the U-Boot environment and there is no file: given keys go
      * there too (below), so no file is needed */
-    if (!old && env_host[0] && (n == 0 || ve_can_write())) {
+    if (!old && env_host[0] && (n == 0 || env_write)) {
         const kv_t *gw = find(set, n, "gw"), *ip = find(set, n, "ip");
 
         /* the same rule as for a file: a gateway needs an address */
@@ -939,7 +942,7 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         }
         /* helpdesk set-up (#64): the settings come from the U-Boot environment */
         conf[0] = '\0';
-    } else if ((n && !root[0] && !ve_can_write() && env_conflict(&env, set, n) < 0) ||
+    } else if ((n && !env_write && env_conflict(&env, set, n) < 0) ||
                build_config(old, set, n, conf, env_host[0] ? &env : NULL) < 0) {
         free(old);
         return 1;
@@ -961,7 +964,7 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
             return 1;
         }
         printf("%s %s\n", old ? "updated" : "wrote", rp(CONF_PATH));
-        if (env_host[0] && n && !ve_can_write())
+        if (env_host[0] && n && !env_write)
             printf("no fw_setenv: the given keys are kept in %s, the server comes from the U-Boot "
                    "environment (vtesse=%s)\n", rp(CONF_PATH), env_host);
     } else if (is_link(rp(CONF_PATH))) {
@@ -985,7 +988,7 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
     if (write_script(rp(l->init), l->init_src, l->init_mode) < 0)
         return 1;
     /* the given keys also go to the U-Boot environment, when the device has one (#64) */
-    if (n && !root[0] && ve_can_write()) {
+    if (n && env_write) {
         /* one batch through stdin: the password stays out of the process list, and
          * the variables are written together or not at all */
         static char script[CONF_MAX];
