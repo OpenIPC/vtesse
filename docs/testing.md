@@ -124,5 +124,11 @@ end to end by `bench/bench.sh tap-test`.
 | OpenIPC camera, SigmaStar SSC337, `vtesse-arm32`       | detected as OpenIPC; `/usr/bin/vtesse`, `S99vtesse`, `/etc/vtesse.conf` (mode 600, `port=5000` and `id_from=eth0` by default); `--scripts` wrote the hook scripts to `/usr/libexec/vtesse` (absent in the firmware, created); built-in udhcpc script under BusyBox ash; `--uninstall` |
 | OpenWrt 15.05 router, MediaTek MT7620, `vtesse-mipsel` | detected as OpenWrt; procd `vtesse.init`, `rc.d/S99vtesse` link, `/lib/upgrade/keep.d/vtesse`; `id_from=` the interface of the default route (`br-lan`); `--scripts`; built-in udhcpc script; `--uninstall`                                                                           |
 
+U-Boot environment, 2026-10-18 (1.15.0, #64), on the OpenIPC camera from `/tmp`, with a
+fake `fw_printenv` printing only `vtesse=<server>` (the real environment was read, not
+changed): `--show-config` gave port 5000, session `<MAC of eth0>` and the password
+byte for byte as the stock OpenIPC `tunnel` script computes them on the same camera
+(`echo "$default_mac" | sha1sum`).
+
 Clean-up after device tests: remove the uploaded files (`/tmp/vtesse`), check that no
 `vtesse*`/`vtun*` interface is left, and `bench/bench.sh up` again (localhost only).
