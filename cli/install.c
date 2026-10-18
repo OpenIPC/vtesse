@@ -842,26 +842,6 @@ static int have_udhcpc(void)
     return 0;
 }
 
-/* the current value of a configuration key in the U-Boot environment, "" if unset */
-static const char *env_value(const ve_t *e, const char *key)
-{
-    if (!strcmp(key, "host"))
-        return e->host;
-    if (!strcmp(key, "port"))
-        return e->port;
-    if (!strcmp(key, "session"))
-        return e->session;
-    if (!strcmp(key, "id_from"))
-        return e->id_from;
-    if (!strcmp(key, "password"))
-        return e->password;
-    if (!strcmp(key, "ip"))
-        return e->ip;
-    if (!strcmp(key, "gw"))
-        return e->gw;
-    return "";
-}
-
 static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
 {
     char env_host[256] = "";
@@ -940,39 +920,35 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         return 1;
     /* the given keys also go to the U-Boot environment, when the device has one (#64) */
     if (n && !root[0] && ve_can_write()) {
-        /* the variables changed so far, with their old values, for a rollback */
-        const char *done_name[2 * MAX_KEYS];
-        const char *done_old[2 * MAX_KEYS];
-        int ndone = 0, k, d;
-        size_t v;
+        /* one batch through stdin: the password stays out of the process list, and
+         * the variables are written together or not at all */
+        static char script[CONF_MAX];
+        size_t v, slen = 0;
+        int k;
 
         for (k = 0; k < n; k++)
             for (v = 0; v < ve_nvars; v++) {
                 const char *other = !strcmp(set[k].key, "session") ? "vtesse_id_from" :
                                     !strcmp(set[k].key, "id_from") ? "vtesse_session" : NULL;
-                const char *other_key = other ? (!strcmp(set[k].key, "session") ? "id_from" : "session") : NULL;
 
                 if (strcmp(ve_vars[v].key, set[k].key) != 0)
                     continue;
-                done_name[ndone] = ve_vars[v].name;
-                done_old[ndone++] = env_value(&env, set[k].key);
-                if (other) {
-                    done_name[ndone] = other;
-                    done_old[ndone++] = env_value(&env, other_key);
-                }
-                /* the variable would override the new key at runtime: a failure stops here,
-                 * and the variables already written get their old values back */
-                if (ve_set(ve_vars[v].name, set[k].val) != 0 || (other && ve_set(other, NULL) != 0)) {
-                    fprintf(stderr, "vtesse: fw_setenv %s failed: the service is not started\n",
-                            ve_vars[v].name);
-                    for (d = 0; d < ndone; d++)
-                        if (ve_set(done_name[d], done_old[d][0] ? done_old[d] : NULL) != 0)
-                            fprintf(stderr, "vtesse: could not restore %s\n", done_name[d]);
-                    return 1;
-                }
-                printf("U-Boot environment: %s set%s%s%s\n", ve_vars[v].name, other ? ", " : "",
-                       other ? other : "", other ? " cleared" : "");
+                slen += (size_t)snprintf(script + slen, sizeof(script) - slen, "%s %s\n", ve_vars[v].name, set[k].val);
+                /* the other identity variable would override the new one at runtime */
+                if (other)
+                    slen += (size_t)snprintf(script + slen, sizeof(script) - slen, "%s\n", other);
             }
+        if (slen) {
+            if (ve_set_script(script) != 0) {
+                fprintf(stderr, "vtesse: fw_setenv failed: nothing changed in the U-Boot environment, "
+                                "the service is not started\n");
+                return 1;
+            }
+            for (k = 0; k < n; k++)
+                for (v = 0; v < ve_nvars; v++)
+                    if (!strcmp(ve_vars[v].key, set[k].key))
+                        printf("U-Boot environment: %s set\n", ve_vars[v].name);
+        }
     }
     if (sys == SYS_OPENWRT) {
         const char *keep = "/usr/bin/vtesse\n/usr/libexec/vtesse/\n/etc/init.d/vtesse\n"

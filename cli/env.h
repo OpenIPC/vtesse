@@ -36,6 +36,10 @@ int ve_load(ve_t *e);
 /* 1 when fw_setenv is in PATH */
 int ve_can_write(void);
 
+/* fw_setenv -s -: one batch of "NAME VALUE" lines ("NAME" alone deletes it) on stdin,
+ * so the values stay out of the process list and are written together; 0 on success */
+int ve_set_script(const char *script);
+
 /* fw_setenv NAME VALUE, or fw_setenv NAME (deletes it) for a NULL value; 0 on success */
 int ve_set(const char *name, const char *value);
 

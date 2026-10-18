@@ -28,6 +28,7 @@
 #include "netcore/route.h"
 #include "vtesse/version.h"
 #include "vtesse/vtun_client.h"
+#include "vtesse/vtun_proto.h"
 
 #ifndef VTESSE_WITH_LWIP
 #define VTESSE_WITH_LWIP 1
@@ -241,6 +242,12 @@ static int check_config(const cfg_file_t *c, const char *where)
         return -1;
     }
     return 0;
+}
+
+static int env_any(const ve_t *e)
+{
+    return e->host[0] || e->port[0] || e->session[0] || e->id_from[0] || e->password[0] ||
+           e->ip[0] || e->gw[0];
 }
 
 /* The U-Boot variables override the file (#64), each one by itself. */
@@ -868,8 +875,11 @@ int main(int argc, char **argv)
     rc = load_config(config, &c, !env_mode);
     if (rc < 0)
         return 2;
-    if (env_mode) {
+    /* every vtesse_* variable overrides its key; only "vtesse" (the server) also
+     * allows a missing file and brings the VTun defaults */
+    if (!no_env && env_any(&env))
         apply_env(&c, &env);
+    if (env_mode) {
         /* only the server given: the VTun defaults of OpenIPC's tunnel */
         if (!c.port)
             c.port = 5000;
@@ -948,6 +958,10 @@ int main(int argc, char **argv)
         nc_routes_add(&st_routes, net, (uint8_t)p, st_gw);
     }
 
+    if (show_config && !vt_session_name_valid(c.session)) {
+        fprintf(stderr, "session '%s': no spaces, colons or control characters\n", c.session);
+        return 2;
+    }
     if (show_config) {
         printf("host %s\nport %d\nsession %s\npassword %s\n", c.host, c.port, c.session,
                derived_password ? c.password : "(set)");

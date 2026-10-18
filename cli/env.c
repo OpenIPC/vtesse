@@ -3,6 +3,7 @@
  */
 #include <ctype.h>
 #include <errno.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,6 +131,41 @@ static int has_mac(const char *ifname)
 
     /* the same parser as id_from at runtime: unicast, not all zeros */
     return ve_iface_mac(ifname, mac) == 0 && nc_devid_from_mac_str(mac, id) == 0;
+}
+
+int ve_set_script(const char *script)
+{
+    int fds[2], st;
+    size_t len = strlen(script);
+    pid_t pid;
+
+    if (pipe(fds) < 0)
+        return -1;
+    pid = fork();
+    if (pid == 0) {
+        dup2(fds[0], 0);
+        close(fds[0]);
+        close(fds[1]);
+        /* the values come on stdin: a password never shows in the process list */
+        execlp("fw_setenv", "fw_setenv", "-s", "-", (char *)NULL);
+        _exit(127);
+    }
+    close(fds[0]);
+    if (pid < 0) {
+        close(fds[1]);
+        return -1;
+    }
+    signal(SIGPIPE, SIG_IGN);
+    if (write(fds[1], script, len) != (ssize_t)len) {
+        close(fds[1]);
+        waitpid(pid, &st, 0);
+        return -1;
+    }
+    close(fds[1]);
+    while (waitpid(pid, &st, 0) < 0)
+        if (errno != EINTR)
+            return -1;
+    return WIFEXITED(st) && WEXITSTATUS(st) == 0 ? 0 : -1;
 }
 
 int ve_default_iface(char *out, size_t size)

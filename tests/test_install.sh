@@ -229,6 +229,12 @@ sed -i '/^port=abc$/d' "$T/f.conf"
 printf 'vtesse=env.example\nvtesse_port=7000\nbootargs=x\n' > "$T/env/vars"
 PATH=$EP "$CLI" --config "$T/f.conf" --show-config --no-env >"$T/log" 2>&1
 check "--no-env: the file only" 'grep -qx "host file.example" "$T/log" && grep -qx "port 6000" "$T/log"'
+printf 'vtesse_port=7100\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
+check "vtesse_port alone (no vtesse) still overrides the file's port" 'grep -qx "host file.example" "$T/log" && grep -qx "port 7100" "$T/log"'
+printf 'vtesse=h\nvtesse_session=AB CD\nvtesse_password=p\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "--show-config refuses a session the client would refuse" '[ $rc -eq 2 ]'
 rm -f "$T/env/vars"
 PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
 check "no file and no vtesse variable: refused" '[ $rc -ne 0 ] && grep -q "cannot open" "$T/log"'
