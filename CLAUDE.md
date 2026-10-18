@@ -17,13 +17,13 @@ images from `ci/`, the same ones CI uses.
 
 ```sh
 # native build and unit tests (what the CI "Unit tests" job runs)
-docker run --rm --pull never -u "$(id -u):$(id -g)" -v "$PWD:/src" -w /src compot/cross:2026.10 \
+docker run --rm --pull never -u "$(id -u):$(id -g)" -v "$PWD:/src" -w /src compot/cross:2026.10.1 \
   sh -c 'make -j"$(nproc)" BUILD=build-dev && make -j"$(nproc)" BUILD=build-dev test'
 #   without compot: docker build -t vtesse-ci-native -f ci/Dockerfile.native ci, then the same run with vtesse-ci-native
 
 # static musl binaries for a camera or router target, unit tests under qemu-user
 docker run --rm --pull never -u "$(id -u):$(id -g)" -v "$PWD:/src" \
-  -v ~/.cache/compot/toolchains:/opt/tc:ro -w /src compot/cross:2026.10 \
+  -v ~/.cache/compot/toolchains:/opt/tc:ro -w /src compot/cross:2026.10.1 \
   sh -c 'QEMU=1 ci/build-musl.sh arm32 dist'
 #   without compot: docker build -t vtesse-ci-cross -f ci/Dockerfile.cross ci, then the same run
 #   with vtesse-ci-cross and -e TOOLCHAIN_CACHE=/opt/tc
