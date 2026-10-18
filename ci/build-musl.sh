@@ -117,7 +117,7 @@ if [ "${VTUND:-$VTUND_DEFAULT}" = 1 ]; then
 fi
 
 if [ "${QEMU:-0}" = 1 ]; then
-    for t in test_proto test_route test_client; do
+    for t in test_proto test_route test_client test_env; do
         echo "== $QEMU_BIN $t"
         # no pipefail in sh: keep the test's own exit status, not that of tail
         out=$("$QEMU_BIN" "build-$TARGET-full/$t" 2>&1) || { echo "$out"; echo "$t failed under $QEMU_BIN" >&2; exit 1; }

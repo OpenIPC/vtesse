@@ -180,5 +180,51 @@ chmod 755 "$T/bin/ip"
 PATH=$T/bin:$PATH VTESSE_RUN=udhcpc-script interface=vt0 "$CLI" deconfig
 check "built-in udhcpc script runs (deconfig flushes the address)" 'grep -q "ip -4 addr flush dev vt0" "$T/ip.log"'
 
+# ---- U-Boot environment (#64): fake fw_printenv / fw_setenv in PATH
+mkdir -p "$T/env"
+cat > "$T/env/fw_printenv" <<EOS
+#!/bin/sh
+cat "$T/env/vars" 2>/dev/null
+EOS
+printf '#!/bin/sh\necho "\$*" >> "%s/env/setenv.log"\n' "$T" > "$T/env/fw_setenv"
+chmod 755 "$T/env/fw_printenv" "$T/env/fw_setenv"
+EP=$T/env:$PATH
+iface=$(awk '$2 == "00000000" { print $1; exit }' /proc/net/route 2>/dev/null)
+if [ -n "$iface" ] && [ -r "/sys/class/net/$iface/address" ]; then
+    mac=$(tr a-f A-F < "/sys/class/net/$iface/address")
+    id=$(echo "$mac" | tr -d :)
+    pw=$(echo "$mac" | sha1sum | cut -d" " -f1)
+    echo "vtesse=vtun.helpdesk" > "$T/env/vars"
+    PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1
+    check "env: only the server -> port 5000, session = MAC of $iface, password as VTun" \
+        'grep -qx "host vtun.helpdesk" "$T/log" && grep -qx "port 5000" "$T/log" &&
+         grep -qx "session $id" "$T/log" && grep -qx "password $pw" "$T/log"'
+else
+    echo "SKIP  env defaults: no default route"
+fi
+printf 'host=file.example\nport=6000\nsession=02AB34CD56EF\npassword=filepw\n' > "$T/f.conf"
+printf 'vtesse=env.example\nvtesse_port=7000\nbootargs=x\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
+check "env overrides the file key by key" \
+    'grep -qx "host env.example" "$T/log" && grep -qx "port 7000" "$T/log" &&
+     grep -qx "session 02AB34CD56EF" "$T/log" && grep -qx "password (set)" "$T/log"'
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config --no-env >"$T/log" 2>&1
+check "--no-env: the file only" 'grep -qx "host file.example" "$T/log" && grep -qx "port 6000" "$T/log"'
+rm -f "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "no file and no vtesse variable: refused" '[ $rc -ne 0 ] && grep -q "cannot open" "$T/log"'
+
+R=$T/envinst
+mkdir -p "$R/etc"
+printf 'NAME=Buildroot\nOPENIPC_VERSION=2.6\n' > "$R/etc/os-release"
+echo "vtesse=vtun.helpdesk" > "$T/env/vars"
+PATH=$EP "$CLI" --install --root "$R" >"$T/log" 2>&1; rc=$?
+check "install without keys when the server is in the environment: no config written" \
+    '[ $rc -eq 0 ] && [ ! -e "$R/etc/vtesse.conf" ] && [ -x "$R/usr/bin/vtesse" ] && grep -q "U-Boot environment" "$T/log"'
+PATH=$EP "$CLI" --install --root "$R" --host h --password p >/dev/null 2>&1
+check "--root: fw_setenv is not called" '[ ! -e "$T/env/setenv.log" ]'
+PATH=$EP "$CLI" --uninstall --root "$R" >"$T/log" 2>&1
+check "uninstall leaves the environment and says so" 'grep -q "keeps vtesse=vtun.helpdesk" "$T/log" && [ ! -e "$T/env/setenv.log" ]'
+
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]

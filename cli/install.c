@@ -35,6 +35,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "env.h"
 #include "install.h"
 #include "netcore/route.h"
 #include "vtesse/vtun_proto.h"
@@ -435,44 +436,6 @@ typedef struct kv {
 
 /* The interface of the default route (/proc/net/route), as the OpenIPC VTun
  * client picks it; eth0 if there is none. */
-/* 1 when the interface has a MAC the client accepts as the device ID (the same
- * parser as id_from at runtime): PPPoE, WireGuard and tun have none */
-static int has_mac(const char *ifname)
-{
-    char path[96], line[64], id[13];
-    FILE *f;
-    int ok;
-
-    snprintf(path, sizeof(path), "/sys/class/net/%s/address", ifname);
-    f = fopen(path, "r");
-    if (!f)
-        return 0;
-    ok = fgets(line, sizeof(line), f) && nc_devid_from_mac_str(line, id) == 0;
-    fclose(f);
-    return ok;
-}
-
-/* The interface of the default route (/proc/net/route), as the OpenIPC VTun client
- * picks it, if it has a MAC; else eth0 if that has one. -1: none of them. */
-static int default_iface(char *out, size_t size)
-{
-    FILE *f = fopen("/proc/net/route", "r");
-    char line[256], ifname[64];
-    unsigned long dst;
-
-    if (f) {
-        while (fgets(line, sizeof(line), f))
-            if (sscanf(line, "%63s %lx", ifname, &dst) == 2 && dst == 0 && has_mac(ifname)) {
-                snprintf(out, size, "%s", ifname);
-                fclose(f);
-                return 0;
-            }
-        fclose(f);
-    }
-    snprintf(out, size, "eth0");
-    return has_mac(out) ? 0 : -1;
-}
-
 /* The key of a "key=value" line of len bytes, or 0 for a comment, a blank line and
  * anything else. */
 static int key_of(const char *line, size_t len, char *key, size_t size)
@@ -656,7 +619,7 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
             fprintf(stderr, "vtesse: with --root, give --session ID or --id-from IFACE\n");
             return -1;
         }
-        if (default_iface(iface, sizeof(iface)) < 0) {
+        if (ve_default_iface(iface, sizeof(iface)) < 0) {
             fprintf(stderr, "vtesse: no interface with a MAC for the device ID (the default route goes\n"
                             "  through PPPoE, WireGuard or tun?): give --session ID or --id-from IFACE\n");
             return -1;
@@ -881,6 +844,8 @@ static int have_udhcpc(void)
 
 static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
 {
+    char env_host[256] = "";
+    ve_t env;
     const layout_t *l = &layouts[sys];
     static char conf[CONF_MAX + 1];
     int moved[sizeof(hook_scripts) / sizeof(hook_scripts[0])];
@@ -892,6 +857,8 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         return 1;
     }
     printf("system: %s%s\n", l->name, root[0] ? " (below --root)" : "");
+    if (ve_load(&env))
+        snprintf(env_host, sizeof(env_host), "%s", env.host);
 
     /* the configuration first: nothing is written when it is incomplete */
     old = read_file(rp(CONF_PATH), &len);
@@ -899,7 +866,10 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         fprintf(stderr, "vtesse: cannot read %s: %s\n", rp(CONF_PATH), strerror(errno));
         return 1;
     }
-    if (build_config(old, set, n, conf) < 0) {
+    if (!old && n == 0 && env_host[0]) {
+        /* helpdesk set-up (#64): the settings come from the U-Boot environment */
+        conf[0] = '\0';
+    } else if (build_config(old, set, n, conf) < 0) {
         free(old);
         return 1;
     }
@@ -908,7 +878,9 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         free(old);
         return 1;
     }
-    if (!old || strcmp(old, conf) != 0) {
+    if (!conf[0]) {
+        printf("no %s: the settings come from the U-Boot environment (vtesse=%s)\n", rp(CONF_PATH), env_host);
+    } else if (!old || strcmp(old, conf) != 0) {
         if (write_file(rp(CONF_PATH), conf, strlen(conf), 0600) < 0) {
             free(old);
             return 1;
@@ -934,6 +906,20 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
 
     if (write_script(rp(l->init), l->init_src, l->init_mode) < 0)
         return 1;
+    /* the given keys also go to the U-Boot environment, when the device has one (#64) */
+    if (n && !root[0] && ve_can_write()) {
+        size_t v;
+        int k;
+
+        for (k = 0; k < n; k++)
+            for (v = 0; v < ve_nvars; v++)
+                if (!strcmp(ve_vars[v].key, set[k].key)) {
+                    if (ve_set(ve_vars[v].name, set[k].val) == 0)
+                        printf("U-Boot environment: %s set\n", ve_vars[v].name);
+                    else
+                        fprintf(stderr, "vtesse: fw_setenv %s failed\n", ve_vars[v].name);
+                }
+    }
     if (sys == SYS_OPENWRT) {
         const char *keep = "/usr/bin/vtesse\n/usr/libexec/vtesse/\n/etc/init.d/vtesse\n"
                            OPENWRT_RC "\n" CONF_PATH "\n" OPENWRT_KEEP "\n";
@@ -1086,6 +1072,12 @@ static int do_uninstall(sys_t sys)
     if (!root[0] && access("/run/systemd/system", F_OK) == 0) {
         const char *reload[] = { "systemctl", "daemon-reload", NULL };
         run(reload);
+    }
+    {
+        ve_t env;
+
+        if (ve_load(&env))
+            printf("the U-Boot environment keeps vtesse=%s (fw_setenv vtesse to clear it)\n", env.host);
     }
     printf(rc ? "vtesse: uninstalled with errors\n" : "vtesse is uninstalled\n");
     return rc;

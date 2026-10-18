@@ -11,7 +11,9 @@ START=99
 USE_PROCD=1
 
 start_service() {
-    [ -f /etc/vtesse.conf ] || { echo "vtesse: /etc/vtesse.conf not found"; return 1; }
+    # helpdesk access (#64): "fw_setenv vtesse <server>" is enough, without a config
+    [ -f /etc/vtesse.conf ] || [ -n "$(fw_printenv -n vtesse 2>/dev/null)" ] ||
+        { echo "vtesse: neither /etc/vtesse.conf nor vtesse in the U-Boot environment"; return 1; }
     [ -e /dev/net/tun ] || modprobe tun 2>/dev/null
     procd_open_instance
     procd_set_param command /usr/bin/vtesse --config /etc/vtesse.conf --tap --ifname vtesse0
