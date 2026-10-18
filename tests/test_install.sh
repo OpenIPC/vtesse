@@ -116,6 +116,7 @@ check "--password - reads standard input" 'conf_has "$R" password=h'
 # ---- a commented OPENIPC_VERSION is not OpenIPC; symlinks are not followed
 R=$T/other
 mkdir -p "$R/etc/init.d" "$T/outside"
+echo 'for i in /etc/init.d/S??* ; do "$i" start; done' > "$R/etc/init.d/rcS"
 printf 'NAME=Debian\n#OPENIPC_VERSION=1\n' > "$R/etc/os-release"
 "$CLI" --install --root "$R" --host h --password p --id-from eth0 >"$T/log" 2>&1
 check "commented OPENIPC_VERSION: BusyBox init, not OpenIPC" 'grep -q "system: BusyBox" "$T/log"'
@@ -129,6 +130,14 @@ ln -s "$T/outside" "$R/usr/libexec"
 ln -s "$T/outside" "$R/usr/share/vtesse"
 "$CLI" --uninstall --root "$R" >/dev/null 2>&1
 check "uninstall does not delete through a symlinked directory" '[ -f "$T/outside/vtesse-hook.sh" ]'
+
+# ---- /etc/init.d without BusyBox init (OpenRC, sysvinit): not guessed
+R=$T/openrc
+mkdir -p "$R/etc/init.d" "$R/run/openrc"
+"$CLI" --install --root "$R" --host h --password p --id-from eth0 >"$T/log" 2>&1; rc=$?
+check "OpenRC: unknown system, asks for --system" '[ $rc -ne 0 ] && grep -q "name one with --system" "$T/log"'
+"$CLI" --install --root "" --host h >/dev/null 2>&1; rc=$?
+check "--root \"\": refused" '[ $rc -eq 2 ]'
 
 # ---- bad arguments
 R=$T/pc

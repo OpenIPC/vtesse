@@ -186,6 +186,13 @@ static int exists(const char *path)
     return lstat(path, &st) == 0;
 }
 
+static int is_link(const char *path)
+{
+    struct stat st;
+
+    return lstat(path, &st) == 0 && S_ISLNK(st.st_mode);
+}
+
 static int mkdir_p(const char *dir)
 {
     char tmp[1024];
@@ -273,8 +280,15 @@ static char *read_file(const char *path, size_t *len)
     for (;;) {
         size_t r = fread(buf + n, 1, cap - n, f);
         n += r;
-        if (n < cap)
+        if (n < cap) {
+            if (ferror(f)) {        /* a short read on an error is not the whole file */
+                free(buf);
+                fclose(f);
+                errno = EIO;
+                return NULL;
+            }
             break;
+        }
         cap *= 2;
         if (cap > 64 * 1024 * 1024) {
             free(buf);
@@ -359,6 +373,25 @@ static int file_has_line(const char *path, const char *prefix)
     return found;
 }
 
+static int file_has(const char *path, const char *needle)
+{
+    size_t len;
+    char *s = read_file(path, &len);
+    int found = s && strstr(s, needle);
+
+    free(s);
+    return found;
+}
+
+static int init_is_busybox(void)
+{
+    char *t = realpath(rp("/sbin/init"), NULL);
+    int bb = t && strstr(t, "busybox");
+
+    free(t);
+    return bb;
+}
+
 static sys_t detect(void)
 {
     struct stat st;
@@ -369,7 +402,10 @@ static sys_t detect(void)
         return SYS_OPENIPC;
     if (stat(rp("/run/systemd/system"), &st) == 0 && S_ISDIR(st.st_mode))
         return SYS_SYSTEMD;
-    if (stat(rp("/etc/init.d"), &st) == 0 && S_ISDIR(st.st_mode))
+    /* BusyBox init only: its rcS runs /etc/init.d/S??*; OpenRC and sysvinit do not,
+     * and S99vtesse would be gone after the first reboot */
+    if (stat(rp("/etc/init.d"), &st) == 0 && S_ISDIR(st.st_mode) && !exists(rp("/run/openrc")) &&
+        !exists(rp("/sbin/openrc-run")) && (file_has(rp("/etc/init.d/rcS"), "S??") || init_is_busybox()))
         return SYS_BUSYBOX;
     return SYS_NONE;
 }
@@ -666,7 +702,8 @@ static int copy_self(const char *dst)
         printf("binary %s (already in place)\n", dst);
         return 0;
     }
-    data = read_file(src, &len);
+    /* the running binary itself: its path may be gone (a removed or replaced file) */
+    data = read_file("/proc/self/exe", &len);
     if (!data) {
         fprintf(stderr, "vtesse: cannot read %s: %s\n", src, strerror(errno));
         return -1;
@@ -877,6 +914,13 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
             return 1;
         }
         printf("%s %s\n", old ? "updated" : "wrote", rp(CONF_PATH));
+    } else if (is_link(rp(CONF_PATH))) {
+        /* a symlink, maybe to a file someone else owns: replaced by our own file */
+        if (write_file(rp(CONF_PATH), conf, strlen(conf), 0600) < 0) {
+            free(old);
+            return 1;
+        }
+        printf("replaced the symlink %s by a file\n", rp(CONF_PATH));
     } else {
         /* it holds the password: also an unchanged file is made private */
         if (chmod(rp(CONF_PATH), 0600) < 0) {
@@ -1125,8 +1169,14 @@ int vi_main(int argc, char **argv)
             scripts = 1;
         else if (!strcmp(a, "--no-start"))
             start = 0;
-        else if (!strcmp(a, "--root") && i + 1 < argc)
+        else if (!strcmp(a, "--root") && i + 1 < argc) {
             root = argv[++i];
+            /* "" (an unset variable) or "/" would mean the live system */
+            if (!root[0] || !strcmp(root, "/")) {
+                fprintf(stderr, "vtesse: --root needs a staging directory (not \"\" or /)\n");
+                return 2;
+            }
+        }
         else if (!strcmp(a, "--system") && i + 1 < argc)
             sys_name = argv[++i];
         else if (!strcmp(a, "--host"))
@@ -1191,8 +1241,6 @@ int vi_main(int argc, char **argv)
         fprintf(stderr, "vtesse: --uninstall takes only --system and --root\n");
         return 2;
     }
-    if (!strcmp(root, "/"))
-        root = "";
     if (!root[0] && geteuid() != 0) {
         fprintf(stderr, "vtesse: --%s needs root\n", install ? "install" : "uninstall");
         return 1;
@@ -1209,7 +1257,7 @@ int vi_main(int argc, char **argv)
     if (uninstall)
         return do_uninstall(sys);
     if (sys == SYS_NONE) {
-        fprintf(stderr, "vtesse: unknown system (no /etc/init.d, no systemd): name one with --system,\n"
+        fprintf(stderr, "vtesse: unknown system (no systemd, no BusyBox init): name one with --system,\n"
                         "  or run the binary in the foreground: vtesse --config FILE --tap\n");
         return 1;
     }
