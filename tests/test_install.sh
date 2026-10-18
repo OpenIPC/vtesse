@@ -48,8 +48,15 @@ check "update: the given keys replace theirs, other lines stay" \
 check "update: id_from replaces session" 'conf_has "$R" id_from=eth1 && ! grep -q "^session=" "$R/etc/vtesse.conf"'
 check "update: reported as updated" 'grep -q "updated .*/etc/vtesse.conf" "$T/log"'
 
+chmod 644 "$R/etc/vtesse.conf"
 "$CLI" --install --root "$R" >"$T/log" 2>&1
 check "again without keys: config kept" 'grep -q "kept .*/etc/vtesse.conf" "$T/log"'
+check "a kept config is made private (644 -> 600)" '[ "$(mode "$R/etc/vtesse.conf")" = 600 ]'
+
+long=$(printf '#%02000d' 0)
+echo "$long" >> "$R/etc/vtesse.conf"
+"$CLI" --install --root "$R" --port 6001 >/dev/null 2>&1
+check "a 2000-character line survives an update" 'conf_has "$R" "$long" && conf_has "$R" port=6001'
 
 "$CLI" --install --root "$R" --scripts >/dev/null 2>&1
 check "--scripts: hook scripts in /usr/libexec/vtesse" \
@@ -77,6 +84,19 @@ check "OpenWrt: keep list for sysupgrade" \
 check "OpenWrt: device ID from an interface when no session is given" 'grep -q "^id_from=" "$R/etc/vtesse.conf"'
 check "1.13 hook scripts moved from /usr/share/vtesse to /usr/libexec/vtesse" \
     'grep -q "edited by hand" "$R/usr/libexec/vtesse/vtesse-hook.sh" && [ ! -e "$R/usr/share/vtesse" ]'
+check "OpenWrt: the keep list carries the rc.d link" 'grep -qx /etc/rc.d/S99vtesse "$R/lib/upgrade/keep.d/vtesse"'
+"$CLI" --uninstall --root "$R" >/dev/null 2>&1
+
+# a hand-edited 1.13 hook survives --install --scripts; /etc/default/vtesse follows the move
+mkdir -p "$R/usr/share/vtesse" "$R/etc/default"
+echo "# edited by hand" > "$R/usr/share/vtesse/vtesse-hook.sh"
+echo 'ARGS="--tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh"' > "$R/etc/default/vtesse"
+"$CLI" --install --root "$R" --host h --password p --scripts >"$T/log" 2>&1
+check "--scripts keeps a moved hand-edited hook" \
+    'grep -q "edited by hand" "$R/usr/libexec/vtesse/vtesse-hook.sh" &&
+     cmp -s "$SCRIPTS/vtesse-udhcpc.script" "$R/usr/libexec/vtesse/vtesse-udhcpc.script"'
+check "/etc/default/vtesse: --hook path moved to /usr/libexec/vtesse" \
+    'grep -q -- "--hook /usr/libexec/vtesse/vtesse-hook.sh" "$R/etc/default/vtesse"'
 "$CLI" --uninstall --root "$R" >/dev/null 2>&1
 check "OpenWrt: uninstall removes the link, the keep list and the scripts" \
     '[ ! -e "$R/etc/rc.d/S99vtesse" ] && [ ! -e "$R/lib/upgrade/keep.d/vtesse" ] && [ ! -e "$R/usr/libexec/vtesse" ]'
@@ -96,6 +116,14 @@ check "--session and --id-from together: refused" '[ $rc -eq 2 ]'
 check "bad --port: refused" '[ $rc -eq 2 ]'
 "$CLI" --install --root "$R" --system windows >/dev/null 2>&1; rc=$?
 check "unknown --system: refused" '[ $rc -eq 2 ]'
+"$CLI" --install --root "$R" --session "AB CD" >/dev/null 2>&1; rc=$?
+check "session with a space: refused" '[ $rc -eq 2 ]'
+"$CLI" --install --root "$R" --password "$(printf '%0128d' 0)" >/dev/null 2>&1; rc=$?
+check "password of 128 characters: refused (127 is the limit)" '[ $rc -eq 2 ]'
+"$CLI" --install --root "$R" --system systemd --password "$(printf '%0127d' 0)" >/dev/null 2>&1; rc=$?
+check "password of 127 characters: accepted" '[ $rc -eq 0 ]'
+"$CLI" --install --root "$R" --password " secret" >/dev/null 2>&1; rc=$?
+check "password with a leading space: refused" '[ $rc -eq 2 ]'
 
 # ---- the built-in udhcpc script: the binary runs it with VTESSE_RUN=udhcpc-script
 mkdir -p "$T/bin"

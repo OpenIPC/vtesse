@@ -185,12 +185,18 @@ vtesse --uninstall
 4. On OpenWrt `sysupgrade` keeps only the changed files under `/etc`: the keep list in
    `/lib/upgrade/keep.d/vtesse` carries the binary and the scripts over.
 5. Hook scripts of 1.13 and older in `/usr/share/vtesse` are moved to the libexec
-   directory, so a hand-edited copy keeps working; delete them to use the built-in ones.
+   directory, so a hand-edited copy keeps working (`--scripts` does not overwrite a moved
+   file); delete them to use the built-in ones. A `--hook /usr/share/vtesse/...` in
+   `/etc/default/vtesse` is changed to the new path.
+6. Values are checked against the limits of the service: no spaces around a value, a
+   password of up to 127 characters, a session name of up to 42 characters without
+   spaces or colons. A kept `/etc/vtesse.conf` is set to mode 600 as well.
 
 Running `--install` again updates the binary and the service file (the upgrade path)
 and the given keys. `--uninstall` stops the service and removes everything `--install`
-may have written, in any of the layouts, `/etc/vtesse.conf` included; on a clean system
-it is not an error. `--root DIR` does the same below `DIR` without touching the service
+may have written, in any of the layouts, `/etc/vtesse.conf` and `/etc/default/vtesse`
+included; if the service does not stop, nothing is removed. On a clean system it is not
+an error. `--root DIR` does the same below `DIR` without touching the service
 (tests, preparing a firmware image).
 
 The service files are also in [`scripts/`](../scripts): `S99vtesse`

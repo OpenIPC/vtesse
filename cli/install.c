@@ -33,6 +33,7 @@
 #include <unistd.h>
 
 #include "install.h"
+#include "vtesse/vtun_proto.h"
 #include "vtesse_scripts.h"     /* generated from scripts/ (tools/embed-scripts.sh) */
 
 #ifndef VTESSE_WITH_TAP
@@ -398,14 +399,19 @@ static void default_iface(char *out, size_t size)
     fclose(f);
 }
 
-static int key_of(const char *line, char *key, size_t size)
+/* The key of a "key=value" line of len bytes, or 0 for a comment, a blank line and
+ * anything else. */
+static int key_of(const char *line, size_t len, char *key, size_t size)
 {
-    const char *eq;
+    const char *end = line + len, *eq;
     size_t n;
 
-    while (*line == ' ' || *line == '\t')
+    while (line < end && (*line == ' ' || *line == '\t'))
         line++;
-    if (*line == '#' || !(eq = strchr(line, '=')))
+    if (line == end || *line == '#')
+        return 0;
+    eq = memchr(line, '=', (size_t)(end - line));
+    if (!eq)
         return 0;
     n = (size_t)(eq - line);
     while (n && (line[n - 1] == ' ' || line[n - 1] == '\t'))
@@ -415,6 +421,19 @@ static int key_of(const char *line, char *key, size_t size)
     memcpy(key, line, n);
     key[n] = '\0';
     return 1;
+}
+
+/* 1 when the value of a "key=value" line of len bytes is not empty */
+static int has_value(const char *line, size_t len)
+{
+    const char *end = line + len, *v = memchr(line, '=', len);
+
+    if (!v)
+        return 0;
+    for (v++; v < end; v++)
+        if (*v != ' ' && *v != '\t' && *v != '\r')
+            return 1;
+    return 0;
 }
 
 static kv_t *find(kv_t *set, int n, const char *key)
@@ -427,80 +446,82 @@ static kv_t *find(kv_t *set, int n, const char *key)
     return NULL;
 }
 
-/* Appends "key=val\n" to out (size CONF_MAX). */
-static void put(char *out, const char *key, const char *val)
-{
-    size_t n = strlen(out);
+typedef struct outbuf {
+    char *p;
+    size_t len;
+} outbuf_t;
 
-    snprintf(out + n, CONF_MAX - n, "%s=%s\n", key, val);
+/* Appends len bytes and a newline; -1 when the result would not fit in CONF_MAX. */
+static int out_line(outbuf_t *o, const char *line, size_t len)
+{
+    if (o->len + len + 2 > CONF_MAX) {
+        fprintf(stderr, "vtesse: %s would be larger than %d bytes\n", CONF_PATH, CONF_MAX);
+        return -1;
+    }
+    memcpy(o->p + o->len, line, len);
+    o->len += len;
+    o->p[o->len++] = '\n';
+    o->p[o->len] = '\0';
+    return 0;
 }
 
-/* Builds the new /etc/vtesse.conf in out from the existing text (or NULL) and the
- * given keys. Returns 0, or -1 with the reason printed. */
+static int out_kv(outbuf_t *o, const char *key, const char *val)
+{
+    static char line[CONF_MAX];
+    int n = snprintf(line, sizeof(line), "%s=%s", key, val);
+
+    if (n < 0 || (size_t)n >= sizeof(line))
+        return out_line(o, line, CONF_MAX);    /* reports "too large" */
+    return out_line(o, line, (size_t)n);
+}
+
+/* Builds the new /etc/vtesse.conf in out (CONF_MAX + 1 bytes) from the existing text
+ * (or NULL) and the given keys. Returns 0, or -1 with the reason printed. */
 static int build_config(const char *old, kv_t *set, int n, char *out)
 {
     static char iface[64];
-    int has_host = 0, has_port = 0, has_pass = 0, has_id = 0;
+    int has_host = 0, has_port = 0, has_pass = 0, has_id = 0, i;
+    outbuf_t o = { out, 0 };
     const char *p = old;
     char key[64];
-    int i;
 
     out[0] = '\0';
     while (p && *p) {
         const char *e = strchr(p, '\n');
         size_t len = e ? (size_t)(e - p) : strlen(p);
-        char line[1024];
+        const char *line = p;
         kv_t *k;
 
-        if (len >= sizeof(line))
-            len = sizeof(line) - 1;
-        memcpy(line, p, len);
-        line[len] = '\0';
-        p = e ? e + 1 : p + strlen(p);
-        if (key_of(line, key, sizeof(key))) {
+        p = e ? e + 1 : p + len;
+        if (key_of(line, len, key, sizeof(key))) {
             /* session and id_from exclude each other: a given one replaces the other */
             if ((!strcmp(key, "session") && find(set, n, "id_from")) ||
                 (!strcmp(key, "id_from") && find(set, n, "session")))
                 continue;
             k = find(set, n, key);
             if (k) {
-                if (!k->done)
-                    put(out, k->key, k->val);
+                if (!k->done && out_kv(&o, k->key, k->val) < 0)
+                    return -1;
                 k->done = 1;
                 continue;
             }
         }
-        if (strlen(out) + len + 2 >= CONF_MAX) {
-            fprintf(stderr, "vtesse: %s is too large\n", CONF_PATH);
+        if (out_line(&o, line, len) < 0)
             return -1;
-        }
-        strcat(out, line);
-        strcat(out, "\n");
     }
     for (i = 0; i < n; i++)
-        if (!set[i].done)
-            put(out, set[i].key, set[i].val);
+        if (!set[i].done && out_kv(&o, set[i].key, set[i].val) < 0)
+            return -1;
 
     for (p = out; *p; ) {
-        const char *e = strchr(p, '\n');
-        char line[1024];
+        const char *e = strchr(p, '\n');     /* every line written above ends with one */
         size_t len = (size_t)(e - p);
 
-        if (len >= sizeof(line))
-            len = sizeof(line) - 1;
-        memcpy(line, p, len);
-        line[len] = '\0';
-        if (key_of(line, key, sizeof(key))) {
-            const char *v = strchr(line, '=') + 1;
-
-            while (*v == ' ' || *v == '\t')
-                v++;
-            if (*v) {
-                has_host |= !strcmp(key, "host");
-                has_port |= !strcmp(key, "port");
-                has_pass |= !strcmp(key, "password");
-                has_id |= !strcmp(key, "session") || !strcmp(key, "id_from");
-            }
+        if (key_of(p, len, key, sizeof(key)) && has_value(p, len)) {
+            has_host |= !strcmp(key, "host");
+            has_port |= !strcmp(key, "port");
+            has_pass |= !strcmp(key, "password");
+            has_id |= !strcmp(key, "session") || !strcmp(key, "id_from");
         }
         p = e + 1;
     }
@@ -513,11 +534,12 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
                 root, CONF_PATH);
         return -1;
     }
-    if (!has_port)
-        put(out, "port", "5000");
+    if (!has_port && out_kv(&o, "port", "5000") < 0)
+        return -1;
     if (!has_id) {
         default_iface(iface, sizeof(iface));
-        put(out, "id_from", iface);
+        if (out_kv(&o, "id_from", iface) < 0)
+            return -1;
     }
     return 0;
 }
@@ -574,14 +596,20 @@ static int write_script(const char *path, const char *name, mode_t mode)
 }
 
 /* Hook scripts of 1.13 and older in /usr/share/vtesse: moved to libexec, where the
- * binary finds them, so that a hand-edited copy keeps working. */
-static void migrate_legacy(const layout_t *l)
+ * binary finds them, so that a hand-edited copy keeps working. Sets moved[i] for each
+ * script moved (--scripts must not overwrite it). The 1.13 path in an /etc/default/vtesse
+ * override (ARGS="... --hook /usr/share/vtesse/vtesse-hook.sh") is changed to match. */
+static void migrate_legacy(const layout_t *l, int moved[])
 {
-    size_t i;
+    const char *def_path = rp("/etc/default/vtesse");
+    char path[1100];
+    size_t i, len;
+    char *def;
 
     for (i = 0; i < sizeof(hook_scripts) / sizeof(hook_scripts[0]); i++) {
         char from[1024], to[1024];
 
+        moved[i] = 0;
         snprintf(from, sizeof(from), "%s%s/%s", root, LEGACY_DIR, hook_scripts[i]);
         snprintf(to, sizeof(to), "%s%s/%s", root, l->libexec, hook_scripts[i]);
         if (!exists(from))
@@ -590,12 +618,39 @@ static void migrate_legacy(const layout_t *l)
             remove_file(from);
             continue;
         }
-        if (mkdir_p(rp(l->libexec)) == 0 && rename(from, to) == 0)
+        if (mkdir_p(rp(l->libexec)) == 0 && rename(from, to) == 0) {
+            moved[i] = 1;
             printf("moved %s to %s (delete it to use the built-in copy)\n", from, to);
-        else
+        } else {
             fprintf(stderr, "vtesse: cannot move %s to %s: %s\n", from, to, strerror(errno));
+        }
     }
     rmdir(rp(LEGACY_DIR));
+
+    snprintf(path, sizeof(path), "%s", def_path);
+    def = read_file(path, &len);
+    if (def && strstr(def, LEGACY_DIR "/")) {
+        static char fixed[CONF_MAX + 1];
+        const char *p = def, *hit;
+        size_t n = 0, add = strlen(l->libexec) + 1;
+
+        while ((hit = strstr(p, LEGACY_DIR "/")) && n + (size_t)(hit - p) + add < CONF_MAX) {
+            memcpy(fixed + n, p, (size_t)(hit - p));
+            n += (size_t)(hit - p);
+            snprintf(fixed + n, CONF_MAX + 1 - n, "%s/", l->libexec);
+            n += add;
+            p = hit + strlen(LEGACY_DIR "/");
+        }
+        if (!hit && n + strlen(p) < CONF_MAX) {
+            memcpy(fixed + n, p, strlen(p));
+            n += strlen(p);
+            if (write_file(path, fixed, n, 0644) == 0)
+                printf("updated %s: %s/ -> %s/\n", path, LEGACY_DIR, l->libexec);
+        } else {
+            fprintf(stderr, "vtesse: %s still names %s/: change it by hand\n", path, LEGACY_DIR);
+        }
+    }
+    free(def);
 }
 
 static int service(sys_t sys, const layout_t *l, int start)
@@ -632,7 +687,8 @@ static int service(sys_t sys, const layout_t *l, int start)
 static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
 {
     const layout_t *l = &layouts[sys];
-    static char conf[CONF_MAX];
+    static char conf[CONF_MAX + 1];
+    int moved[sizeof(hook_scripts) / sizeof(hook_scripts[0])];
     size_t len;
     char *old;
 
@@ -664,6 +720,12 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         }
         printf("%s %s\n", old ? "updated" : "wrote", rp(CONF_PATH));
     } else {
+        /* it holds the password: also an unchanged file is made private */
+        if (chmod(rp(CONF_PATH), 0600) < 0) {
+            fprintf(stderr, "vtesse: cannot chmod %s: %s\n", rp(CONF_PATH), strerror(errno));
+            free(old);
+            return 1;
+        }
         printf("kept %s\n", rp(CONF_PATH));
     }
     free(old);
@@ -672,7 +734,7 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         return 1;
     if (sys == SYS_OPENWRT) {
         const char *keep = "/usr/bin/vtesse\n/usr/libexec/vtesse/\n/etc/init.d/vtesse\n"
-                           CONF_PATH "\n" OPENWRT_KEEP "\n";
+                           OPENWRT_RC "\n" CONF_PATH "\n" OPENWRT_KEEP "\n";
 
         unlink(rp(OPENWRT_RC));
         if (mkdir_parent(rp(OPENWRT_RC)) < 0 || symlink("../init.d/vtesse", rp(OPENWRT_RC)) < 0) {
@@ -686,14 +748,16 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         printf("wrote %s (kept by sysupgrade)\n", rp(OPENWRT_KEEP));
     }
 
-    migrate_legacy(l);
+    migrate_legacy(l, moved);
     if (scripts) {
         size_t i;
         char path[1024];
 
         for (i = 0; i < sizeof(hook_scripts) / sizeof(hook_scripts[0]); i++) {
             snprintf(path, sizeof(path), "%s/%s", l->libexec, hook_scripts[i]);
-            if (write_script(rp(path), hook_scripts[i], 0755) < 0)
+            if (moved[i])
+                printf("kept %s (moved from %s; delete it for the built-in copy)\n", rp(path), LEGACY_DIR);
+            else if (write_script(rp(path), hook_scripts[i], 0755) < 0)
                 return 1;
         }
     }
@@ -715,13 +779,24 @@ static int do_uninstall(sys_t sys)
     size_t i;
     int rc = 0;
 
+    /* the service must be stopped before its files go */
     if (!root[0]) {
         if (sys == SYS_SYSTEMD && exists(layouts[SYS_SYSTEMD].init)) {
             const char *disable[] = { "systemctl", "disable", "--now", "vtesse", NULL };
-            run(disable);
+
+            if (run(disable) != 0) {
+                fprintf(stderr, "vtesse: systemctl could not stop the service; nothing removed\n");
+                return 1;
+            }
         } else if (sys != SYS_NONE && sys != SYS_SYSTEMD && exists(layouts[sys].init)) {
             const char *stop[] = { layouts[sys].init, "stop", NULL };
-            run(stop);
+            const char *status[] = { layouts[sys].init, "status", NULL };
+
+            /* S99vtesse status: 0 while running; procd's vtesse.init stop reports itself */
+            if (run(stop) != 0 || (sys != SYS_OPENWRT && run(status) == 0)) {
+                fprintf(stderr, "vtesse: the service is still running; nothing removed\n");
+                return 1;
+            }
         }
     }
     for (i = 0; i < sizeof(all_files) / sizeof(all_files[0]); i++)
@@ -747,6 +822,32 @@ static int do_uninstall(sys_t sys)
     }
     printf(rc ? "vtesse: uninstalled with errors\n" : "vtesse is uninstalled\n");
     return rc;
+}
+
+/* The limits of the runtime parser (load_config in vtesse_cli.c): longer values
+ * would be cut there, and it trims spaces around a value. */
+static int check_value(const char *key, const char *v)
+{
+    static const struct { const char *key; size_t max; } limits[] = {
+        { "host", 255 }, { "session", VT_SESSION_MAX }, { "id_from", 31 },
+        { "ip", 31 }, { "gw", 31 }, { "password", 127 },
+    };
+    size_t i, len = strlen(v);
+
+    if (v[0] == ' ' || v[0] == '\t' || v[len - 1] == ' ' || v[len - 1] == '\t' || v[len - 1] == '\r') {
+        fprintf(stderr, "vtesse: the %s value must not start or end with a space\n", key);
+        return -1;
+    }
+    for (i = 0; i < sizeof(limits) / sizeof(limits[0]); i++)
+        if (!strcmp(limits[i].key, key) && len > limits[i].max) {
+            fprintf(stderr, "vtesse: the %s value is longer than %u characters\n", key, (unsigned)limits[i].max);
+            return -1;
+        }
+    if (!strcmp(key, "session") && !vt_session_name_valid(v)) {
+        fprintf(stderr, "vtesse: --session: no spaces, colons or control characters (a device ID: 12 x 0-9A-F)\n");
+        return -1;
+    }
+    return 0;
 }
 
 static int read_password(char *buf, size_t size)
@@ -823,6 +924,8 @@ int vi_main(int argc, char **argv)
             }
             set[n].val = password;
         }
+        if (check_value(key, set[n].val) < 0)
+            return 2;
         if (!strcmp(key, "port")) {
             char *end;
             long p = strtol(set[n].val, &end, 10);
@@ -863,7 +966,8 @@ int vi_main(int argc, char **argv)
     if (uninstall)
         return do_uninstall(sys);
     if (sys == SYS_NONE) {
-        fprintf(stderr, "vtesse: unknown system (no /etc/init.d, no systemd): use --system\n");
+        fprintf(stderr, "vtesse: unknown system (no /etc/init.d, no systemd): name one with --system,\n"
+                        "  or run the binary in the foreground: vtesse --config FILE --tap\n");
         return 1;
     }
     return do_install(sys, set, n, scripts, start);
