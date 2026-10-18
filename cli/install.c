@@ -630,6 +630,58 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
     return 0;
 }
 
+/* The value of a configuration key in the U-Boot environment ("" when unset) */
+static const char *env_value(const ve_t *e, const char *key)
+{
+    return !strcmp(key, "host") ? e->host : !strcmp(key, "port") ? e->port :
+           !strcmp(key, "session") ? e->session : !strcmp(key, "id_from") ? e->id_from :
+           !strcmp(key, "password") ? e->password : !strcmp(key, "ip") ? e->ip :
+           !strcmp(key, "gw") ? e->gw : "";
+}
+
+/* The server is in the U-Boot environment, there is no file and no fw_setenv to store
+ * the given keys (#64): they go to a file of their own, the rest comes from the
+ * environment. A key whose variable is set is refused, the variable would override it.
+ * Returns 0, or -1 with the reason printed. */
+static int build_env_file(const ve_t *e, kv_t *set, int n, char *out)
+{
+    outbuf_t o = { out, 0 };
+    size_t v;
+    int i;
+
+    out[0] = '\0';
+    for (i = 0; i < n; i++) {
+        for (v = 0; v < ve_nvars; v++) {
+            const char *key = ve_vars[v].key;
+
+            if (strcmp(key, set[i].key) != 0)
+                continue;
+            /* session and id_from: either variable replaces both keys at runtime */
+            if (!strcmp(key, "session") || !strcmp(key, "id_from")) {
+                if (e->session[0] || e->id_from[0]) {
+                    fprintf(stderr, "vtesse: %s is set in the U-Boot environment and overrides --%s,\n"
+                                    "  and there is no fw_setenv to change it\n",
+                            e->session[0] ? "vtesse_session" : "vtesse_id_from",
+                            !strcmp(key, "session") ? "session" : "id-from");
+                    return -1;
+                }
+            } else if (env_value(e, key)[0]) {
+                fprintf(stderr, "vtesse: %s is set in the U-Boot environment and overrides --%s,\n"
+                                "  and there is no fw_setenv to change it\n", ve_vars[v].name, key);
+                return -1;
+            }
+        }
+        if (out_kv(&o, set[i].key, set[i].val) < 0)
+            return -1;
+    }
+    /* the same rule as for a file: a gateway needs an address */
+    if (find(set, n, "gw") && !find(set, n, "ip") && !e->ip[0]) {
+        fprintf(stderr, "vtesse: --gw needs --ip (or vtesse_ip)\n");
+        return -1;
+    }
+    return 0;
+}
+
 /* ---- --install / --uninstall ---- */
 
 static void usage(void)
@@ -851,6 +903,7 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
     int moved[sizeof(hook_scripts) / sizeof(hook_scripts[0])];
     size_t len;
     char *old;
+    int env_file = 0;
 
     if (!VTESSE_WITH_TAP) {
         fprintf(stderr, "vtesse: --install needs the TAP backend (this binary is built with TAP=0)\n");
@@ -881,6 +934,13 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         }
         /* helpdesk set-up (#64): the settings come from the U-Boot environment */
         conf[0] = '\0';
+    } else if (!old && env_host[0]) {
+        /* no fw_setenv: the given keys are kept in a file, the server stays in the environment */
+        if (build_env_file(&env, set, n, conf) < 0) {
+            free(old);
+            return 1;
+        }
+        env_file = 1;
     } else if (build_config(old, set, n, conf) < 0) {
         free(old);
         return 1;
@@ -891,13 +951,20 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         return 1;
     }
     if (!conf[0]) {
-        printf("no %s: the settings come from the U-Boot environment (vtesse=%s)\n", rp(CONF_PATH), env_host);
+        const kv_t *host = find(set, n, "host");
+
+        /* a given server replaces the variable below */
+        printf("no %s: the settings come from the U-Boot environment (vtesse=%s)\n", rp(CONF_PATH),
+               host ? host->val : env_host);
     } else if (!old || strcmp(old, conf) != 0) {
         if (write_file(rp(CONF_PATH), conf, strlen(conf), 0600) < 0) {
             free(old);
             return 1;
         }
         printf("%s %s\n", old ? "updated" : "wrote", rp(CONF_PATH));
+        if (env_file)
+            printf("no fw_setenv: the given keys are kept in %s, the server comes from the U-Boot "
+                   "environment (vtesse=%s)\n", rp(CONF_PATH), env_host);
     } else if (is_link(rp(CONF_PATH))) {
         /* a symlink, maybe to a file someone else owns: replaced by our own file */
         if (write_file(rp(CONF_PATH), conf, strlen(conf), 0600) < 0) {

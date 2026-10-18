@@ -135,7 +135,8 @@ static int has_mac(const char *ifname)
 
 int ve_set_script(const char *script)
 {
-    int fds[2], st;
+    struct sigaction ign, old;
+    int fds[2], st, ok;
     size_t len = strlen(script);
     pid_t pid;
 
@@ -155,13 +156,19 @@ int ve_set_script(const char *script)
         close(fds[1]);
         return -1;
     }
-    signal(SIGPIPE, SIG_IGN);
-    if (write(fds[1], script, len) != (ssize_t)len) {
-        close(fds[1]);
+    /* a fw_setenv that exits early gives EPIPE, not a signal; the old disposition is
+     * restored, the commands started later inherit it */
+    sigemptyset(&ign.sa_mask);
+    ign.sa_flags = 0;
+    ign.sa_handler = SIG_IGN;
+    sigaction(SIGPIPE, &ign, &old);
+    ok = write(fds[1], script, len) == (ssize_t)len;
+    sigaction(SIGPIPE, &old, NULL);
+    close(fds[1]);
+    if (!ok) {
         waitpid(pid, &st, 0);
         return -1;
     }
-    close(fds[1]);
     while (waitpid(pid, &st, 0) < 0)
         if (errno != EINTR)
             return -1;
