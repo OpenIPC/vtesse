@@ -69,6 +69,12 @@ NETCORE_OBJ := $(NETCORE_SRC:%.c=$(BUILD)/%.o)
 endif
 VTUN_OBJ    := $(VTUN_SRC:%.c=$(BUILD)/%.o)
 
+# scripts/ built into the binary: the default hook and "vtesse --install" (#52)
+SCRIPTS    := scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse \
+              scripts/vtesse.init scripts/vtesse.service
+SCRIPTS_H  := $(BUILD)/gen/vtesse_scripts.h
+CLI_OBJ    := $(BUILD)/cli/vtesse_cli.o $(BUILD)/cli/install.o
+
 LIBNETCORE := $(BUILD)/libnetcore.a
 LIBVTESSE  := $(BUILD)/libvtesse.a
 CLI        := $(BUILD)/vtesse-cli
@@ -92,7 +98,14 @@ $(LIBNETCORE): $(NETCORE_OBJ)
 $(LIBVTESSE): $(VTUN_OBJ)
 	$(AR) rcs $@ $^
 
-$(CLI): $(BUILD)/cli/vtesse_cli.o $(LIBVTESSE) $(LIBNETCORE)
+$(SCRIPTS_H): $(SCRIPTS) tools/embed-scripts.sh
+	@mkdir -p $(dir $@)
+	sh tools/embed-scripts.sh $(SCRIPTS) > $@.tmp && mv $@.tmp $@
+
+$(BUILD)/cli/install.o: $(SCRIPTS_H)
+$(BUILD)/cli/install.o: BASE_CFLAGS += -I$(BUILD)/gen
+
+$(CLI): $(CLI_OBJ) $(LIBVTESSE) $(LIBNETCORE)
 	$(CC) $(BASE_LDFLAGS) $(LDFLAGS) -o $@ $^
 
 $(BUILD)/test_%: $(BUILD)/tests/test_%.o $(LIBVTESSE) $(LIBNETCORE)
@@ -100,8 +113,9 @@ $(BUILD)/test_%: $(BUILD)/tests/test_%.o $(LIBVTESSE) $(LIBNETCORE)
 
 tests: $(TESTS)
 
-test: $(TESTS)
+test: $(TESTS) $(CLI)
 	@for t in $(TESTS); do echo "== $$t"; $$t || exit 1; done
+	@echo "== tests/test_install.sh"; sh tests/test_install.sh $(CLI)
 
 clean:
 	rm -rf $(BUILD)

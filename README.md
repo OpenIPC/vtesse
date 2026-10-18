@@ -37,7 +37,7 @@ Static binaries (no dependencies) are on the [releases page](https://github.com/
 | 64-bit ARM: Raspberry Pi with a 64-bit OS, Rockchip, other ARM64 boards                         | `arm64`  |
 | PCs and servers                                                                                 | `x86_64` |
 
-One binary per platform, `vtesse-ARCH`, with both backends: lwIP (SOCKS5 / port forwards without root) and TAP (a kernel interface with `--tap`). The TAP backend needs root and the `tun` driver (`/dev/net/tun`), and the hook scripts `vtesse-hook.sh` and `vtesse-udhcpc.script`. Until 1.12 a TAP-only `vtesse-tap-ARCH` was published too; its links now return 404, use `vtesse-ARCH --tap` instead.
+One binary per platform, `vtesse-ARCH`, with both backends: lwIP (SOCKS5 / port forwards without root) and TAP (a kernel interface with `--tap`). The TAP backend needs root and the `tun` driver (`/dev/net/tun`); the hook scripts `vtesse-hook.sh` and `vtesse-udhcpc.script` are built into the binary. Until 1.12 a TAP-only `vtesse-tap-ARCH` was published too; its links now return 404, use `vtesse-ARCH --tap` instead.
 
 The releases also carry the VTun server for PCs and servers, `vtund-3.0.2-x86_64`: the original VTun 3.0.2 with our patches (a refused login is logged with the device ID and the reason), see [server/README.md](server/README.md). For cameras and routers vtund is built in the OpenIPC environment when needed.
 
@@ -54,70 +54,35 @@ There is one release, [`latest`](https://github.com/OpenIPC/vtesse/releases/late
 | `vtesse-x86_64`        | client, PCs and servers                                      | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-x86_64>        |
 | `vtesse-android.apk`   | Android app                                                  | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk>   |
 | `vtund-3.0.2-x86_64`   | VTun server with our patches, PCs (follows the VTun version) | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtund-3.0.2-x86_64>   |
-| `vtesse-hook.sh`       | TAP hook script                                              | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-hook.sh>       |
-| `vtesse-udhcpc.script` | udhcpc script for the TAP interface                          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
-| `S99vtesse`            | init script, OpenIPC (BusyBox)                               | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
-| `vtesse.init`          | init script, OpenWrt (procd)                                 | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
+| `vtesse-hook.sh`       | TAP hook script (built into the binary; for `--hook FILE`)   | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-hook.sh>       |
+| `vtesse-udhcpc.script` | udhcpc script for the TAP interface (built in)               | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
+| `S99vtesse`            | init script, OpenIPC (BusyBox; `--install` writes it)        | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
+| `vtesse.init`          | init script, OpenWrt (procd; `--install` writes it)          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
 
 ```sh
 curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32 &&
   chmod 755 vtesse-arm32
 ```
 
-### Configuration
+### Install as a service: OpenIPC camera, OpenWrt router, Linux PC
 
-All installations below read `/etc/vtesse.conf` (the session name is the device ID: 12 characters `0-9A-F`, also used as the MAC):
-
-```sh
-cat > /etc/vtesse.conf <<EOF
-host=vtun.example.org
-port=5555
-session=02AB34CD56EF
-password=secret
-EOF
-chmod 600 /etc/vtesse.conf
-```
-
-On a camera or router the ID can come from the device's own MAC instead: replace `session=…` with `id_from=eth0` (see [Device ID](docs/usage.md#device-id)).
-
-### OpenIPC camera
+As root: download the binary for your `ARCH` (see the table) and let it install itself. It detects the system, copies itself to `/usr/bin/vtesse` (`/usr/local/bin` on a PC), writes `/etc/vtesse.conf` (mode 600) from the keys and the init script (OpenIPC `S99vtesse`, OpenWrt procd `vtesse.init`, systemd `vtesse.service`), and starts the service at once and at every boot. The hook scripts are built in. On OpenWrt the installation survives `sysupgrade`.
 
 ```sh
-# as root; ARCH = arm32 or mipsel, see the table
-ARCH=arm32
-URL=https://github.com/OpenIPC/vtesse/releases/latest/download
-# directories, then each file straight to its place, executable on success
-mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
-curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
-curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
-curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
-curl -fsSL -o /etc/init.d/S99vtesse $URL/S99vtesse && chmod 755 /etc/init.d/S99vtesse
-vtesse --version
-# run in the foreground (Ctrl+C to stop)
-vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
+ARCH=arm32   # arm32 or mipsel on cameras, mipsel / mips / arm64 on routers, x86_64 on a PC
+curl -fsSL -o /tmp/vtesse https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-$ARCH &&
+  chmod 755 /tmp/vtesse &&
+  /tmp/vtesse --install --host vtun.example.org --port 5555 --password secret
 ```
 
-Start at boot (`S99vtesse` is already installed; settings can be overridden in `/etc/default/vtesse`):
+- The session name is the device ID: 12 characters `0-9A-F`, also used as the MAC. Without `--session 02AB34CD56EF` it is taken from the MAC of the interface with the default route (`id_from=`, see [Device ID](docs/usage.md#device-id)); `--id-from eth0` names the interface.
+- `--password -` reads the password from standard input instead of the command line. Without `--port` the port is 5000.
+- An existing `/etc/vtesse.conf` is kept: `vtesse --install` without keys only updates the binary and the init script, keys given again replace their lines. The file is plain `key=value` ([configuration file](docs/usage.md#configuration-file)).
+- `vtesse --uninstall` stops the service and removes everything, `/etc/vtesse.conf` included.
+- `--scripts` also writes the hook scripts to `/usr/libexec/vtesse` to be edited; `--no-start` installs without starting. All options: [Installation](docs/usage.md#installation).
+- OpenWrt needs the `tun` driver for the TAP backend: `opkg update && opkg install kmod-tun` (`apk add kmod-tun` on OpenWrt 25+).
 
-```sh
-/etc/init.d/S99vtesse start
-/etc/init.d/S99vtesse status
-```
-
-### OpenWrt router
-
-```sh
-opkg update && opkg install curl kmod-tun   # kmod-tun is needed for --tap only; apk add curl kmod-tun on OpenWrt 25+
-# ARCH = mipsel (MT7621, MT7628), mips (ath79), arm64 or arm32, see the table
-ARCH=mipsel
-URL=https://github.com/OpenIPC/vtesse/releases/latest/download
-mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
-curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
-curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
-curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
-curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtesse
-/etc/init.d/vtesse enable && /etc/init.d/vtesse start
-```
+Service control: `/etc/init.d/S99vtesse start|stop|restart|status` on OpenIPC (overrides in `/etc/default/vtesse`), `/etc/init.d/vtesse start|stop` on OpenWrt, `systemctl status vtesse` on a PC.
 
 ### Keenetic router (research, [#32](https://github.com/OpenIPC/vtesse/issues/32))
 
@@ -132,8 +97,10 @@ ARCH=x86_64   # x86_64; arm64 / arm32 on a Raspberry Pi with a 64-bit / 32-bit O
 mkdir -p ~/.local/bin
 curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
 # no root needed: SOCKS5 on 127.0.0.1:1080 and a forward to a camera's RTSP
-~/.local/bin/vtesse --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
+~/.local/bin/vtesse --config ~/.config/vtesse/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
+
+The file has the same `key=value` lines as `/etc/vtesse.conf` (see [Build from source](#build-from-source)). For the TAP backend as a systemd service, install it as above.
 
 ### Android
 

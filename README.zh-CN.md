@@ -37,7 +37,7 @@
 | 64 位 ARM：运行 64 位系统的树莓派、瑞芯微及其他 ARM64 开发板                   | `arm64`  |
 | PC 与服务器                                                                    | `x86_64` |
 
-每个平台只提供一个二进制文件 `vtesse-ARCH`，包含两种后端：lwIP（无需 root 的 SOCKS5 / 端口转发）和 TAP（使用 `--tap` 的内核接口）。TAP 后端需要 root、`tun` 驱动（`/dev/net/tun`）以及钩子脚本 `vtesse-hook.sh` 和 `vtesse-udhcpc.script`。在 1.12 及之前还发布仅含 TAP 的 `vtesse-tap-ARCH`；其链接现在返回 404，请改用 `vtesse-ARCH --tap`。
+每个平台只提供一个二进制文件 `vtesse-ARCH`，包含两种后端：lwIP（无需 root 的 SOCKS5 / 端口转发）和 TAP（使用 `--tap` 的内核接口）。TAP 后端需要 root 和 `tun` 驱动（`/dev/net/tun`）；钩子脚本 `vtesse-hook.sh` 和 `vtesse-udhcpc.script` 已内置在二进制文件中。在 1.12 及之前还发布仅含 TAP 的 `vtesse-tap-ARCH`；其链接现在返回 404，请改用 `vtesse-ARCH --tap`。
 
 发布页还提供面向 PC 和服务器的 VTun 服务器 `vtund-3.0.2-x86_64`：原版 VTun 3.0.2 加上我们的补丁（登录被拒时日志会记录设备 ID 和原因），详见 [server/README.md](server/README.md)。摄像头和路由器如需 vtund，请在 OpenIPC 环境中构建。
 
@@ -54,70 +54,35 @@
 | `vtesse-x86_64`        | 客户端，PC 和服务器                                    | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-x86_64>        |
 | `vtesse-android.apk`   | Android 应用                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk>   |
 | `vtund-3.0.2-x86_64`   | 带我们补丁的 VTun 服务器，PC（文件名随 VTun 版本变化） | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtund-3.0.2-x86_64>   |
-| `vtesse-hook.sh`       | TAP 钩子脚本                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-hook.sh>       |
-| `vtesse-udhcpc.script` | TAP 接口的 udhcpc 脚本                                 | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
-| `S99vtesse`            | 启动脚本，OpenIPC（BusyBox）                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
-| `vtesse.init`          | 启动脚本，OpenWrt（procd）                             | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
+| `vtesse-hook.sh`       | TAP 钩子脚本（已内置；用于 `--hook FILE`）             | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-hook.sh>       |
+| `vtesse-udhcpc.script` | TAP 接口的 udhcpc 脚本（已内置）                       | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
+| `S99vtesse`            | 启动脚本，OpenIPC（BusyBox；由 `--install` 写入）      | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
+| `vtesse.init`          | 启动脚本，OpenWrt（procd；由 `--install` 写入）        | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
 
 ```sh
 curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32 &&
   chmod 755 vtesse-arm32
 ```
 
-### 配置
+### 作为服务安装：OpenIPC 摄像机、OpenWrt 路由器、Linux PC
 
-下面所有安装方式都读取 `/etc/vtesse.conf`（会话名即设备 ID：12 个 `0-9A-F` 字符，同时用作 MAC 地址）：
-
-```sh
-cat > /etc/vtesse.conf <<EOF
-host=vtun.example.org
-port=5555
-session=02AB34CD56EF
-password=secret
-EOF
-chmod 600 /etc/vtesse.conf
-```
-
-在摄像头或路由器上，也可以直接使用设备自身的 MAC 作为 ID：用 `id_from=eth0` 代替 `session=…`（见 [Device ID](docs/usage.md#device-id)）。
-
-### OpenIPC 摄像机
+以 root 身份：下载对应 `ARCH` 的二进制文件（见上表），让它自行安装。它会识别系统，把自身复制到 `/usr/bin/vtesse`（PC 上为 `/usr/local/bin`），根据参数写入 `/etc/vtesse.conf`（权限 600）和启动脚本（OpenIPC 为 `S99vtesse`，OpenWrt 为 procd `vtesse.init`，systemd 为 `vtesse.service`），并立即启动服务、开机自启。钩子脚本已内置。在 OpenWrt 上，安装在 `sysupgrade` 后仍会保留。
 
 ```sh
-# 以 root 运行；ARCH = arm32 或 mipsel，见上表
-ARCH=arm32
-URL=https://github.com/OpenIPC/vtesse/releases/latest/download
-# 先建目录，再把每个文件直接下载到目标位置，下载成功后设置权限
-mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
-curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
-curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
-curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
-curl -fsSL -o /etc/init.d/S99vtesse $URL/S99vtesse && chmod 755 /etc/init.d/S99vtesse
-vtesse --version
-# 前台运行（Ctrl+C 停止）
-vtesse --config /etc/vtesse.conf --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
+ARCH=arm32   # 摄像机用 arm32 或 mipsel，路由器用 mipsel / mips / arm64，PC 用 x86_64
+curl -fsSL -o /tmp/vtesse https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-$ARCH &&
+  chmod 755 /tmp/vtesse &&
+  /tmp/vtesse --install --host vtun.example.org --port 5555 --password secret
 ```
 
-开机自启（`S99vtesse` 已安装；可在 `/etc/default/vtesse` 中覆盖设置）：
+- 会话名即设备 ID：12 个 `0-9A-F` 字符，同时用作 MAC 地址。不指定 `--session 02AB34CD56EF` 时，取默认路由所在接口的 MAC（`id_from=`，见 [Device ID](docs/usage.md#device-id)）；`--id-from eth0` 指定接口。
+- `--password -` 从标准输入读取密码，而不是写在命令行上。不指定 `--port` 时端口为 5000。
+- 已有的 `/etc/vtesse.conf` 会保留：不带参数的 `vtesse --install` 只更新二进制文件和启动脚本，再次给出的参数替换对应的行。该文件为普通的 `key=value` 行（[configuration file](docs/usage.md#configuration-file)）。
+- `vtesse --uninstall` 停止服务并删除全部文件，包括 `/etc/vtesse.conf`。
+- `--scripts` 另外把钩子脚本写到 `/usr/libexec/vtesse` 以便修改；`--no-start` 只安装不启动。全部选项：[Installation](docs/usage.md#installation)。
+- OpenWrt 上 TAP 后端需要 `tun` 驱动：`opkg update && opkg install kmod-tun`（OpenWrt 25+ 上为 `apk add kmod-tun`）。
 
-```sh
-/etc/init.d/S99vtesse start
-/etc/init.d/S99vtesse status
-```
-
-### OpenWrt 路由器
-
-```sh
-opkg update && opkg install curl kmod-tun   # kmod-tun 仅在使用 --tap 时需要；OpenWrt 25+ 使用：apk add curl kmod-tun
-# ARCH = mipsel（MT7621、MT7628）、mips（ath79）、arm64 或 arm32，见上表
-ARCH=mipsel
-URL=https://github.com/OpenIPC/vtesse/releases/latest/download
-mkdir -p /usr/bin /usr/share/vtesse /etc/init.d
-curl -fsSL -o /usr/bin/vtesse $URL/vtesse-$ARCH && chmod 755 /usr/bin/vtesse
-curl -fsSL -o /usr/share/vtesse/vtesse-hook.sh $URL/vtesse-hook.sh && chmod 755 /usr/share/vtesse/vtesse-hook.sh
-curl -fsSL -o /usr/share/vtesse/vtesse-udhcpc.script $URL/vtesse-udhcpc.script && chmod 755 /usr/share/vtesse/vtesse-udhcpc.script
-curl -fsSL -o /etc/init.d/vtesse $URL/vtesse.init && chmod 755 /etc/init.d/vtesse
-/etc/init.d/vtesse enable && /etc/init.d/vtesse start
-```
+服务管理：OpenIPC 上 `/etc/init.d/S99vtesse start|stop|restart|status`（可在 `/etc/default/vtesse` 中覆盖设置），OpenWrt 上 `/etc/init.d/vtesse start|stop`，PC 上 `systemctl status vtesse`。
 
 ### Keenetic 路由器（调研，[#32](https://github.com/OpenIPC/vtesse/issues/32)）
 
@@ -132,8 +97,10 @@ ARCH=x86_64   # x86_64；64 位 / 32 位系统的树莓派用 arm64 / arm32
 mkdir -p ~/.local/bin
 curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-$ARCH && chmod 755 ~/.local/bin/vtesse
 # 无需 root：127.0.0.1:1080 上的 SOCKS5，以及到摄像机 RTSP 的转发
-~/.local/bin/vtesse --config /etc/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
+~/.local/bin/vtesse --config ~/.config/vtesse/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
+
+该文件与 `/etc/vtesse.conf` 的 `key=value` 行相同（见[从源码构建](#从源码构建)）。若要以 systemd 服务运行 TAP 后端，请按上文安装。
 
 ### Android
 

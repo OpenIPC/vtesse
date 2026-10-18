@@ -3,17 +3,18 @@
 #
 #   /etc/init.d/vtesse enable && /etc/init.d/vtesse start
 #
-# Runs the TAP backend with the hook scripts from /usr/share/vtesse and
-# restarts it if it exits.
+# Installed by "vtesse --install". Runs the TAP backend with the built-in hook
+# scripts, or with the copies in /usr/libexec/vtesse when they exist
+# ("vtesse --install --scripts"), and restarts it if it exits.
 
 START=99
 USE_PROCD=1
 
 start_service() {
     [ -f /etc/vtesse.conf ] || { echo "vtesse: /etc/vtesse.conf not found"; return 1; }
+    [ -e /dev/net/tun ] || modprobe tun 2>/dev/null
     procd_open_instance
-    procd_set_param command /usr/bin/vtesse --config /etc/vtesse.conf \
-        --tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh
+    procd_set_param command /usr/bin/vtesse --config /etc/vtesse.conf --tap --ifname vtesse0
     procd_set_param respawn
     procd_set_param stdout 1
     procd_set_param stderr 1
