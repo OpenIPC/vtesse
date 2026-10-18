@@ -22,11 +22,13 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "env.h"
 #include "install.h"
 #include "netcore/loop.h"
 #include "netcore/route.h"
 #include "vtesse/version.h"
 #include "vtesse/vtun_client.h"
+#include "vtesse/vtun_proto.h"
 
 #ifndef VTESSE_WITH_LWIP
 #define VTESSE_WITH_LWIP 1
@@ -84,6 +86,7 @@ void nc_udp_relay_destroy(nc_udp_relay_t *r)
 #endif
 
 #define DEFAULT_CONFIG "~/.config/vtesse/probe.conf"
+#define ENV_ROUTE_WAIT 60       /* seconds: environment mode waits for the uplink at boot */
 
 typedef struct cfg_file {
     char host[256];
@@ -127,6 +130,8 @@ static void usage(void)
             "  vtesse --uninstall                                         remove it (--install --help)\n"
 #endif
             "  --id-from IFACE  device ID (session name) = MAC of IFACE, e.g. eth0\n"
+            "  --show-config    print the settings in effect and exit\n"
+            "  --no-env         ignore the U-Boot environment (fw_printenv vtesse, vtesse_*)\n"
             "  FILE: key=value lines: host, port, session, password, auth (xor),\n"
             "        optional id_from (instead of session: MAC of that interface),\n"
             "        ip=A.B.C.D/P, gw=A.B.C.D, route=NET/P (repeatable): manual IPv4\n"
@@ -158,7 +163,9 @@ static char *trim(char *s)
     return s;
 }
 
-static int load_config(const char *path, cfg_file_t *c)
+/* Reads the file into c. A missing file is an error only when must_exist; then
+ * returns 1 (the settings come from the U-Boot environment). */
+static int load_config(const char *path, cfg_file_t *c, int must_exist)
 {
     char full[512], line[512];
     FILE *f;
@@ -168,6 +175,8 @@ static int load_config(const char *path, cfg_file_t *c)
     expand_home(path, full, sizeof(full));
     f = fopen(full, "r");
     if (!f) {
+        if (errno == ENOENT && !must_exist)
+            return 1;
         fprintf(stderr, "cannot open %s: %s\n", full, strerror(errno));
         return -1;
     }
@@ -181,8 +190,13 @@ static int load_config(const char *path, cfg_file_t *c)
         v = trim(v);
         if (!strcmp(k, "host"))
             snprintf(c->host, sizeof(c->host), "%s", v);
-        else if (!strcmp(k, "port"))
-            c->port = atoi(v);
+        else if (!strcmp(k, "port")) {
+            char *end;
+            long port = strtol(v, &end, 10);
+
+            /* -1: refused later; 0 would be taken for "not set" and become 5000 */
+            c->port = *v && !*end && port >= 1 && port <= 65535 ? (int)port : -1;
+        }
         else if (!strcmp(k, "session"))
             snprintf(c->session, sizeof(c->session), "%s", v);
         else if (!strcmp(k, "ip"))
@@ -215,15 +229,74 @@ static int load_config(const char *path, cfg_file_t *c)
             snprintf(c->socks_password, sizeof(c->socks_password), "%s", v);
     }
     fclose(f);
+    return 0;
+}
+
+static int check_config(const cfg_file_t *c, const char *where)
+{
     if (!c->host[0] || c->port <= 0 || c->port > 65535 || !c->password[0]) {
-        fprintf(stderr, "%s: host, port, session (or id_from) and password are required\n", full);
+        fprintf(stderr, "%s: host, port, session (or id_from) and password are required\n", where);
         return -1;
     }
     if (strcmp(c->auth, "xor") != 0) {
-        fprintf(stderr, "%s: unsupported auth '%s' (only xor)\n", full, c->auth);
+        fprintf(stderr, "%s: unsupported auth '%s' (only xor)\n", where, c->auth);
         return -1;
     }
     return 0;
+}
+
+static int env_any(const ve_t *e)
+{
+    return e->host[0] || e->port[0] || e->session[0] || e->id_from[0] || e->password[0] ||
+           e->ip[0] || e->gw[0];
+}
+
+/* The U-Boot variables override the file (#64), each one by itself. */
+static void apply_env(cfg_file_t *c, const ve_t *e)
+{
+    char names[160] = "";
+    size_t i;
+
+    for (i = 0; i < ve_nvars; i++) {
+        const char *key = ve_vars[i].key, *v = NULL;
+        char *dst = NULL;
+        size_t size = 0;
+
+        if (!strcmp(key, "host"))
+            v = e->host, dst = c->host, size = sizeof(c->host);
+        else if (!strcmp(key, "port"))
+            v = e->port;
+        else if (!strcmp(key, "session"))
+            v = e->session, dst = c->session, size = sizeof(c->session);
+        else if (!strcmp(key, "id_from"))
+            v = e->id_from, dst = c->id_from, size = sizeof(c->id_from);
+        else if (!strcmp(key, "password"))
+            v = e->password, dst = c->password, size = sizeof(c->password);
+        else if (!strcmp(key, "ip"))
+            v = e->ip, dst = c->ip, size = sizeof(c->ip);
+        else if (!strcmp(key, "gw"))
+            v = e->gw, dst = c->gw, size = sizeof(c->gw);
+        if (!v || !v[0])
+            continue;
+        if (dst)
+            snprintf(dst, size, "%s", v);
+        else {
+            char *end;
+            long port = strtol(v, &end, 10);
+
+            /* -1: check_config() refuses it, a typo must not become port 5000 */
+            c->port = *end || port < 1 || port > 65535 ? -1 : (int)port;
+            if (c->port < 0)
+                fprintf(stderr, "vtesse_port: expected 1..65535, got '%s'\n", v);
+        }
+        /* session and id_from exclude each other: the variable replaces the file's */
+        if (!strcmp(key, "session"))
+            c->id_from[0] = '\0';
+        else if (!strcmp(key, "id_from"))
+            c->session[0] = '\0';
+        snprintf(names + strlen(names), sizeof(names) - strlen(names), " %s", ve_vars[i].name);
+    }
+    printf("settings from the U-Boot environment:%s\n", names);
 }
 
 static int parse_ip4(const char *s, uint32_t *out)
@@ -240,15 +313,17 @@ static int parse_ip4(const char *s, uint32_t *out)
 static int parse_prefix(const char *s, uint32_t *addr, uint32_t *mask)
 {
     char buf[32];
-    const char *slash = strchr(s, '/');
-    int p;
+    const char *slash = strchr(s, '/'), *d;
+    int p = 0;
 
     if (!slash || (size_t)(slash - s) >= sizeof(buf))
         return -1;
     memcpy(buf, s, (size_t)(slash - s));
     buf[slash - s] = '\0';
-    p = atoi(slash + 1);
-    if (p < 0 || p > 32 || parse_ip4(buf, addr) < 0)
+    /* digits only: "/garbage" must not become /0 */
+    for (d = slash + 1; *d >= '0' && *d <= '9' && p <= 32; d++)
+        p = p * 10 + (*d - '0');
+    if (d == slash + 1 || *d || p > 32 || parse_ip4(buf, addr) < 0)
         return -1;
     *mask = p ? 0xffffffffu << (32 - p) : 0;
     return 0;
@@ -662,6 +737,8 @@ static void on_tap_event(void *user, int ev, int tev, int err)
 int main(int argc, char **argv)
 {
     const char *config = DEFAULT_CONFIG, *id_from = NULL, *ip_arg = NULL, *gw_arg = NULL;
+    int no_env = 0, show_config = 0, env_mode = 0, derived_password = 0;
+    ve_t env;
     uint32_t st_addr = 0, st_mask = 0, st_gw = 0;
     nc_routes_t st_routes;
     double seconds = 0;
@@ -705,6 +782,10 @@ int main(int argc, char **argv)
         }
         else if (!strcmp(argv[i], "-v"))
             verbose = 1;
+        else if (!strcmp(argv[i], "--no-env"))
+            no_env = 1;
+        else if (!strcmp(argv[i], "--show-config"))
+            show_config = 1;
         else if (!strcmp(argv[i], "--id-from") && i + 1 < argc)
             id_from = argv[++i];
         else if (!strcmp(argv[i], "--version")) {
@@ -792,8 +873,45 @@ int main(int argc, char **argv)
         fprintf(stderr, "built without any backend\n");
         return 2;
     }
-    if (load_config(config, &c) < 0)
+    if (!no_env)
+        env_mode = ve_load(&env);
+    rc = load_config(config, &c, !env_mode);
+    if (rc < 0)
         return 2;
+    /* every vtesse_* variable overrides its key; only "vtesse" (the server) also
+     * allows a missing file and brings the VTun defaults */
+    /* which one is meant cannot be told: the other one may be stale */
+    if (!no_env && env.session[0] && env.id_from[0]) {
+        fprintf(stderr, "vtesse_session and vtesse_id_from are both set in the U-Boot environment: "
+                        "clear one (fw_setenv vtesse_id_from)\n");
+        return 2;
+    }
+    if (!no_env && env_any(&env))
+        apply_env(&c, &env);
+    if (env_mode) {
+        /* only the server given: the VTun defaults of OpenIPC's tunnel */
+        if (!c.port)
+            c.port = 5000;
+        /* at boot the uplink (wlan0 with a background udhcpc) may get its default
+         * route after the service starts: the MAC must be the uplink's, not eth0's */
+        if (!show_config && (!c.password[0] || (!c.session[0] && !c.id_from[0] && !id_from))) {
+            int waited;
+
+            /* any default route ends the wait: through PPPoE or tun (no MAC) eth0 is
+             * taken at once */
+            for (waited = 0; waited < ENV_ROUTE_WAIT && !ve_has_default_route(); waited++) {
+                if (!waited)
+                    printf("waiting up to %d s for a default route (the MAC for the VTun defaults)\n",
+                           ENV_ROUTE_WAIT);
+                sleep(1);
+            }
+        }
+        if (!c.session[0] && !c.id_from[0] && !id_from &&
+            ve_default_iface(c.id_from, sizeof(c.id_from)) < 0) {
+            fprintf(stderr, "no interface with a MAC for the device ID: set vtesse_session or vtesse_id_from\n");
+            return 2;
+        }
+    }
     if (c.udp_relay_count && !(VTESSE_WITH_LWIP && VTESSE_WITH_UDP_RELAY)) {
         fprintf(stderr, "%s: udp_relay: built without the UDP relay\n", config);
         return 2;
@@ -816,6 +934,22 @@ int main(int argc, char **argv)
         fprintf(stderr, "%s: session or id_from is required\n", config);
         return 2;
     }
+    if (env_mode && !c.password[0]) {
+        char mac_str[18], pw_if[32];
+
+        /* the default-route interface, as OpenIPC's tunnel does, whatever the session */
+        if (ve_default_iface(pw_if, sizeof(pw_if)) < 0)
+            pw_if[0] = '\0';
+        if (!pw_if[0] || ve_iface_mac(pw_if, mac_str) < 0) {
+            fprintf(stderr, "no interface with a MAC for the password: set vtesse_password\n");
+            return 2;
+        }
+        ve_vtun_password(mac_str, c.password);
+        derived_password = 1;
+        printf("password: SHA-1 of the MAC of %s, as VTun on OpenIPC\n", pw_if);
+    }
+    if (check_config(&c, env_mode ? "U-Boot environment and config" : config) < 0)
+        return 2;
     /* manual IPv4: command line overrides the file */
     if (ip_arg)
         snprintf(c.ip, sizeof(c.ip), "%s", ip_arg);
@@ -847,6 +981,34 @@ int main(int argc, char **argv)
         nc_routes_add(&st_routes, net, (uint8_t)p, st_gw);
     }
 
+    if (show_config && !vt_session_name_valid(c.session)) {
+        fprintf(stderr, "session '%s': no spaces, colons or control characters\n", c.session);
+        return 2;
+    }
+#if VTESSE_WITH_LWIP
+    /* the same check as at start, without creating the relays */
+    for (i = 0; show_config && i < c.udp_relay_count; i++) {
+        uint16_t port, local;
+
+        if (nrelays + i >= NC_UDP_RELAY_MAX || nc_udp_relay_parse(c.udp_relay[i], &port, &local) < 0) {
+            fprintf(stderr, "%s: udp_relay: expected PORT[:LOCAL_PORT] (max %d)\n", config, NC_UDP_RELAY_MAX);
+            return 2;
+        }
+    }
+#endif
+    if (show_config) {
+        printf("host %s\nport %d\nsession %s\npassword %s\n", c.host, c.port, c.session,
+               derived_password ? c.password : "(set)");
+        if (c.ip[0])
+            printf("ip %s%s%s\n", c.ip, c.gw[0] ? " gw " : "", c.gw);
+        for (i = 0; i < c.route_count; i++)
+            printf("route %s\n", c.route[i]);
+        for (i = 0; i < c.udp_relay_count; i++)
+            printf("udp_relay %s\n", c.udp_relay[i]);
+        if (c.socks_user[0])
+            printf("socks_user %s\nsocks_password (set)\n", c.socks_user);
+        return 0;
+    }
     if (nc_devid_to_mac(c.session, mac) < 0) {
         /* not a device ID: still usable as a session name, MAC is derived */
         uint8_t h = 0;

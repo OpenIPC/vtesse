@@ -6,6 +6,7 @@
 # Installed by "vtesse --install". Runs the TAP backend with the built-in hook
 # scripts, or with the copies in /usr/libexec/vtesse when they exist
 # ("vtesse --install --scripts"). Settings can be overridden in /etc/default/vtesse.
+# The U-Boot variables vtesse (the server) and vtesse_* override the config.
 
 DAEMON=/usr/bin/vtesse
 CONFIG=/etc/vtesse.conf
@@ -17,8 +18,14 @@ ARGS="--tap --ifname vtesse0"
 NAME=$(basename "$DAEMON")
 
 start() {
-    if [ ! -f "$CONFIG" ]; then
-        echo "vtesse: $CONFIG not found, not starting"
+    # helpdesk access (#64): "fw_setenv vtesse <server>" is enough, without a config;
+    # not with --no-env in ARGS, the client then ignores the environment
+    case " $ARGS " in
+        *" --no-env "*) server= ;;
+        *) server=$(fw_printenv -n vtesse 2>/dev/null) ;;
+    esac
+    if [ ! -f "$CONFIG" ] && [ -z "$server" ]; then
+        echo "vtesse: neither $CONFIG nor vtesse in the U-Boot environment, not starting"
         return 1
     fi
     [ -e /dev/net/tun ] || modprobe tun 2>/dev/null

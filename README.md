@@ -82,6 +82,8 @@ curl -fsSL -o /tmp/vtesse https://github.com/OpenIPC/vtesse/releases/latest/down
 - `--scripts` also writes the hook scripts to `/usr/libexec/vtesse` to be edited; `--no-start` installs without starting. All options: [Installation](docs/usage.md#installation).
 - OpenWrt needs the `tun` driver for the TAP backend: `opkg update && opkg install kmod-tun` (`apk add kmod-tun` on OpenWrt 25+).
 
+**Helpdesk access** on an OpenIPC camera with vtesse installed: `fw_setenv vtesse vtun.example.org` and a reboot are enough, as with `fw_setenv vtun` for VTun. With only the server set, the port is 5000, the session is the MAC of the default interface and the password is derived from it the way OpenIPC's VTun client does; `vtesse_port`, `vtesse_password` and other variables override that ([U-Boot environment](docs/usage.md#u-boot-environment-helpdesk-access)). `fw_setenv vtesse` turns it off. Anyone with root or a flash dump can read these variables, `vtesse_password` included, and the derived password is no secret (the MAC is visible on the LAN): this mode is for helpdesk access and is no stronger than VTun on OpenIPC ([security](docs/security.md)).
+
 Service control: `/etc/init.d/S99vtesse start|stop|restart|status` on OpenIPC (overrides in `/etc/default/vtesse`), `/etc/init.d/vtesse start|stop` on OpenWrt, `systemctl status vtesse` on a PC.
 
 ### Keenetic router (research, [#32](https://github.com/OpenIPC/vtesse/issues/32))

@@ -35,6 +35,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "env.h"
 #include "install.h"
 #include "netcore/route.h"
 #include "vtesse/vtun_proto.h"
@@ -433,46 +434,6 @@ typedef struct kv {
 
 #define MAX_KEYS 8
 
-/* The interface of the default route (/proc/net/route), as the OpenIPC VTun
- * client picks it; eth0 if there is none. */
-/* 1 when the interface has a MAC the client accepts as the device ID (the same
- * parser as id_from at runtime): PPPoE, WireGuard and tun have none */
-static int has_mac(const char *ifname)
-{
-    char path[96], line[64], id[13];
-    FILE *f;
-    int ok;
-
-    snprintf(path, sizeof(path), "/sys/class/net/%s/address", ifname);
-    f = fopen(path, "r");
-    if (!f)
-        return 0;
-    ok = fgets(line, sizeof(line), f) && nc_devid_from_mac_str(line, id) == 0;
-    fclose(f);
-    return ok;
-}
-
-/* The interface of the default route (/proc/net/route), as the OpenIPC VTun client
- * picks it, if it has a MAC; else eth0 if that has one. -1: none of them. */
-static int default_iface(char *out, size_t size)
-{
-    FILE *f = fopen("/proc/net/route", "r");
-    char line[256], ifname[64];
-    unsigned long dst;
-
-    if (f) {
-        while (fgets(line, sizeof(line), f))
-            if (sscanf(line, "%63s %lx", ifname, &dst) == 2 && dst == 0 && has_mac(ifname)) {
-                snprintf(out, size, "%s", ifname);
-                fclose(f);
-                return 0;
-            }
-        fclose(f);
-    }
-    snprintf(out, size, "eth0");
-    return has_mac(out) ? 0 : -1;
-}
-
 /* The key of a "key=value" line of len bytes, or 0 for a comment, a blank line and
  * anything else. */
 static int key_of(const char *line, size_t len, char *key, size_t size)
@@ -550,8 +511,11 @@ static int out_kv(outbuf_t *o, const char *key, const char *val)
 }
 
 /* Builds the new /etc/vtesse.conf in out (CONF_MAX + 1 bytes) from the existing text
- * (or NULL) and the given keys. Returns 0, or -1 with the reason printed. */
-static int build_config(const char *old, kv_t *set, int n, char *out)
+ * (or NULL) and the given keys. env: the U-Boot environment when it holds the server
+ * (#64), else NULL; the client then takes the server, the defaults and the derived
+ * password from there, so the file needs none of them and gets no defaults.
+ * Returns 0, or -1 with the reason printed. */
+static int build_config(const char *old, kv_t *set, int n, char *out, const ve_t *env)
 {
     static char iface[64];
     int has_host = 0, has_port = 0, bad_port = 0, has_pass = 0, has_session = 0, has_idfrom = 0, has_ip = 0,
@@ -627,7 +591,9 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
         }
         p = e + 1;
     }
-    if (!has_host || !has_pass) {
+    if (env && env->ip[0])
+        has_ip = 1;
+    if (!env && (!has_host || !has_pass)) {
         fprintf(stderr,
                 "vtesse: %s%s needs at least the server and the password:\n"
                 "  vtesse --install --host SERVER --password PASSWORD\n"
@@ -636,11 +602,13 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
                 root, CONF_PATH);
         return -1;
     }
-    if (bad_port) {
+    /* a valid vtesse_port overrides the file's port at runtime */
+    if (bad_port && !(env && env->port[0])) {
         fprintf(stderr, "vtesse: %s%s: port must be 1..65535: give --port\n", root, CONF_PATH);
         return -1;
     }
-    if (has_session && has_idfrom) {
+    /* vtesse_session or vtesse_id_from replaces both keys at runtime */
+    if (has_session && has_idfrom && !(env && (env->session[0] || env->id_from[0]))) {
         fprintf(stderr, "vtesse: %s%s has both session and id_from: give --session or --id-from\n", root, CONF_PATH);
         return -1;
     }
@@ -648,6 +616,8 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
         fprintf(stderr, "vtesse: gw and route need ip (--ip A.B.C.D/P)\n");
         return -1;
     }
+    if (env)
+        return 0;
     if (!has_port && out_kv(&o, "port", "5000") < 0)
         return -1;
     if (!has_session && !has_idfrom) {
@@ -656,7 +626,7 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
             fprintf(stderr, "vtesse: with --root, give --session ID or --id-from IFACE\n");
             return -1;
         }
-        if (default_iface(iface, sizeof(iface)) < 0) {
+        if (ve_default_iface(iface, sizeof(iface)) < 0) {
             fprintf(stderr, "vtesse: no interface with a MAC for the device ID (the default route goes\n"
                             "  through PPPoE, WireGuard or tun?): give --session ID or --id-from IFACE\n");
             return -1;
@@ -664,6 +634,57 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
         if (out_kv(&o, "id_from", iface) < 0)
             return -1;
     }
+    return 0;
+}
+
+/* The value of a configuration key in the U-Boot environment ("" when unset) */
+static const char *env_value(const ve_t *e, const char *key)
+{
+    return !strcmp(key, "host") ? e->host : !strcmp(key, "port") ? e->port :
+           !strcmp(key, "session") ? e->session : !strcmp(key, "id_from") ? e->id_from :
+           !strcmp(key, "password") ? e->password : !strcmp(key, "ip") ? e->ip :
+           !strcmp(key, "gw") ? e->gw : "";
+}
+
+/* Without fw_setenv the given keys go only to the file, and a set vtesse_* variable
+ * overrides its key there at runtime (#64): such a key is refused, nothing could
+ * change it. Returns 0, or -1 with the reason printed. */
+static int env_conflict(const ve_t *e, kv_t *set, int n)
+{
+    size_t v;
+    int i;
+
+    for (i = 0; i < n; i++)
+        for (v = 0; v < ve_nvars; v++) {
+            const char *key = ve_vars[v].key, *var = ve_vars[v].name;
+
+            if (strcmp(key, set[i].key) != 0)
+                continue;
+            /* session and id_from: either variable replaces both keys at runtime */
+            if (!strcmp(key, "session") || !strcmp(key, "id_from")) {
+                if (!e->session[0] && !e->id_from[0])
+                    continue;
+                var = e->session[0] ? "vtesse_session" : "vtesse_id_from";
+            } else if (!env_value(e, key)[0])
+                continue;
+            fprintf(stderr, "vtesse: %s is set in the U-Boot environment and overrides --%s,\n"
+                            "  and there is no fw_setenv to change it\n",
+                    var, !strcmp(key, "id_from") ? "id-from" : key);
+            return -1;
+        }
+    return 0;
+}
+
+/* Appends "NAME VALUE\n" (or "NAME\n", which deletes it, for a NULL value) to the
+ * fw_setenv -s script; -1 when it would not fit */
+static int script_add(char *buf, size_t size, size_t *len, const char *name, const char *value)
+{
+    int r = value ? snprintf(buf + *len, size - *len, "%s %s\n", name, value)
+                  : snprintf(buf + *len, size - *len, "%s\n", name);
+
+    if (r < 0 || (size_t)r >= size - *len)
+        return -1;
+    *len += (size_t)r;
     return 0;
 }
 
@@ -881,17 +902,26 @@ static int have_udhcpc(void)
 
 static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
 {
+    char env_host[256] = "";
+    ve_t env;
     const layout_t *l = &layouts[sys];
     static char conf[CONF_MAX + 1];
     int moved[sizeof(hook_scripts) / sizeof(hook_scripts[0])];
     size_t len;
     char *old;
+    int env_write;
 
     if (!VTESSE_WITH_TAP) {
         fprintf(stderr, "vtesse: --install needs the TAP backend (this binary is built with TAP=0)\n");
         return 1;
     }
     printf("system: %s%s\n", l->name, root[0] ? " (below --root)" : "");
+    /* this device's environment: under --root it says nothing about the image */
+    memset(&env, 0, sizeof(env));
+    if (!root[0] && ve_load(&env))
+        snprintf(env_host, sizeof(env_host), "%s", env.host);
+    /* fw_setenv alone is not enough: u-boot-tools on a PC without fw_env.config */
+    env_write = !root[0] && env.ok && ve_can_write();
 
     /* the configuration first: nothing is written when it is incomplete */
     old = read_file(rp(CONF_PATH), &len);
@@ -899,7 +929,21 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         fprintf(stderr, "vtesse: cannot read %s: %s\n", rp(CONF_PATH), strerror(errno));
         return 1;
     }
-    if (build_config(old, set, n, conf) < 0) {
+    /* the server is in the U-Boot environment and there is no file: given keys go
+     * there too (below), so no file is needed */
+    if (!old && env_host[0] && (n == 0 || env_write)) {
+        const kv_t *gw = find(set, n, "gw"), *ip = find(set, n, "ip");
+
+        /* the same rule as for a file: a gateway needs an address */
+        if (gw && !ip && !env.ip[0]) {
+            fprintf(stderr, "vtesse: --gw needs --ip (or vtesse_ip)\n");
+            free(old);
+            return 1;
+        }
+        /* helpdesk set-up (#64): the settings come from the U-Boot environment */
+        conf[0] = '\0';
+    } else if ((n && !env_write && env_conflict(&env, set, n) < 0) ||
+               build_config(old, set, n, conf, env_host[0] ? &env : NULL) < 0) {
         free(old);
         return 1;
     }
@@ -908,12 +952,21 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         free(old);
         return 1;
     }
-    if (!old || strcmp(old, conf) != 0) {
+    if (!conf[0]) {
+        const kv_t *host = find(set, n, "host");
+
+        /* a given server replaces the variable below */
+        printf("no %s: the settings come from the U-Boot environment (vtesse=%s)\n", rp(CONF_PATH),
+               host ? host->val : env_host);
+    } else if (!old || strcmp(old, conf) != 0) {
         if (write_file(rp(CONF_PATH), conf, strlen(conf), 0600) < 0) {
             free(old);
             return 1;
         }
         printf("%s %s\n", old ? "updated" : "wrote", rp(CONF_PATH));
+        if (env_host[0] && n && !env_write)
+            printf("no fw_setenv: the given keys are kept in %s, the server comes from the U-Boot "
+                   "environment (vtesse=%s)\n", rp(CONF_PATH), env_host);
     } else if (is_link(rp(CONF_PATH))) {
         /* a symlink, maybe to a file someone else owns: replaced by our own file */
         if (write_file(rp(CONF_PATH), conf, strlen(conf), 0600) < 0) {
@@ -934,6 +987,40 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
 
     if (write_script(rp(l->init), l->init_src, l->init_mode) < 0)
         return 1;
+    /* the given keys also go to the U-Boot environment, when the device has one (#64) */
+    if (n && env_write) {
+        /* one batch through stdin: the password stays out of the process list, and
+         * the variables are written together or not at all */
+        static char script[CONF_MAX];
+        size_t v, slen = 0;
+        int k;
+
+        for (k = 0; k < n; k++)
+            for (v = 0; v < ve_nvars; v++) {
+                const char *other = !strcmp(set[k].key, "session") ? "vtesse_id_from" :
+                                    !strcmp(set[k].key, "id_from") ? "vtesse_session" : NULL;
+
+                if (strcmp(ve_vars[v].key, set[k].key) != 0)
+                    continue;
+                /* the other identity variable would override the new one at runtime */
+                if (script_add(script, sizeof(script), &slen, ve_vars[v].name, set[k].val) < 0 ||
+                    (other && script_add(script, sizeof(script), &slen, other, NULL) < 0)) {
+                    fprintf(stderr, "vtesse: the settings are too long for the U-Boot environment\n");
+                    return 1;
+                }
+            }
+        if (slen) {
+            if (ve_set_script(script) != 0) {
+                fprintf(stderr, "vtesse: fw_setenv failed: nothing changed in the U-Boot environment, "
+                                "the service is not started\n");
+                return 1;
+            }
+            for (k = 0; k < n; k++)
+                for (v = 0; v < ve_nvars; v++)
+                    if (!strcmp(ve_vars[v].key, set[k].key))
+                        printf("U-Boot environment: %s set\n", ve_vars[v].name);
+        }
+    }
     if (sys == SYS_OPENWRT) {
         const char *keep = "/usr/bin/vtesse\n/usr/libexec/vtesse/\n/etc/init.d/vtesse\n"
                            OPENWRT_RC "\n" CONF_PATH "\n" OPENWRT_KEEP "\n";
@@ -1087,6 +1174,12 @@ static int do_uninstall(sys_t sys)
         const char *reload[] = { "systemctl", "daemon-reload", NULL };
         run(reload);
     }
+    {
+        ve_t env;
+
+        if (!root[0] && ve_load(&env))
+            printf("the U-Boot environment keeps vtesse=%s (fw_setenv vtesse to clear it)\n", env.host);
+    }
     printf(rc ? "vtesse: uninstalled with errors\n" : "vtesse is uninstalled\n");
     return rc;
 }
@@ -1117,6 +1210,13 @@ static int check_value(const char *key, const char *v)
         fprintf(stderr, "vtesse: the %s value must not start or end with a space\n", key);
         return -1;
     }
+    /* control characters: a newline is refused with the arguments already, the rest
+     * (\r, escapes) has no place in the file or in the fw_setenv script either */
+    for (i = 0; i < len; i++)
+        if ((unsigned char)v[i] < 0x20 || v[i] == 0x7f) {
+            fprintf(stderr, "vtesse: the %s value must not contain control characters\n", key);
+            return -1;
+        }
     for (i = 0; i < sizeof(limits) / sizeof(limits[0]); i++)
         if (!strcmp(limits[i].key, key) && len > limits[i].max) {
             fprintf(stderr, "vtesse: the %s value is longer than %u characters\n", key, (unsigned)limits[i].max);

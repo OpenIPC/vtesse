@@ -82,6 +82,8 @@ curl -fsSL -o /tmp/vtesse https://github.com/OpenIPC/vtesse/releases/latest/down
 - `--scripts` 另外把钩子脚本写到 `/usr/libexec/vtesse` 以便修改；`--no-start` 只安装不启动。全部选项：[Installation](docs/usage.md#installation)。
 - OpenWrt 上 TAP 后端需要 `tun` 驱动：`opkg update && opkg install kmod-tun`（OpenWrt 25+ 上为 `apk add kmod-tun`）。
 
+**技术支持远程访问**：在已安装 vtesse 的 OpenIPC 摄像机上，只需 `fw_setenv vtesse vtun.example.org` 并重启，与 VTun 的 `fw_setenv vtun` 相同。只设置服务器时，端口为 5000，会话为默认接口的 MAC，密码按 OpenIPC 的 VTun 客户端的方式由 MAC 生成；`vtesse_port`、`vtesse_password` 等变量可覆盖这些值（[U-Boot environment](docs/usage.md#u-boot-environment-helpdesk-access)）。`fw_setenv vtesse` 关闭访问。拥有 root 权限或闪存转储的人都能读取这些变量（包括 `vtesse_password`），由 MAC 生成的密码也不是秘密（MAC 在局域网中可见）：此模式仅用于技术支持访问，安全性不高于 OpenIPC 上的 VTun（[security](docs/security.md)）。
+
 服务管理：OpenIPC 上 `/etc/init.d/S99vtesse start|stop|restart|status`（可在 `/etc/default/vtesse` 中覆盖设置），OpenWrt 上 `/etc/init.d/vtesse start|stop`，PC 上 `systemctl status vtesse`。
 
 ### Keenetic 路由器（调研，[#32](https://github.com/OpenIPC/vtesse/issues/32)）

@@ -73,12 +73,12 @@ VTUN_OBJ    := $(VTUN_SRC:%.c=$(BUILD)/%.o)
 SCRIPTS    := scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse \
               scripts/vtesse.init scripts/vtesse.service
 SCRIPTS_H  := $(BUILD)/gen/vtesse_scripts.h
-CLI_OBJ    := $(BUILD)/cli/vtesse_cli.o $(BUILD)/cli/install.o
+CLI_OBJ    := $(BUILD)/cli/vtesse_cli.o $(BUILD)/cli/install.o $(BUILD)/cli/env.o
 
 LIBNETCORE := $(BUILD)/libnetcore.a
 LIBVTESSE  := $(BUILD)/libvtesse.a
 CLI        := $(BUILD)/vtesse-cli
-TESTS      := $(BUILD)/test_proto $(BUILD)/test_client $(BUILD)/test_route
+TESTS      := $(BUILD)/test_proto $(BUILD)/test_client $(BUILD)/test_route $(BUILD)/test_env
 
 .PHONY: all test tests clean
 
@@ -107,6 +107,9 @@ $(BUILD)/cli/install.o: BASE_CFLAGS += -I$(BUILD)/gen
 
 $(CLI): $(CLI_OBJ) $(LIBVTESSE) $(LIBNETCORE)
 	$(CC) $(BASE_LDFLAGS) $(LDFLAGS) -o $@ $^
+
+# the U-Boot environment and SHA-1 of the CLI (#64)
+$(BUILD)/test_env: $(BUILD)/cli/env.o
 
 $(BUILD)/test_%: $(BUILD)/tests/test_%.o $(LIBVTESSE) $(LIBNETCORE)
 	$(CC) $(BASE_LDFLAGS) $(LDFLAGS) -o $@ $^

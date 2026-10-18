@@ -28,6 +28,9 @@ printf 'NAME=Buildroot\nOPENIPC_VERSION=2.6.10.11\n' > "$R/etc/os-release"
 "$CLI" --install --root "$R" >"$T/log" 2>&1; rc=$?
 check "no config and no keys: refused" '[ $rc -ne 0 ] && grep -q "needs at least the server" "$T/log"'
 check "nothing written when refused" '[ ! -e "$R/usr/bin/vtesse" ] && [ ! -e "$R/etc/vtesse.conf" ]'
+"$CLI" --install --root "$R" --host vtun.example.org --password "$(printf 'p\033q')" --session 02AB34CD56EF \
+    >"$T/log" 2>&1; rc=$?
+check "a value with a control character: refused" '[ $rc -ne 0 ] && grep -q "control characters" "$T/log" && [ ! -e "$R/etc/vtesse.conf" ]'
 
 "$CLI" --install --root "$R" --host vtun.example.org --password secret --session 02AB34CD56EF >"$T/log" 2>&1
 rc=$?
@@ -179,6 +182,99 @@ printf '#!/bin/sh\necho "ip $*" >> "%s/ip.log"\n' "$T" > "$T/bin/ip"
 chmod 755 "$T/bin/ip"
 PATH=$T/bin:$PATH VTESSE_RUN=udhcpc-script interface=vt0 "$CLI" deconfig
 check "built-in udhcpc script runs (deconfig flushes the address)" 'grep -q "ip -4 addr flush dev vt0" "$T/ip.log"'
+
+# ---- U-Boot environment (#64): fake fw_printenv / fw_setenv in PATH
+mkdir -p "$T/env"
+cat > "$T/env/fw_printenv" <<EOS
+#!/bin/sh
+cat "$T/env/vars" 2>/dev/null
+exit "\$(cat "$T/env/rc" 2>/dev/null || echo 0)"
+EOS
+printf '#!/bin/sh\necho "\$*" >> "%s/env/setenv.log"\n' "$T" > "$T/env/fw_setenv"
+chmod 755 "$T/env/fw_printenv" "$T/env/fw_setenv"
+EP=$T/env:$PATH
+iface=$(awk '$2 == "00000000" { print $1; exit }' /proc/net/route 2>/dev/null)
+if [ -n "$iface" ] && [ -r "/sys/class/net/$iface/address" ]; then
+    mac=$(tr a-f A-F < "/sys/class/net/$iface/address")
+    id=$(echo "$mac" | tr -d :)
+    pw=$(echo "$mac" | sha1sum | cut -d" " -f1)
+    echo "vtesse=vtun.helpdesk" > "$T/env/vars"
+    PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1
+    check "env: only the server -> port 5000, session = MAC of $iface, password as VTun" \
+        'grep -qx "host vtun.helpdesk" "$T/log" && grep -qx "port 5000" "$T/log" &&
+         grep -qx "session $id" "$T/log" && grep -qx "password $pw" "$T/log"'
+    printf 'vtesse=vtun.helpdesk\nvtesse_session=02AB34CD56EF\n' > "$T/env/vars"
+    PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1
+    check "env: an explicit session still gets the MAC-derived password" \
+        'grep -qx "session 02AB34CD56EF" "$T/log" && grep -qx "password $pw" "$T/log"'
+else
+    echo "SKIP  env defaults: no default route"
+fi
+printf 'vtesse=vtun.helpdesk\nvtesse_port=60x0\nvtesse_password=p\nvtesse_session=02AB34CD56EF\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "a mistyped vtesse_port is refused, not turned into 5000" '[ $rc -ne 0 ] && grep -q "vtesse_port: expected" "$T/log"'
+printf 'host=file.example\nport=6000\nsession=02AB34CD56EF\npassword=filepw\n' > "$T/f.conf"
+printf 'vtesse=env.example\nvtesse_port=7000\nbootargs=x\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
+check "env overrides the file key by key" \
+    'grep -qx "host env.example" "$T/log" && grep -qx "port 7000" "$T/log" &&
+     grep -qx "session 02AB34CD56EF" "$T/log" && grep -qx "password (set)" "$T/log"'
+printf 'route=10.78.0.0/24\nip=10.76.0.2/32\nudp_relay=1559\n' >> "$T/f.conf"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
+check "--show-config lists routes and UDP relays" 'grep -qx "route 10.78.0.0/24" "$T/log" && grep -qx "udp_relay 1559" "$T/log"'
+printf 'port=abc\n' >> "$T/f.conf"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1; rc=$?
+printf 'vtesse=env.example\nvtesse_port=7000\n' > "$T/env/vars"
+check "a port=abc in the file is not taken for 5000 (the variable wins here)" '[ $rc -eq 0 ] && grep -qx "port 7000" "$T/log"'
+echo vtesse=env.example > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "a port=abc in the file with only vtesse set: refused" '[ $rc -ne 0 ]'
+sed -i '/^port=abc$/d' "$T/f.conf"
+printf 'vtesse=env.example\nvtesse_port=7000\nbootargs=x\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config --no-env >"$T/log" 2>&1
+check "--no-env: the file only" 'grep -qx "host file.example" "$T/log" && grep -qx "port 6000" "$T/log"'
+printf 'vtesse_port=7100\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
+check "vtesse_port alone (no vtesse) still overrides the file's port" 'grep -qx "host file.example" "$T/log" && grep -qx "port 7100" "$T/log"'
+printf 'vtesse=h\nvtesse_session=AB CD\nvtesse_password=p\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "--show-config refuses a session the client would refuse" '[ $rc -eq 2 ]'
+printf 'vtesse=h\nvtesse_session=02AB34CD56EF\nvtesse_id_from=eth9\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "vtesse_session and vtesse_id_from both set: refused, not picked by order" \
+    '[ $rc -eq 2 ] && grep -q "both set" "$T/log"'
+printf 'vtesse=h\nvtesse_session=02AB34CD56EF\nvtesse_password=p\nvtesse_ip=10.0.0.2/garbage\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "vtesse_ip with a malformed prefix: refused, not taken for /0" '[ $rc -eq 2 ]'
+printf 'host=file.example\nport=6000\nsession=02AB34CD56EF\npassword=filepw\nudp_relay=not-a-port\n' > "$T/r.conf"
+echo vtesse=env.example > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/r.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "--show-config refuses a udp_relay the client would refuse" '[ $rc -eq 2 ] && grep -q "udp_relay: expected" "$T/log"'
+printf 'vtesse=env.example\nvtesse_port=7000\n' > "$T/env/vars"
+echo 1 > "$T/env/rc"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
+check "a failed fw_printenv: nothing it printed is used, and it is said" \
+    'grep -q "fw_printenv failed" "$T/log" && grep -qx "host file.example" "$T/log" && grep -qx "port 6000" "$T/log"'
+: > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
+check "a failed fw_printenv without vtesse variables: silent" '! grep -q "fw_printenv failed" "$T/log"'
+rm -f "$T/env/rc"
+rm -f "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "no file and no vtesse variable: refused" '[ $rc -ne 0 ] && grep -q "cannot open" "$T/log"'
+
+R=$T/envinst
+mkdir -p "$R/etc"
+printf 'NAME=Buildroot\nOPENIPC_VERSION=2.6\n' > "$R/etc/os-release"
+echo "vtesse=vtun.helpdesk" > "$T/env/vars"
+PATH=$EP "$CLI" --install --root "$R" >"$T/log" 2>&1; rc=$?
+check "--root: this machine's environment does not stand in for the image's config" \
+    '[ $rc -ne 0 ] && [ ! -e "$R/usr/bin/vtesse" ] && grep -q "needs at least the server" "$T/log"'
+PATH=$EP "$CLI" --install --root "$R" --host h --password p >/dev/null 2>&1
+check "--root: fw_setenv is not called" '[ ! -e "$T/env/setenv.log" ]'
+PATH=$EP "$CLI" --uninstall --root "$R" >"$T/log" 2>&1
+check "uninstall --root: no fw_setenv, and this machine's variables are not reported" \
+    '! grep -q "keeps vtesse" "$T/log" && [ ! -e "$T/env/setenv.log" ]'
 
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]
