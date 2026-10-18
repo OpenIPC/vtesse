@@ -185,10 +185,11 @@ vtesse --uninstall
    writes them to the libexec directory, where the binary finds them.
 4. On OpenWrt `sysupgrade` keeps only the changed files under `/etc`: the keep list in
    `/lib/upgrade/keep.d/vtesse` carries the binary and the scripts over.
-5. Hook scripts of 1.13 and older in `/usr/share/vtesse` are moved to the libexec
-   directory, so a hand-edited copy keeps working (`--scripts` does not overwrite a moved
-   file); delete them to use the built-in ones. A `--hook /usr/share/vtesse/...` in
-   `/etc/default/vtesse` is changed to the new path.
+5. Hook scripts of 1.13 and older in `/usr/share/vtesse`: when `/etc/default/vtesse`
+   names that path, they were chosen on purpose and move to the libexec directory, where
+   they stay in use (the path in the file is changed, `--scripts` does not overwrite
+   them); otherwise they were the stock scripts of the old init script and are kept as
+   inactive `*.1.13` copies there, and the built-in scripts take over.
 6. Values are checked against the limits of the service: no spaces around a value, a
    password of up to 127 characters, a session name of up to 42 characters without
    spaces or colons. A kept `/etc/vtesse.conf` is set to mode 600 as well.

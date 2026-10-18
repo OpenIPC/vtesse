@@ -85,8 +85,9 @@ check "OpenWrt: procd init script and its rc.d link" \
 check "OpenWrt: keep list for sysupgrade" \
     'grep -qx /usr/bin/vtesse "$R/lib/upgrade/keep.d/vtesse" && grep -qx /etc/vtesse.conf "$R/lib/upgrade/keep.d/vtesse"'
 check "OpenWrt: id_from as given" 'grep -qx "id_from=eth0" "$R/etc/vtesse.conf"'
-check "1.13 hook scripts moved from /usr/share/vtesse to /usr/libexec/vtesse" \
-    'grep -q "edited by hand" "$R/usr/libexec/vtesse/vtesse-hook.sh" && [ ! -e "$R/usr/share/vtesse" ]'
+check "1.13 hook scripts not named in /etc/default/vtesse: kept as inactive *.1.13 copies" \
+    'grep -q "edited by hand" "$R/usr/libexec/vtesse/vtesse-hook.sh.1.13" &&
+     [ ! -e "$R/usr/libexec/vtesse/vtesse-hook.sh" ] && [ ! -e "$R/usr/share/vtesse" ]'
 check "OpenWrt: the keep list carries the rc.d link" 'grep -qx /etc/rc.d/S99vtesse "$R/lib/upgrade/keep.d/vtesse"'
 "$CLI" --uninstall --root "$R" >/dev/null 2>&1
 
@@ -159,6 +160,9 @@ check "a later empty host= wins, as in the client: refused" '[ $rc -ne 0 ]'
 printf 'host=server\npassword=p\nsession=02AB34CD56EF\nid_from=eth0\n' > "$R/etc/vtesse.conf"
 "$CLI" --install --root "$R" --system systemd >/dev/null 2>&1; rc=$?
 check "both session and id_from in the file: refused" '[ $rc -ne 0 ]'
+printf 'host=server\npassword=p\nsession=02AB34CD56EF\nport=abc\n' > "$R/etc/vtesse.conf"
+"$CLI" --install --root "$R" --system systemd >/dev/null 2>&1; rc=$?
+check "port=abc in the file: refused" '[ $rc -ne 0 ]'
 
 # ---- the built-in udhcpc script: the binary runs it with VTESSE_RUN=udhcpc-script
 mkdir -p "$T/bin"

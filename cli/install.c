@@ -518,7 +518,8 @@ static int out_kv(outbuf_t *o, const char *key, const char *val)
 static int build_config(const char *old, kv_t *set, int n, char *out)
 {
     static char iface[64];
-    int has_host = 0, has_port = 0, has_pass = 0, has_session = 0, has_idfrom = 0, has_ip = 0, has_gw = 0, i;
+    int has_host = 0, has_port = 0, bad_port = 0, has_pass = 0, has_session = 0, has_idfrom = 0, has_ip = 0,
+        has_gw = 0, i;
     outbuf_t o = { out, 0 };
     const char *p = old;
     char key[64];
@@ -561,8 +562,22 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
 
             if (!strcmp(key, "host"))
                 has_host = v;
-            else if (!strcmp(key, "port"))
+            else if (!strcmp(key, "port")) {
+                const char *eq = memchr(p, '=', len);
+                char num[16];
+                size_t k = (size_t)(p + len - (eq + 1));
+                long port;
+                char *end;
+
+                while (k && (eq[1] == ' ' || eq[1] == '\t'))
+                    eq++, k--;
+                snprintf(num, sizeof(num), "%.*s", (int)(k < 15 ? k : 15), eq + 1);
+                port = strtol(num, &end, 10);
+                while (*end == ' ' || *end == '\t' || *end == '\r')
+                    end++;
                 has_port = v;
+                bad_port = v && (end == num || *end || port < 1 || port > 65535);
+            }
             else if (!strcmp(key, "password"))
                 has_pass = v;
             else if (!strcmp(key, "session"))
@@ -583,6 +598,10 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
                 "        [--port 5000] [--session ID | --id-from IFACE] [--ip A.B.C.D/P [--gw A.B.C.D]]\n"
                 "  (--password - reads it from standard input)\n",
                 root, CONF_PATH);
+        return -1;
+    }
+    if (bad_port) {
+        fprintf(stderr, "vtesse: %s%s: port must be 1..65535: give --port\n", root, CONF_PATH);
         return -1;
     }
     if (has_session && has_idfrom) {
@@ -679,13 +698,22 @@ static void migrate_legacy(const layout_t *l, int moved[])
     char path[1100];
     size_t i, len;
     char *def;
+    int named;
+
+    /* Only an /etc/default/vtesse that names the old path chose those scripts on
+     * purpose: they move to libexec and stay in use. Otherwise they were the stock
+     * scripts of the old init script: they are kept as inactive *.1.13 copies and the
+     * built-in ones (with their fixes) take over. */
+    snprintf(path, sizeof(path), "%s", def_path);
+    def = read_file(path, &len);
+    named = def && strstr(def, LEGACY_DIR "/") != NULL;
 
     for (i = 0; i < sizeof(hook_scripts) / sizeof(hook_scripts[0]); i++) {
         char from[1024], to[1024];
 
         moved[i] = 0;
         snprintf(from, sizeof(from), "%s%s/%s", root, LEGACY_DIR, hook_scripts[i]);
-        snprintf(to, sizeof(to), "%s%s/%s", root, l->libexec, hook_scripts[i]);
+        snprintf(to, sizeof(to), "%s%s/%s%s", root, l->libexec, hook_scripts[i], named ? "" : ".1.13");
         if (!exists(from))
             continue;
         if (exists(to)) {
@@ -695,18 +723,19 @@ static void migrate_legacy(const layout_t *l, int moved[])
             continue;
         }
         if (mkdir_p(rp(l->libexec)) == 0 && rename(from, to) == 0) {
-            moved[i] = 1;
-            printf("moved %s to %s (delete it to use the built-in copy)\n", from, to);
+            moved[i] = named;
+            if (named)
+                printf("moved %s to %s, named in /etc/default/vtesse (delete it for the built-in copy)\n", from, to);
+            else
+                printf("kept %s as %s, unused: the built-in copy runs (rename it to use it)\n", from, to);
         } else {
             fprintf(stderr, "vtesse: cannot move %s to %s: %s\n", from, to, strerror(errno));
         }
     }
     rmdir(rp(LEGACY_DIR));
 
-    snprintf(path, sizeof(path), "%s", def_path);
-    def = read_file(path, &len);
     /* only when the scripts are now in libexec: a failed move keeps the old paths */
-    if (def && strstr(def, LEGACY_DIR "/") && !exists(rp(LEGACY_DIR "/vtesse-hook.sh"))) {
+    if (named && !exists(rp(LEGACY_DIR "/vtesse-hook.sh"))) {
         struct stat st;
         mode_t mode = stat(path, &st) == 0 ? st.st_mode & 07777 : 0644;
         static char fixed[CONF_MAX + 1];
@@ -917,6 +946,20 @@ static pid_t service_pid(void)
             pid = 0;
         fclose(f);
     }
+    if (pid > 1) {
+        char path[64], comm[32] = "";
+
+        /* a stale file whose PID now belongs to another program: no service */
+        snprintf(path, sizeof(path), "/proc/%ld/comm", pid);
+        f = fopen(path, "r");
+        if (f) {
+            if (!fgets(comm, sizeof(comm), f))
+                comm[0] = '\0';
+            fclose(f);
+        }
+        if (strcmp(comm, "vtesse\n") != 0)
+            pid = 0;
+    }
     return pid > 1 ? (pid_t)pid : 0;
 }
 
@@ -944,7 +987,8 @@ static int do_uninstall(sys_t sys)
     if (!root[0]) {
         static const char *inits[] = { "/etc/init.d/S99vtesse", "/etc/init.d/vtesse" };
 
-        if (exists(layouts[SYS_SYSTEMD].init)) {
+        /* a unit file left on a system without a running systemd has no service */
+        if (exists(layouts[SYS_SYSTEMD].init) && access("/run/systemd/system", F_OK) == 0) {
             const char *disable[] = { "systemctl", "disable", "--now", "vtesse", NULL };
 
             if (run(disable) != 0) {
@@ -984,6 +1028,9 @@ static int do_uninstall(sys_t sys)
 
         for (j = 0; j < sizeof(hook_scripts) / sizeof(hook_scripts[0]); j++) {
             snprintf(path, sizeof(path), "%s%s/%s", root, all_dirs[i], hook_scripts[j]);
+            if (remove_file(path) < 0)
+                rc = 1;
+            snprintf(path, sizeof(path), "%s%s/%s.1.13", root, all_dirs[i], hook_scripts[j]);
             if (remove_file(path) < 0)
                 rc = 1;
         }
