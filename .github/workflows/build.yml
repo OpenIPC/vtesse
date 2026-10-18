@@ -235,7 +235,7 @@ jobs:
           VER=$(sed -n 's/^#define VTESSE_VERSION "\(.*\)"/\1/p' include/vtesse/version.h)
           if [ -z "$VER" ]; then echo "::error::no VTESSE_VERSION found"; exit 1; fi
           echo "ver=$VER" >> "$GITHUB_OUTPUT"
-          # the APK goes to Telegram only when the version changes (#33)
+          # the build files go to Telegram only when the version changes (#33, #59)
           PREV=$(gh release view latest --json name -q .name 2>/dev/null || true)
           echo "Previous release: ${PREV:-none}"
           [ "$PREV" = "VTesse $VER" ] || echo "new=true" >> "$GITHUB_OUTPUT"
@@ -280,21 +280,34 @@ jobs:
             --target "${GITHUB_SHA}" \
             --notes "VTesse ${VER} (${GITHUB_SHA::7}): static musl builds of vtesse-cli for arm32, mipsel, mips, arm64 and x86_64, the Android app (vtesse-android.apk, Android 5.0+) and the VTun ${VTUN} server with our patches for PCs (vtund-${VTUN}-x86_64). Changes: CHANGELOG.md; installation: README.md."
 
-      # The Telegram channel gets the APK of every new version, as in OpenIPC/decoder (#33).
-      # Organization secrets; a failed upload is reported but does not fail the release.
+      # The build files of every new version go to the OpenIPC Telegram dev channel, for the
+      # archive and test downloads: one post (sendMediaGroup) with the five vtesse-cli builds,
+      # the APK and the VTun server, a short caption on the last file, no text from
+      # CHANGELOG.md (#59). The scripts stay on the release page only. Organization secrets;
+      # a failed upload is a warning, not a failed release.
       - name: Telegram
         if: steps.vars.outputs.new == 'true' && steps.publish.outputs.published == 'true'
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOKEN_BOT_OPENIPC }}
           TG_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL_OPENIPC_DEV }}
           VER: ${{ steps.vars.outputs.ver }}
+          VTUN: ${{ steps.vars.outputs.vtun }}
         run: |
           if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHANNEL" ]; then
-            echo "::warning::Telegram secrets are not available, APK not posted"; exit 0
+            echo "::warning::Telegram secrets are not available, files not posted"; exit 0
           fi
-          CAPTION=$(printf 'VTesse %s for Android\nCommit: %s\nTime: %s\n\n%s' "$VER" "${GITHUB_SHA::7}" \
-            "$(date -u '+%Y-%m-%d %H:%M:%S UTC')" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/latest")
-          HTTP=$(curl -sS -o tg.json -w '%{http_code}' "https://api.telegram.org/bot${TG_TOKEN}/sendDocument" \
-            -F chat_id="$TG_CHANNEL" -F caption="$CAPTION" -F document=@release/vtesse-android.apk) || HTTP=000
+          caption=$(printf 'VTesse %s\nCommit: %s\nTime: %s\n\n%s' "$VER" "${GITHUB_SHA::7}" \
+            "$(date -u '+%Y-%m-%d %H:%M:%S UTC')" "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/latest")
+          files=(release/vtesse-arm32 release/vtesse-arm64 release/vtesse-mips release/vtesse-mipsel
+            release/vtesse-x86_64 release/vtesse-android.apk "release/vtund-${VTUN}-x86_64")
+          media='[]' form=()
+          for i in "${!files[@]}"; do
+            item=$(jq -cn --arg m "attach://f$i" '{type: "document", media: $m}')
+            [ "$i" -eq $(( ${#files[@]} - 1 )) ] && item=$(jq -c --arg c "$caption" '. + {caption: $c}' <<< "$item")
+            media=$(jq -c --argjson it "$item" '. + [$it]' <<< "$media")
+            form+=(-F "f$i=@${files[$i]}")
+          done
+          HTTP=$(curl -sS -o tg.json -w '%{http_code}' "https://api.telegram.org/bot${TG_TOKEN}/sendMediaGroup" \
+            -F chat_id="$TG_CHANNEL" -F media="$media" "${form[@]}") || HTTP=000
           echo "Telegram response: $HTTP"
-          [ "$HTTP" = 200 ] || { echo "::warning::Telegram upload failed (HTTP $HTTP): $(cat tg.json 2>/dev/null)"; }
+          [ "$HTTP" = 200 ] || echo "::warning::Telegram upload failed (HTTP $HTTP): $(cat tg.json 2>/dev/null)"
