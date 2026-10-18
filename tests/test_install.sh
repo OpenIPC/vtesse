@@ -215,6 +215,9 @@ PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
 check "env overrides the file key by key" \
     'grep -qx "host env.example" "$T/log" && grep -qx "port 7000" "$T/log" &&
      grep -qx "session 02AB34CD56EF" "$T/log" && grep -qx "password (set)" "$T/log"'
+printf 'route=10.78.0.0/24\nip=10.76.0.2/32\nudp_relay=1559\n' >> "$T/f.conf"
+PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
+check "--show-config lists routes and UDP relays" 'grep -qx "route 10.78.0.0/24" "$T/log" && grep -qx "udp_relay 1559" "$T/log"'
 PATH=$EP "$CLI" --config "$T/f.conf" --show-config --no-env >"$T/log" 2>&1
 check "--no-env: the file only" 'grep -qx "host file.example" "$T/log" && grep -qx "port 6000" "$T/log"'
 rm -f "$T/env/vars"
@@ -231,7 +234,8 @@ check "--root: this machine's environment does not stand in for the image's conf
 PATH=$EP "$CLI" --install --root "$R" --host h --password p >/dev/null 2>&1
 check "--root: fw_setenv is not called" '[ ! -e "$T/env/setenv.log" ]'
 PATH=$EP "$CLI" --uninstall --root "$R" >"$T/log" 2>&1
-check "uninstall leaves the environment and says so" 'grep -q "keeps vtesse=vtun.helpdesk" "$T/log" && [ ! -e "$T/env/setenv.log" ]'
+check "uninstall --root: no fw_setenv, and this machine's variables are not reported" \
+    '! grep -q "keeps vtesse" "$T/log" && [ ! -e "$T/env/setenv.log" ]'
 
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]

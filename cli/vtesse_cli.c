@@ -950,6 +950,12 @@ int main(int argc, char **argv)
                derived_password ? c.password : "(set)");
         if (c.ip[0])
             printf("ip %s%s%s\n", c.ip, c.gw[0] ? " gw " : "", c.gw);
+        for (i = 0; i < c.route_count; i++)
+            printf("route %s\n", c.route[i]);
+        for (i = 0; i < c.udp_relay_count; i++)
+            printf("udp_relay %s\n", c.udp_relay[i]);
+        if (c.socks_user[0])
+            printf("socks_user %s\nsocks_password (set)\n", c.socks_user);
         return 0;
     }
     if (nc_devid_to_mac(c.session, mac) < 0) {
