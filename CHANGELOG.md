@@ -6,6 +6,26 @@ from every push to `main`; this file is the change history. Versions after 1.12 
 `MAJOR.MINOR.PATCH` (1.12 is followed by 1.12.1 or 1.13.0); the headings below keep the
 numbers as released.
 
+## 1.15.0 — 2026-10-18
+
+Settings in the U-Boot environment for helpdesk access (#64).
+
+- `fw_setenv vtesse <server>` is enough to bring a camera with vtesse online, as
+  `fw_setenv vtun` is for VTun on OpenIPC: with only the server, the client uses the
+  defaults of OpenIPC's VTun client: port 5000, the session is the MAC of the
+  default-route interface without colons, the password is `echo "$MAC" | sha1sum`.
+- `vtesse_port`, `vtesse_session` / `vtesse_id_from`, `vtesse_password`, `vtesse_ip`,
+  `vtesse_gw` override those and `/etc/vtesse.conf` key by key; the rest stays in the
+  file. Order: command line, U-Boot environment, file, defaults.
+- `S99vtesse` and `vtesse.init` start without `/etc/vtesse.conf` when `vtesse` is set;
+  `--install` works without keys then, and stores given keys with `fw_setenv`
+  (without `fw_setenv`, in `/etc/vtesse.conf` next to the server in the environment;
+  a key whose variable is set is refused, and the file needs no server or password);
+  `--uninstall` leaves the variables.
+- New `--show-config` (the settings in effect) and `--no-env`.
+- The default interface for the device ID must have a MAC (`--install` and the
+  environment defaults).
+
 ## 1.14.0 — 2026-10-18
 
 Self-install (#52), environment detection (#51), install paths (#50).
