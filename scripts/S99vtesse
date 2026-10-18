@@ -12,6 +12,9 @@ CONFIG=/etc/vtesse.conf
 PIDFILE=/var/run/vtesse.pid
 ARGS="--tap --ifname vtesse0"
 [ -f /etc/default/vtesse ] && . /etc/default/vtesse
+# stop/status match the process by name, not by the executable: "vtesse --install"
+# replaces the binary under a running daemon
+NAME=$(basename "$DAEMON")
 
 start() {
     if [ ! -f "$CONFIG" ]; then
@@ -26,8 +29,8 @@ start() {
 
 stop() {
     printf "Stopping vtesse: "
-    # -x: a stale PID file must not make us signal another process that reused the PID
-    start-stop-daemon -K -q -p "$PIDFILE" -x "$DAEMON" && echo "OK" || echo "not running"
+    # -n: a stale PID file must not make us signal another process that reused the PID
+    start-stop-daemon -K -q -p "$PIDFILE" -n "$NAME" && echo "OK" || echo "not running"
     rm -f "$PIDFILE"
 }
 
@@ -36,7 +39,7 @@ case "$1" in
     stop)    stop ;;
     restart) stop; sleep 1; start ;;
     status)
-        if [ -f "$PIDFILE" ] && start-stop-daemon -K -t -q -p "$PIDFILE" -x "$DAEMON"; then
+        if [ -f "$PIDFILE" ] && start-stop-daemon -K -t -q -p "$PIDFILE" -n "$NAME"; then
             echo "vtesse is running (pid $(cat "$PIDFILE"))"
         else
             echo "vtesse is not running"

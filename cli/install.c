@@ -397,21 +397,41 @@ typedef struct kv {
 
 /* The interface of the default route (/proc/net/route), as the OpenIPC VTun
  * client picks it; eth0 if there is none. */
-static void default_iface(char *out, size_t size)
+/* 1 when the interface has a usable MAC: PPPoE, WireGuard and tun have none */
+static int has_mac(const char *ifname)
+{
+    char path[96], line[64];
+    FILE *f;
+    int ok;
+
+    snprintf(path, sizeof(path), "/sys/class/net/%s/address", ifname);
+    f = fopen(path, "r");
+    if (!f)
+        return 0;
+    ok = fgets(line, sizeof(line), f) && strlen(line) >= 17 && strncmp(line, "00:00:00:00:00:00", 17) != 0;
+    fclose(f);
+    return ok;
+}
+
+/* The interface of the default route (/proc/net/route), as the OpenIPC VTun client
+ * picks it, if it has a MAC; else eth0 if that has one. -1: none of them. */
+static int default_iface(char *out, size_t size)
 {
     FILE *f = fopen("/proc/net/route", "r");
     char line[256], ifname[64];
     unsigned long dst;
 
+    if (f) {
+        while (fgets(line, sizeof(line), f))
+            if (sscanf(line, "%63s %lx", ifname, &dst) == 2 && dst == 0 && has_mac(ifname)) {
+                snprintf(out, size, "%s", ifname);
+                fclose(f);
+                return 0;
+            }
+        fclose(f);
+    }
     snprintf(out, size, "eth0");
-    if (!f)
-        return;
-    while (fgets(line, sizeof(line), f))
-        if (sscanf(line, "%63s %lx", ifname, &dst) == 2 && dst == 0) {
-            snprintf(out, size, "%s", ifname);
-            break;
-        }
-    fclose(f);
+    return has_mac(out) ? 0 : -1;
 }
 
 /* The key of a "key=value" line of len bytes, or 0 for a comment, a blank line and
@@ -552,7 +572,11 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
     if (!has_port && out_kv(&o, "port", "5000") < 0)
         return -1;
     if (!has_id) {
-        default_iface(iface, sizeof(iface));
+        if (default_iface(iface, sizeof(iface)) < 0) {
+            fprintf(stderr, "vtesse: no interface with a MAC for the device ID (the default route goes\n"
+                            "  through PPPoE, WireGuard or tun?): give --session ID or --id-from IFACE\n");
+            return -1;
+        }
         if (out_kv(&o, "id_from", iface) < 0)
             return -1;
     }
@@ -694,13 +718,13 @@ static int service(sys_t sys, const layout_t *l, int start)
     if (start) {
         const char *restart[] = { l->init, "restart", NULL };
         const char *status[] = { l->init, "status", NULL };
+        const char *pidof[] = { "pidof", "vtesse", NULL };
 
         if (run(restart) != 0)
             return -1;
-        if (sys != SYS_OPENWRT) {
-            sleep(1);
-            return run(status) == 0 ? 0 : -1;
-        }
+        sleep(2);
+        /* procd's vtesse.init has no status in older OpenWrt: look for the process */
+        return run(sys == SYS_OPENWRT ? pidof : status) == 0 ? 0 : -1;
     }
     return 0;
 }
@@ -751,12 +775,6 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         return 1;
     }
 
-    /* S99vtesse finds its daemon by the executable (start-stop-daemon -x): stop it
-     * before the binary is replaced, or the restart below would miss it */
-    if (!root[0] && (sys == SYS_OPENIPC || sys == SYS_BUSYBOX) && exists(l->init)) {
-        const char *stop[] = { l->init, "stop", NULL };
-        run(stop);
-    }
     if (copy_self(rp(l->bin)) < 0) {
         free(old);
         return 1;
@@ -857,21 +875,28 @@ static int do_uninstall(sys_t sys)
     size_t i;
     int rc = 0;
 
-    /* the service must be stopped before its files go */
+    /* every installed service must be stopped before its files go, whatever the
+     * detected system: an install of another layout may be there */
+    (void)sys;
     if (!root[0]) {
-        if (sys == SYS_SYSTEMD && exists(layouts[SYS_SYSTEMD].init)) {
+        static const char *inits[] = { "/etc/init.d/S99vtesse", "/etc/init.d/vtesse" };
+
+        if (exists(layouts[SYS_SYSTEMD].init)) {
             const char *disable[] = { "systemctl", "disable", "--now", "vtesse", NULL };
 
             if (run(disable) != 0) {
                 fprintf(stderr, "vtesse: systemctl could not stop the service; nothing removed\n");
                 return 1;
             }
-        } else if (sys != SYS_NONE && sys != SYS_SYSTEMD && exists(layouts[sys].init)) {
-            const char *stop[] = { layouts[sys].init, "stop", NULL };
-            pid_t pid = sys != SYS_OPENWRT ? service_pid() : 0;
-
+        }
+        for (i = 0; i < sizeof(inits) / sizeof(inits[0]); i++) {
+            const char *stop[] = { inits[i], "stop", NULL };
             /* S99vtesse removes its PID file even when the process survives: the PID
              * is read first and the process watched for up to 5 s */
+            pid_t pid = i == 0 ? service_pid() : 0;
+
+            if (!exists(inits[i]))
+                continue;
             if (run(stop) != 0 || (pid > 0 && !gone(pid, 5000))) {
                 fprintf(stderr, "vtesse: the service is still running; nothing removed\n");
                 return 1;
@@ -904,7 +929,7 @@ static int do_uninstall(sys_t sys)
         else if (errno != ENOENT)
             fprintf(stderr, "vtesse: %s is not empty, left in place\n", rp(all_dirs[i]));
     }
-    if (!root[0] && sys == SYS_SYSTEMD) {
+    if (!root[0] && access("/run/systemd/system", F_OK) == 0) {
         const char *reload[] = { "systemctl", "daemon-reload", NULL };
         run(reload);
     }
