@@ -261,7 +261,13 @@ jobs:
           VER: ${{ steps.vars.outputs.ver }}
           VTUN: ${{ steps.vars.outputs.vtun }}
         run: |
-          head=$(git ls-remote origin refs/heads/main | cut -f 1)
+          # a failed or empty lookup fails the step: only a newer head skips the publication
+          ref=$(git ls-remote --exit-code origin refs/heads/main) ||
+            { echo "::error::cannot read the head of main"; exit 1; }
+          head=$(printf '%s\n' "$ref" | cut -f 1)
+          if ! printf '%s\n' "$head" | grep -Eqx '[0-9a-f]{40}'; then
+            echo "::error::unexpected head of main: \"$head\""; exit 1
+          fi
           if [ "$head" != "$GITHUB_SHA" ]; then
             echo "::notice::main is at ${head:0:7} now, not ${GITHUB_SHA::7}: not published"
             exit 0
