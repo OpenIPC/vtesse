@@ -130,5 +130,14 @@ changed): `--show-config` gave port 5000, session `<MAC of eth0>` and the passwo
 byte for byte as the stock OpenIPC `tunnel` script computes them on the same camera
 (`echo "$default_mac" | sha1sum`).
 
+End to end on a second OpenIPC camera of the same kind, with the owner's consent (its
+U-Boot environment and flash were changed for the test and restored): `fw_setenv vtesse
+<bench>` with `vtesse_port`, `vtesse_session` and `vtesse_password` of a bench session,
+then `vtesse --install` without keys installed `/usr/bin/vtesse` and `S99vtesse` and no
+`/etc/vtesse.conf`, and the tunnel came up (`vtesse0` with a DHCP address). After a reboot
+the service started from the environment and the device behind the bench pinged the
+camera through the tunnel. After `fw_setenv vtesse` and another reboot no tunnel started.
+`vtesse --uninstall` and deleting the variables left the camera as before.
+
 Clean-up after device tests: remove the uploaded files (`/tmp/vtesse`), check that no
 `vtesse*`/`vtun*` interface is left, and `bench/bench.sh up` again (localhost only).
