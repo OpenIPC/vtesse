@@ -604,7 +604,8 @@ static int build_config(const char *old, kv_t *set, int n, char *out, const ve_t
                 root, CONF_PATH);
         return -1;
     }
-    if (bad_port) {
+    /* a valid vtesse_port overrides the file's port at runtime */
+    if (bad_port && !(env && env->port[0])) {
         fprintf(stderr, "vtesse: %s%s: port must be 1..65535: give --port\n", root, CONF_PATH);
         return -1;
     }
@@ -672,6 +673,19 @@ static int env_conflict(const ve_t *e, kv_t *set, int n)
                     var, !strcmp(key, "id_from") ? "id-from" : key);
             return -1;
         }
+    return 0;
+}
+
+/* Appends "NAME VALUE\n" (or "NAME\n", which deletes it, for a NULL value) to the
+ * fw_setenv -s script; -1 when it would not fit */
+static int script_add(char *buf, size_t size, size_t *len, const char *name, const char *value)
+{
+    int r = value ? snprintf(buf + *len, size - *len, "%s %s\n", name, value)
+                  : snprintf(buf + *len, size - *len, "%s\n", name);
+
+    if (r < 0 || (size_t)r >= size - *len)
+        return -1;
+    *len += (size_t)r;
     return 0;
 }
 
@@ -986,10 +1000,12 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
 
                 if (strcmp(ve_vars[v].key, set[k].key) != 0)
                     continue;
-                slen += (size_t)snprintf(script + slen, sizeof(script) - slen, "%s %s\n", ve_vars[v].name, set[k].val);
                 /* the other identity variable would override the new one at runtime */
-                if (other)
-                    slen += (size_t)snprintf(script + slen, sizeof(script) - slen, "%s\n", other);
+                if (script_add(script, sizeof(script), &slen, ve_vars[v].name, set[k].val) < 0 ||
+                    (other && script_add(script, sizeof(script), &slen, other, NULL) < 0)) {
+                    fprintf(stderr, "vtesse: the settings are too long for the U-Boot environment\n");
+                    return 1;
+                }
             }
         if (slen) {
             if (ve_set_script(script) != 0) {
@@ -1192,6 +1208,13 @@ static int check_value(const char *key, const char *v)
         fprintf(stderr, "vtesse: the %s value must not start or end with a space\n", key);
         return -1;
     }
+    /* control characters: a newline is refused with the arguments already, the rest
+     * (\r, escapes) has no place in the file or in the fw_setenv script either */
+    for (i = 0; i < len; i++)
+        if ((unsigned char)v[i] < 0x20 || v[i] == 0x7f) {
+            fprintf(stderr, "vtesse: the %s value must not contain control characters\n", key);
+            return -1;
+        }
     for (i = 0; i < sizeof(limits) / sizeof(limits[0]); i++)
         if (!strcmp(limits[i].key, key) && len > limits[i].max) {
             fprintf(stderr, "vtesse: the %s value is longer than %u characters\n", key, (unsigned)limits[i].max);

@@ -18,8 +18,13 @@ ARGS="--tap --ifname vtesse0"
 NAME=$(basename "$DAEMON")
 
 start() {
-    # helpdesk access (#64): "fw_setenv vtesse <server>" is enough, without a config
-    if [ ! -f "$CONFIG" ] && [ -z "$(fw_printenv -n vtesse 2>/dev/null)" ]; then
+    # helpdesk access (#64): "fw_setenv vtesse <server>" is enough, without a config;
+    # not with --no-env in ARGS, the client then ignores the environment
+    case " $ARGS " in
+        *" --no-env "*) server= ;;
+        *) server=$(fw_printenv -n vtesse 2>/dev/null) ;;
+    esac
+    if [ ! -f "$CONFIG" ] && [ -z "$server" ]; then
         echo "vtesse: neither $CONFIG nor vtesse in the U-Boot environment, not starting"
         return 1
     fi

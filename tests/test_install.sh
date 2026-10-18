@@ -28,6 +28,9 @@ printf 'NAME=Buildroot\nOPENIPC_VERSION=2.6.10.11\n' > "$R/etc/os-release"
 "$CLI" --install --root "$R" >"$T/log" 2>&1; rc=$?
 check "no config and no keys: refused" '[ $rc -ne 0 ] && grep -q "needs at least the server" "$T/log"'
 check "nothing written when refused" '[ ! -e "$R/usr/bin/vtesse" ] && [ ! -e "$R/etc/vtesse.conf" ]'
+"$CLI" --install --root "$R" --host vtun.example.org --password "$(printf 'p\033q')" --session 02AB34CD56EF \
+    >"$T/log" 2>&1; rc=$?
+check "a value with a control character: refused" '[ $rc -ne 0 ] && grep -q "control characters" "$T/log" && [ ! -e "$R/etc/vtesse.conf" ]'
 
 "$CLI" --install --root "$R" --host vtun.example.org --password secret --session 02AB34CD56EF >"$T/log" 2>&1
 rc=$?
