@@ -175,7 +175,8 @@ vtesse --uninstall
    `--session` or `--id-from`, `--ip`, `--gw` ([configuration file](#configuration-file)).
    An existing file keeps its other lines and gets the given keys replaced; a new one
    needs at least `--host` and `--password` and gets `port=5000` and, without `--session`,
-   `id_from=` the interface of the default route. `--password -` reads the password from
+   `id_from=` the interface of the default route (it must have a MAC; with `--root` the
+   identity must be given, as this machine's interfaces say nothing about the image). `--password -` reads the password from
    standard input instead of the command line (which other users can see in `ps`).
    Without a configuration and without keys nothing is installed.
 3. It copies itself, writes the service file from its built-in copy and (re)starts the

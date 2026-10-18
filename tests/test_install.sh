@@ -75,13 +75,16 @@ R=$T/openwrt
 mkdir -p "$R/etc" "$R/usr/share/vtesse"
 echo "DISTRIB_ID='OpenWrt'" > "$R/etc/openwrt_release"
 echo "# edited by hand" > "$R/usr/share/vtesse/vtesse-hook.sh"
-"$CLI" --install --root "$R" --host h --password p >"$T/log" 2>&1
+"$CLI" --install --root "$R" --host h --password p >"$T/log" 2>&1; rc=$?
+check "--root without --session or --id-from: refused (the host's interfaces say nothing)" \
+    '[ $rc -ne 0 ] && grep -q "with --root, give --session" "$T/log"'
+"$CLI" --install --root "$R" --host h --password p --id-from eth0 >"$T/log" 2>&1
 check "OpenWrt: system detected" 'grep -q "system: OpenWrt" "$T/log"'
 check "OpenWrt: procd init script and its rc.d link" \
     'cmp -s "$SCRIPTS/vtesse.init" "$R/etc/init.d/vtesse" && [ "$(readlink "$R/etc/rc.d/S99vtesse")" = ../init.d/vtesse ]'
 check "OpenWrt: keep list for sysupgrade" \
     'grep -qx /usr/bin/vtesse "$R/lib/upgrade/keep.d/vtesse" && grep -qx /etc/vtesse.conf "$R/lib/upgrade/keep.d/vtesse"'
-check "OpenWrt: device ID from an interface when no session is given" 'grep -q "^id_from=" "$R/etc/vtesse.conf"'
+check "OpenWrt: id_from as given" 'grep -qx "id_from=eth0" "$R/etc/vtesse.conf"'
 check "1.13 hook scripts moved from /usr/share/vtesse to /usr/libexec/vtesse" \
     'grep -q "edited by hand" "$R/usr/libexec/vtesse/vtesse-hook.sh" && [ ! -e "$R/usr/share/vtesse" ]'
 check "OpenWrt: the keep list carries the rc.d link" 'grep -qx /etc/rc.d/S99vtesse "$R/lib/upgrade/keep.d/vtesse"'
@@ -91,7 +94,7 @@ check "OpenWrt: the keep list carries the rc.d link" 'grep -qx /etc/rc.d/S99vtes
 mkdir -p "$R/usr/share/vtesse" "$R/etc/default"
 echo "# edited by hand" > "$R/usr/share/vtesse/vtesse-hook.sh"
 echo 'ARGS="--tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh"' > "$R/etc/default/vtesse"
-"$CLI" --install --root "$R" --host h --password p --scripts >"$T/log" 2>&1
+"$CLI" --install --root "$R" --host h --password p --id-from eth0 --scripts >"$T/log" 2>&1
 check "--scripts keeps a moved hand-edited hook" \
     'grep -q "edited by hand" "$R/usr/libexec/vtesse/vtesse-hook.sh" &&
      cmp -s "$SCRIPTS/vtesse-udhcpc.script" "$R/usr/libexec/vtesse/vtesse-udhcpc.script"'
@@ -104,7 +107,7 @@ check "OpenWrt: uninstall removes the link, the keep list and the scripts" \
 # ---- systemd (a PC): /usr/local
 R=$T/pc
 mkdir -p "$R/etc"
-echo h | "$CLI" --install --root "$R" --system systemd --host h --password - >"$T/log" 2>&1
+echo h | "$CLI" --install --root "$R" --system systemd --host h --password - --id-from eth0 >"$T/log" 2>&1
 check "systemd: binary in /usr/local/bin, unit in /etc/systemd/system" \
     '[ -x "$R/usr/local/bin/vtesse" ] && cmp -s "$SCRIPTS/vtesse.service" "$R/etc/systemd/system/vtesse.service"'
 check "--password - reads standard input" 'conf_has "$R" password=h'
@@ -113,7 +116,7 @@ check "--password - reads standard input" 'conf_has "$R" password=h'
 R=$T/other
 mkdir -p "$R/etc/init.d" "$T/outside"
 printf 'NAME=Debian\n#OPENIPC_VERSION=1\n' > "$R/etc/os-release"
-"$CLI" --install --root "$R" --host h --password p >"$T/log" 2>&1
+"$CLI" --install --root "$R" --host h --password p --id-from eth0 >"$T/log" 2>&1
 check "commented OPENIPC_VERSION: BusyBox init, not OpenIPC" 'grep -q "system: BusyBox" "$T/log"'
 ln -s "$T/outside/conf" "$R/etc/vtesse.conf.new"
 "$CLI" --install --root "$R" --port 6000 >/dev/null 2>&1
@@ -148,6 +151,14 @@ check "--id-from with a slash: refused" '[ $rc -eq 2 ]'
 check "--ip without a prefix: refused" '[ $rc -eq 2 ]'
 "$CLI" --install --root "$R" --system systemd --gw 10.0.0.1 >/dev/null 2>&1; rc=$?
 check "--gw without ip: refused" '[ $rc -ne 0 ] && ! grep -q "^gw=" "$R/etc/vtesse.conf"'
+R=$T/dup
+mkdir -p "$R/etc"
+printf 'host=server\nhost=\npassword=p\nsession=02AB34CD56EF\n' > "$R/etc/vtesse.conf"
+"$CLI" --install --root "$R" --system systemd >/dev/null 2>&1; rc=$?
+check "a later empty host= wins, as in the client: refused" '[ $rc -ne 0 ]'
+printf 'host=server\npassword=p\nsession=02AB34CD56EF\nid_from=eth0\n' > "$R/etc/vtesse.conf"
+"$CLI" --install --root "$R" --system systemd >/dev/null 2>&1; rc=$?
+check "both session and id_from in the file: refused" '[ $rc -ne 0 ]'
 
 # ---- the built-in udhcpc script: the binary runs it with VTESSE_RUN=udhcpc-script
 mkdir -p "$T/bin"

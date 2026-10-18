@@ -606,12 +606,14 @@ static void run_hook(const char *event)
             execl("/bin/sh", "sh", hook, event, (char *)NULL);
         else {
             char self[32];
+            const char *path = vi_self_path();
 
-            /* the built-in hook runs the binary itself as its udhcpc script: through
-             * /proc/<pid>/exe of this process, which stays the running binary even
-             * when "vtesse --install" replaces or removes the file */
+            /* the built-in hook runs the binary itself as its udhcpc script: by its
+             * path, which a daemonized udhcpc can keep using after we are gone (a
+             * replaced file is a newer vtesse); /proc/<pid>/exe only when the file
+             * was removed, as that path is valid only while this process lives */
             snprintf(self, sizeof(self), "/proc/%d/exe", (int)getppid());
-            setenv("VTESSE_SELF", self, 1);
+            setenv("VTESSE_SELF", path[0] && access(path, X_OK) == 0 ? path : self, 1);
             execl("/bin/sh", "sh", "-c", vi_script("vtesse-hook.sh"), "vtesse-hook", event, (char *)NULL);
         }
         _exit(127);

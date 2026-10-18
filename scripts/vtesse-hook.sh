@@ -64,12 +64,22 @@ static_up() {
     fi
 }
 
+# The DHCP client of the PID file, only if that process is still a DHCP client: a
+# stale file whose PID was reused must not make us signal another program.
 dhcp_pid() {
-    [ -f "$PIDFILE" ] && cat "$PIDFILE"
+    [ -f "$PIDFILE" ] || return 1
+    pid=$(cat "$PIDFILE")
+    case $(cat "/proc/$pid/comm" 2>/dev/null) in
+        udhcpc|dhclient) echo "$pid" ;;
+        *) return 1 ;;
+    esac
 }
 
 case "$1" in
     up)
+        # a DHCP client left by a previous instance that did not stop cleanly
+        pid=$(dhcp_pid) && kill "$pid" 2>/dev/null
+        rm -f "$PIDFILE"
         if [ -n "$VTESSE_IP" ]; then
             static_up
         elif [ "$VTESSE_LINK" = ether ]; then

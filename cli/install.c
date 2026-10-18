@@ -518,7 +518,7 @@ static int out_kv(outbuf_t *o, const char *key, const char *val)
 static int build_config(const char *old, kv_t *set, int n, char *out)
 {
     static char iface[64];
-    int has_host = 0, has_port = 0, has_pass = 0, has_id = 0, has_ip = 0, has_gw = 0, i;
+    int has_host = 0, has_port = 0, has_pass = 0, has_session = 0, has_idfrom = 0, has_ip = 0, has_gw = 0, i;
     outbuf_t o = { out, 0 };
     const char *p = old;
     char key[64];
@@ -555,13 +555,24 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
         const char *e = strchr(p, '\n');     /* every line written above ends with one */
         size_t len = (size_t)(e - p);
 
-        if (key_of(p, len, key, sizeof(key)) && has_value(p, len)) {
-            has_host |= !strcmp(key, "host");
-            has_port |= !strcmp(key, "port");
-            has_pass |= !strcmp(key, "password");
-            has_id |= !strcmp(key, "session") || !strcmp(key, "id_from");
-            has_ip |= !strcmp(key, "ip");
-            has_gw |= !strcmp(key, "gw") || !strcmp(key, "route");
+        /* the last line of a key counts, as in the client's parser */
+        if (key_of(p, len, key, sizeof(key))) {
+            int v = has_value(p, len);
+
+            if (!strcmp(key, "host"))
+                has_host = v;
+            else if (!strcmp(key, "port"))
+                has_port = v;
+            else if (!strcmp(key, "password"))
+                has_pass = v;
+            else if (!strcmp(key, "session"))
+                has_session = v;
+            else if (!strcmp(key, "id_from"))
+                has_idfrom = v;
+            else if (!strcmp(key, "ip"))
+                has_ip = v;
+            else if (!strcmp(key, "gw") || !strcmp(key, "route"))
+                has_gw |= v;
         }
         p = e + 1;
     }
@@ -574,13 +585,22 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
                 root, CONF_PATH);
         return -1;
     }
+    if (has_session && has_idfrom) {
+        fprintf(stderr, "vtesse: %s%s has both session and id_from: give --session or --id-from\n", root, CONF_PATH);
+        return -1;
+    }
     if (has_gw && !has_ip) {
         fprintf(stderr, "vtesse: gw and route need ip (--ip A.B.C.D/P)\n");
         return -1;
     }
     if (!has_port && out_kv(&o, "port", "5000") < 0)
         return -1;
-    if (!has_id) {
+    if (!has_session && !has_idfrom) {
+        /* the interfaces of this machine say nothing about a staged image */
+        if (root[0]) {
+            fprintf(stderr, "vtesse: with --root, give --session ID or --id-from IFACE\n");
+            return -1;
+        }
         if (default_iface(iface, sizeof(iface)) < 0) {
             fprintf(stderr, "vtesse: no interface with a MAC for the device ID (the default route goes\n"
                             "  through PPPoE, WireGuard or tun?): give --session ID or --id-from IFACE\n");
@@ -669,7 +689,9 @@ static void migrate_legacy(const layout_t *l, int moved[])
         if (!exists(from))
             continue;
         if (exists(to)) {
-            remove_file(from);
+            /* both edited? keep both: the binary uses the libexec copy */
+            fprintf(stderr, "vtesse: %s and %s both exist: %s is used, the other is left in place\n",
+                    from, to, to);
             continue;
         }
         if (mkdir_p(rp(l->libexec)) == 0 && rename(from, to) == 0) {
@@ -683,7 +705,10 @@ static void migrate_legacy(const layout_t *l, int moved[])
 
     snprintf(path, sizeof(path), "%s", def_path);
     def = read_file(path, &len);
-    if (def && strstr(def, LEGACY_DIR "/")) {
+    /* only when the scripts are now in libexec: a failed move keeps the old paths */
+    if (def && strstr(def, LEGACY_DIR "/") && !exists(rp(LEGACY_DIR "/vtesse-hook.sh"))) {
+        struct stat st;
+        mode_t mode = stat(path, &st) == 0 ? st.st_mode & 07777 : 0644;
         static char fixed[CONF_MAX + 1];
         const char *p = def, *hit;
         size_t n = 0, add = strlen(l->libexec) + 1;
@@ -698,7 +723,7 @@ static void migrate_legacy(const layout_t *l, int moved[])
         if (!hit && n + strlen(p) < CONF_MAX) {
             memcpy(fixed + n, p, strlen(p));
             n += strlen(p);
-            if (write_file(path, fixed, n, 0644) == 0)
+            if (write_file(path, fixed, n, mode) == 0)
                 printf("updated %s: %s/ -> %s/\n", path, LEGACY_DIR, l->libexec);
         } else {
             fprintf(stderr, "vtesse: %s still names %s/: change it by hand\n", path, LEGACY_DIR);
