@@ -1,0 +1,20 @@
+# /etc/systemd/system/vtesse.service — VTesse service for a Linux PC (systemd).
+#
+#   systemctl enable --now vtesse
+#
+# Installed by "vtesse --install". Runs the TAP backend with the built-in hook
+# scripts, or with the copies in /usr/local/libexec/vtesse when they exist
+# ("vtesse --install --scripts").
+
+[Unit]
+Description=VTesse VTun client
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/vtesse --config /etc/vtesse.conf --tap --ifname vtesse0
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

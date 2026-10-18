@@ -1,0 +1,870 @@
+/*
+ * Self-install: "vtesse --install" and "vtesse --uninstall" (#50, #51, #52).
+ *
+ * --install:
+ *  1. detects the system (#51): OpenWrt (/etc/openwrt_release), OpenIPC
+ *     (OPENIPC_VERSION in /etc/os-release), a Linux PC with systemd
+ *     (/run/systemd/system), or another BusyBox system with /etc/init.d;
+ *  2. builds /etc/vtesse.conf from the command-line keys: an existing file keeps
+ *     its other lines, a new one gets port 5000 and the device ID from the MAC of
+ *     the interface with the default route unless they are given;
+ *  3. copies the running binary to /usr/bin/vtesse (/usr/local/bin on a PC);
+ *  4. writes the init script of the system from the built-in copy: S99vtesse,
+ *     the procd vtesse.init with its rc.d link and /lib/upgrade/keep.d/vtesse
+ *     (OpenWrt keeps only /etc across sysupgrade), or the systemd unit;
+ *  5. --scripts also writes the hook scripts to <prefix>/libexec/vtesse (#50):
+ *     the binary prefers them to its built-in copies, so they can be edited;
+ *  6. (re)starts the service, unless --no-start.
+ * --uninstall stops the service and removes everything --install may have
+ * written, /etc/vtesse.conf included, for any of the layouts.
+ * Both can run again: --install updates the binary, the scripts and the given
+ * keys, --uninstall on a clean system is not an error.
+ *
+ * --root DIR does all of it below DIR and skips the service (tests, staging).
+ */
+#define _XOPEN_SOURCE 700       /* realpath() */
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#include "install.h"
+#include "vtesse_scripts.h"     /* generated from scripts/ (tools/embed-scripts.sh) */
+
+#ifndef VTESSE_WITH_TAP
+#ifdef __linux__
+#define VTESSE_WITH_TAP 1
+#else
+#define VTESSE_WITH_TAP 0
+#endif
+#endif
+
+#define CONF_PATH "/etc/vtesse.conf"
+#define CONF_MAX  (64 * 1024)
+
+typedef enum { SYS_NONE, SYS_OPENIPC, SYS_OPENWRT, SYS_SYSTEMD, SYS_BUSYBOX } sys_t;
+
+typedef struct layout {
+    const char *name;
+    const char *bin;        /* the binary */
+    const char *init;       /* init script or unit */
+    const char *init_src;   /* its built-in copy (scripts/) */
+    mode_t init_mode;
+    const char *libexec;    /* hook scripts written by --scripts */
+} layout_t;
+
+static const layout_t layouts[] = {
+    [SYS_OPENIPC] = { "OpenIPC", "/usr/bin/vtesse", "/etc/init.d/S99vtesse", "S99vtesse", 0755,
+                      "/usr/libexec/vtesse" },
+    [SYS_OPENWRT] = { "OpenWrt", "/usr/bin/vtesse", "/etc/init.d/vtesse", "vtesse.init", 0755,
+                      "/usr/libexec/vtesse" },
+    [SYS_SYSTEMD] = { "Linux with systemd", "/usr/local/bin/vtesse", "/etc/systemd/system/vtesse.service",
+                      "vtesse.service", 0644, "/usr/local/libexec/vtesse" },
+    [SYS_BUSYBOX] = { "BusyBox init (/etc/init.d)", "/usr/bin/vtesse", "/etc/init.d/S99vtesse", "S99vtesse",
+                      0755, "/usr/libexec/vtesse" },
+};
+
+#define OPENWRT_RC   "/etc/rc.d/S99vtesse"
+#define OPENWRT_KEEP "/lib/upgrade/keep.d/vtesse"
+#define LEGACY_DIR   "/usr/share/vtesse"     /* the hook scripts up to 1.13 */
+
+static const char *hook_scripts[] = { "vtesse-hook.sh", "vtesse-udhcpc.script" };
+
+/* everything --uninstall removes, whatever the layout */
+static const char *all_files[] = {
+    "/usr/bin/vtesse", "/usr/local/bin/vtesse",
+    "/etc/init.d/S99vtesse", "/etc/init.d/vtesse", OPENWRT_RC, OPENWRT_KEEP,
+    "/etc/systemd/system/vtesse.service", "/etc/default/vtesse", CONF_PATH,
+};
+static const char *all_dirs[] = { "/usr/libexec/vtesse", "/usr/local/libexec/vtesse", LEGACY_DIR };
+
+static const char *root = "";
+
+const char *vi_script(const char *name)
+{
+    size_t i;
+
+    for (i = 0; i < sizeof(embedded_scripts) / sizeof(embedded_scripts[0]); i++)
+        if (!strcmp(embedded_scripts[i].name, name))
+            return embedded_scripts[i].text;
+    return NULL;
+}
+
+const char *vi_self_path(void)
+{
+    static char path[512];
+    static int done;
+    ssize_t n;
+
+    if (done)
+        return path;
+    done = 1;
+    n = readlink("/proc/self/exe", path, sizeof(path) - 1);
+    if (n <= 0) {
+        path[0] = '\0';
+        return path;
+    }
+    path[n] = '\0';
+    /* the binary was replaced while running (an update): its path is still right */
+    if (n > 10 && !strcmp(path + n - 10, " (deleted)"))
+        path[n - 10] = '\0';
+    return path;
+}
+
+int vi_run_embedded(int argc, char **argv)
+{
+    const char *text = vi_script("vtesse-udhcpc.script");
+    char *args[16];
+    int i, n = 0;
+
+    unsetenv("VTESSE_RUN");
+    if (!text)
+        return 127;
+    args[n++] = "sh";
+    args[n++] = "-c";
+    args[n++] = (char *)text;
+    args[n++] = "vtesse-udhcpc";
+    for (i = 1; i < argc && n < 15; i++)
+        args[n++] = argv[i];
+    args[n] = NULL;
+    execv("/bin/sh", args);
+    perror("vtesse: /bin/sh");
+    return 127;
+}
+
+const char *vi_libexec_hook(void)
+{
+    static char path[600];
+    char dir[512];
+    char *slash;
+
+    snprintf(dir, sizeof(dir), "%s", vi_self_path());
+    slash = strrchr(dir, '/');
+    if (!slash)
+        return NULL;
+    *slash = '\0';
+    /* <prefix>/bin/vtesse -> <prefix>/libexec/vtesse/vtesse-hook.sh */
+    snprintf(path, sizeof(path), "%s/../libexec/vtesse/vtesse-hook.sh", dir);
+    return access(path, R_OK) == 0 ? path : NULL;
+}
+
+int vi_wanted(int argc, char **argv)
+{
+    int i;
+
+    for (i = 1; i < argc; i++)
+        if (!strcmp(argv[i], "--install") || !strcmp(argv[i], "--uninstall"))
+            return 1;
+    return 0;
+}
+
+/* ---- files ---- */
+
+static const char *rp(const char *path)     /* path below --root */
+{
+    static char buf[4][1024];
+    static int k;
+
+    k = (k + 1) % 4;
+    snprintf(buf[k], sizeof(buf[k]), "%s%s", root, path);
+    return buf[k];
+}
+
+static int exists(const char *path)
+{
+    struct stat st;
+
+    return lstat(path, &st) == 0;
+}
+
+static int mkdir_p(const char *dir)
+{
+    char tmp[1024];
+    char *p;
+
+    snprintf(tmp, sizeof(tmp), "%s", dir);
+    for (p = tmp + 1; *p; p++) {
+        if (*p != '/')
+            continue;
+        *p = '\0';
+        if (mkdir(tmp, 0755) < 0 && errno != EEXIST)
+            return -1;
+        *p = '/';
+    }
+    return mkdir(tmp, 0755) < 0 && errno != EEXIST ? -1 : 0;
+}
+
+static int mkdir_parent(const char *path)
+{
+    char dir[1024];
+    char *slash;
+
+    snprintf(dir, sizeof(dir), "%s", path);
+    slash = strrchr(dir, '/');
+    if (!slash || slash == dir)
+        return 0;
+    *slash = '\0';
+    return mkdir_p(dir);
+}
+
+/* Writes a file through PATH.new and rename(): a running binary or a script being
+ * read is replaced, not rewritten in place ("Text file busy"). */
+static int write_file(const char *path, const void *data, size_t len, mode_t mode)
+{
+    char tmp[1100];
+    const char *p = data;
+    int fd;
+
+    if (mkdir_parent(path) < 0) {
+        fprintf(stderr, "vtesse: cannot create the directory of %s: %s\n", path, strerror(errno));
+        return -1;
+    }
+    snprintf(tmp, sizeof(tmp), "%s.new", path);
+    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, mode);
+    if (fd < 0) {
+        fprintf(stderr, "vtesse: cannot write %s: %s\n", tmp, strerror(errno));
+        return -1;
+    }
+    while (len) {
+        ssize_t n = write(fd, p, len);
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0) {
+            fprintf(stderr, "vtesse: cannot write %s: %s\n", tmp, strerror(errno));
+            close(fd);
+            unlink(tmp);
+            return -1;
+        }
+        p += n;
+        len -= (size_t)n;
+    }
+    if (fchmod(fd, mode) < 0 || fsync(fd) < 0 || close(fd) < 0 || rename(tmp, path) < 0) {
+        fprintf(stderr, "vtesse: cannot write %s: %s\n", path, strerror(errno));
+        unlink(tmp);
+        return -1;
+    }
+    return 0;
+}
+
+static char *read_file(const char *path, size_t *len)
+{
+    FILE *f = fopen(path, "rb");
+    char *buf;
+    size_t n = 0, cap = 64 * 1024;
+
+    if (!f)
+        return NULL;
+    buf = malloc(cap + 1);
+    if (!buf) {
+        fclose(f);
+        return NULL;
+    }
+    for (;;) {
+        size_t r = fread(buf + n, 1, cap - n, f);
+        n += r;
+        if (n < cap)
+            break;
+        cap *= 2;
+        if (cap > 64 * 1024 * 1024) {
+            free(buf);
+            fclose(f);
+            errno = EFBIG;
+            return NULL;
+        }
+        {
+            char *nb = realloc(buf, cap + 1);
+            if (!nb) {
+                free(buf);
+                fclose(f);
+                return NULL;
+            }
+            buf = nb;
+        }
+    }
+    fclose(f);
+    buf[n] = '\0';
+    *len = n;
+    return buf;
+}
+
+static int remove_file(const char *path)
+{
+    if (unlink(path) == 0) {
+        printf("removed %s\n", path);
+        return 0;
+    }
+    if (errno == ENOENT)
+        return 0;
+    fprintf(stderr, "vtesse: cannot remove %s: %s\n", path, strerror(errno));
+    return -1;
+}
+
+/* ---- running commands (service start and stop) ---- */
+
+static int run(const char *const argv[])
+{
+    pid_t pid;
+    int st, i;
+
+    printf("$");
+    for (i = 0; argv[i]; i++)
+        printf(" %s", argv[i]);
+    printf("\n");
+    fflush(stdout);
+    pid = fork();
+    if (pid == 0) {
+        execvp(argv[0], (char *const *)argv);
+        fprintf(stderr, "vtesse: %s: %s\n", argv[0], strerror(errno));
+        _exit(127);
+    }
+    if (pid < 0)
+        return -1;
+    while (waitpid(pid, &st, 0) < 0)
+        if (errno != EINTR)
+            return -1;
+    return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+}
+
+/* ---- system detection (#51) ---- */
+
+static int file_has(const char *path, const char *needle)
+{
+    size_t len;
+    char *s = read_file(path, &len);
+    int found = s && strstr(s, needle);
+
+    free(s);
+    return found;
+}
+
+static sys_t detect(void)
+{
+    struct stat st;
+
+    if (exists(rp("/etc/openwrt_release")))
+        return SYS_OPENWRT;
+    if (file_has(rp("/etc/os-release"), "OPENIPC_VERSION="))
+        return SYS_OPENIPC;
+    if (stat(rp("/run/systemd/system"), &st) == 0 && S_ISDIR(st.st_mode))
+        return SYS_SYSTEMD;
+    if (stat(rp("/etc/init.d"), &st) == 0 && S_ISDIR(st.st_mode))
+        return SYS_BUSYBOX;
+    return SYS_NONE;
+}
+
+static sys_t parse_system(const char *s)
+{
+    if (!strcmp(s, "openipc"))
+        return SYS_OPENIPC;
+    if (!strcmp(s, "openwrt"))
+        return SYS_OPENWRT;
+    if (!strcmp(s, "systemd"))
+        return SYS_SYSTEMD;
+    if (!strcmp(s, "busybox"))
+        return SYS_BUSYBOX;
+    return SYS_NONE;
+}
+
+/* ---- /etc/vtesse.conf ---- */
+
+typedef struct kv {
+    const char *key;
+    const char *val;
+    int done;
+} kv_t;
+
+#define MAX_KEYS 8
+
+/* The interface of the default route (/proc/net/route), as the OpenIPC VTun
+ * client picks it; eth0 if there is none. */
+static void default_iface(char *out, size_t size)
+{
+    FILE *f = fopen("/proc/net/route", "r");
+    char line[256], ifname[64];
+    unsigned long dst;
+
+    snprintf(out, size, "eth0");
+    if (!f)
+        return;
+    while (fgets(line, sizeof(line), f))
+        if (sscanf(line, "%63s %lx", ifname, &dst) == 2 && dst == 0) {
+            snprintf(out, size, "%s", ifname);
+            break;
+        }
+    fclose(f);
+}
+
+static int key_of(const char *line, char *key, size_t size)
+{
+    const char *eq;
+    size_t n;
+
+    while (*line == ' ' || *line == '\t')
+        line++;
+    if (*line == '#' || !(eq = strchr(line, '=')))
+        return 0;
+    n = (size_t)(eq - line);
+    while (n && (line[n - 1] == ' ' || line[n - 1] == '\t'))
+        n--;
+    if (!n || n >= size)
+        return 0;
+    memcpy(key, line, n);
+    key[n] = '\0';
+    return 1;
+}
+
+static kv_t *find(kv_t *set, int n, const char *key)
+{
+    int i;
+
+    for (i = 0; i < n; i++)
+        if (!strcmp(set[i].key, key))
+            return &set[i];
+    return NULL;
+}
+
+/* Appends "key=val\n" to out (size CONF_MAX). */
+static void put(char *out, const char *key, const char *val)
+{
+    size_t n = strlen(out);
+
+    snprintf(out + n, CONF_MAX - n, "%s=%s\n", key, val);
+}
+
+/* Builds the new /etc/vtesse.conf in out from the existing text (or NULL) and the
+ * given keys. Returns 0, or -1 with the reason printed. */
+static int build_config(const char *old, kv_t *set, int n, char *out)
+{
+    static char iface[64];
+    int has_host = 0, has_port = 0, has_pass = 0, has_id = 0;
+    const char *p = old;
+    char key[64];
+    int i;
+
+    out[0] = '\0';
+    while (p && *p) {
+        const char *e = strchr(p, '\n');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        char line[1024];
+        kv_t *k;
+
+        if (len >= sizeof(line))
+            len = sizeof(line) - 1;
+        memcpy(line, p, len);
+        line[len] = '\0';
+        p = e ? e + 1 : p + strlen(p);
+        if (key_of(line, key, sizeof(key))) {
+            /* session and id_from exclude each other: a given one replaces the other */
+            if ((!strcmp(key, "session") && find(set, n, "id_from")) ||
+                (!strcmp(key, "id_from") && find(set, n, "session")))
+                continue;
+            k = find(set, n, key);
+            if (k) {
+                if (!k->done)
+                    put(out, k->key, k->val);
+                k->done = 1;
+                continue;
+            }
+        }
+        if (strlen(out) + len + 2 >= CONF_MAX) {
+            fprintf(stderr, "vtesse: %s is too large\n", CONF_PATH);
+            return -1;
+        }
+        strcat(out, line);
+        strcat(out, "\n");
+    }
+    for (i = 0; i < n; i++)
+        if (!set[i].done)
+            put(out, set[i].key, set[i].val);
+
+    for (p = out; *p; ) {
+        const char *e = strchr(p, '\n');
+        char line[1024];
+        size_t len = (size_t)(e - p);
+
+        if (len >= sizeof(line))
+            len = sizeof(line) - 1;
+        memcpy(line, p, len);
+        line[len] = '\0';
+        if (key_of(line, key, sizeof(key))) {
+            const char *v = strchr(line, '=') + 1;
+
+            while (*v == ' ' || *v == '\t')
+                v++;
+            if (*v) {
+                has_host |= !strcmp(key, "host");
+                has_port |= !strcmp(key, "port");
+                has_pass |= !strcmp(key, "password");
+                has_id |= !strcmp(key, "session") || !strcmp(key, "id_from");
+            }
+        }
+        p = e + 1;
+    }
+    if (!has_host || !has_pass) {
+        fprintf(stderr,
+                "vtesse: %s%s needs at least the server and the password:\n"
+                "  vtesse --install --host SERVER --password PASSWORD\n"
+                "        [--port 5000] [--session ID | --id-from IFACE] [--ip A.B.C.D/P [--gw A.B.C.D]]\n"
+                "  (--password - reads it from standard input)\n",
+                root, CONF_PATH);
+        return -1;
+    }
+    if (!has_port)
+        put(out, "port", "5000");
+    if (!has_id) {
+        default_iface(iface, sizeof(iface));
+        put(out, "id_from", iface);
+    }
+    return 0;
+}
+
+/* ---- --install / --uninstall ---- */
+
+static void usage(void)
+{
+    fprintf(stderr,
+            "usage: vtesse --install [--host SERVER] [--port N] [--password PASSWORD|-]\n"
+            "                        [--session ID | --id-from IFACE] [--ip A.B.C.D/P] [--gw A.B.C.D]\n"
+            "                        [--scripts] [--no-start] [--system SYSTEM] [--root DIR]\n"
+            "       vtesse --uninstall [--system SYSTEM] [--root DIR]\n"
+            "  SYSTEM: openipc, openwrt, systemd or busybox (default: detected)\n"
+            "  the keys go to /etc/vtesse.conf; an existing file keeps its other lines\n");
+}
+
+static int copy_self(const char *dst)
+{
+    const char *src = vi_self_path();
+    char rsrc[1024], rdst[1024];
+    size_t len;
+    char *data;
+    int rc;
+
+    if (!src[0]) {
+        fprintf(stderr, "vtesse: cannot find the running binary (/proc/self/exe)\n");
+        return -1;
+    }
+    if (realpath(src, rsrc) && realpath(dst, rdst) && !strcmp(rsrc, rdst)) {
+        printf("binary %s (already in place)\n", dst);
+        return 0;
+    }
+    data = read_file(src, &len);
+    if (!data) {
+        fprintf(stderr, "vtesse: cannot read %s: %s\n", src, strerror(errno));
+        return -1;
+    }
+    rc = write_file(dst, data, len, 0755);
+    free(data);
+    if (rc == 0)
+        printf("binary %s\n", dst);
+    return rc;
+}
+
+static int write_script(const char *path, const char *name, mode_t mode)
+{
+    const char *text = vi_script(name);
+
+    if (!text || write_file(path, text, strlen(text), mode) < 0)
+        return -1;
+    printf("wrote %s\n", path);
+    return 0;
+}
+
+/* Hook scripts of 1.13 and older in /usr/share/vtesse: moved to libexec, where the
+ * binary finds them, so that a hand-edited copy keeps working. */
+static void migrate_legacy(const layout_t *l)
+{
+    size_t i;
+
+    for (i = 0; i < sizeof(hook_scripts) / sizeof(hook_scripts[0]); i++) {
+        char from[1024], to[1024];
+
+        snprintf(from, sizeof(from), "%s%s/%s", root, LEGACY_DIR, hook_scripts[i]);
+        snprintf(to, sizeof(to), "%s%s/%s", root, l->libexec, hook_scripts[i]);
+        if (!exists(from))
+            continue;
+        if (exists(to)) {
+            remove_file(from);
+            continue;
+        }
+        if (mkdir_p(rp(l->libexec)) == 0 && rename(from, to) == 0)
+            printf("moved %s to %s (delete it to use the built-in copy)\n", from, to);
+        else
+            fprintf(stderr, "vtesse: cannot move %s to %s: %s\n", from, to, strerror(errno));
+    }
+    rmdir(rp(LEGACY_DIR));
+}
+
+static int service(sys_t sys, const layout_t *l, int start)
+{
+    if (sys == SYS_SYSTEMD) {
+        const char *reload[] = { "systemctl", "daemon-reload", NULL };
+        const char *enable[] = { "systemctl", "enable", "vtesse", NULL };
+        const char *restart[] = { "systemctl", "restart", "vtesse", NULL };
+        const char *active[] = { "systemctl", "is-active", "vtesse", NULL };
+
+        if (run(reload) != 0 || run(enable) != 0)
+            return -1;
+        if (!start)
+            return 0;
+        if (run(restart) != 0)
+            return -1;
+        sleep(1);
+        return run(active) == 0 ? 0 : -1;
+    }
+    if (start) {
+        const char *restart[] = { l->init, "restart", NULL };
+        const char *status[] = { l->init, "status", NULL };
+
+        if (run(restart) != 0)
+            return -1;
+        if (sys != SYS_OPENWRT) {
+            sleep(1);
+            return run(status) == 0 ? 0 : -1;
+        }
+    }
+    return 0;
+}
+
+static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
+{
+    const layout_t *l = &layouts[sys];
+    static char conf[CONF_MAX];
+    size_t len;
+    char *old;
+
+    if (!VTESSE_WITH_TAP) {
+        fprintf(stderr, "vtesse: --install needs the TAP backend (this binary is built with TAP=0)\n");
+        return 1;
+    }
+    printf("system: %s%s\n", l->name, root[0] ? " (below --root)" : "");
+
+    /* the configuration first: nothing is written when it is incomplete */
+    old = read_file(rp(CONF_PATH), &len);
+    if (!old && errno != ENOENT) {
+        fprintf(stderr, "vtesse: cannot read %s: %s\n", rp(CONF_PATH), strerror(errno));
+        return 1;
+    }
+    if (build_config(old, set, n, conf) < 0) {
+        free(old);
+        return 1;
+    }
+
+    if (copy_self(rp(l->bin)) < 0) {
+        free(old);
+        return 1;
+    }
+    if (!old || strcmp(old, conf) != 0) {
+        if (write_file(rp(CONF_PATH), conf, strlen(conf), 0600) < 0) {
+            free(old);
+            return 1;
+        }
+        printf("%s %s\n", old ? "updated" : "wrote", rp(CONF_PATH));
+    } else {
+        printf("kept %s\n", rp(CONF_PATH));
+    }
+    free(old);
+
+    if (write_script(rp(l->init), l->init_src, l->init_mode) < 0)
+        return 1;
+    if (sys == SYS_OPENWRT) {
+        const char *keep = "/usr/bin/vtesse\n/usr/libexec/vtesse/\n/etc/init.d/vtesse\n"
+                           CONF_PATH "\n" OPENWRT_KEEP "\n";
+
+        unlink(rp(OPENWRT_RC));
+        if (mkdir_parent(rp(OPENWRT_RC)) < 0 || symlink("../init.d/vtesse", rp(OPENWRT_RC)) < 0) {
+            fprintf(stderr, "vtesse: cannot link %s: %s\n", rp(OPENWRT_RC), strerror(errno));
+            return 1;
+        }
+        printf("enabled %s\n", rp(OPENWRT_RC));
+        /* sysupgrade keeps only the changed files under /etc without this list */
+        if (write_file(rp(OPENWRT_KEEP), keep, strlen(keep), 0644) < 0)
+            return 1;
+        printf("wrote %s (kept by sysupgrade)\n", rp(OPENWRT_KEEP));
+    }
+
+    migrate_legacy(l);
+    if (scripts) {
+        size_t i;
+        char path[1024];
+
+        for (i = 0; i < sizeof(hook_scripts) / sizeof(hook_scripts[0]); i++) {
+            snprintf(path, sizeof(path), "%s/%s", l->libexec, hook_scripts[i]);
+            if (write_script(rp(path), hook_scripts[i], 0755) < 0)
+                return 1;
+        }
+    }
+
+    if (root[0]) {
+        printf("--root: the service is not started\n");
+        return 0;
+    }
+    if (service(sys, l, start) < 0) {
+        fprintf(stderr, "vtesse: the service did not start; check %s and the log\n", CONF_PATH);
+        return 1;
+    }
+    printf(start ? "vtesse is installed and running\n" : "vtesse is installed (not started: --no-start)\n");
+    return 0;
+}
+
+static int do_uninstall(sys_t sys)
+{
+    size_t i;
+    int rc = 0;
+
+    if (!root[0]) {
+        if (sys == SYS_SYSTEMD && exists(layouts[SYS_SYSTEMD].init)) {
+            const char *disable[] = { "systemctl", "disable", "--now", "vtesse", NULL };
+            run(disable);
+        } else if (sys != SYS_NONE && sys != SYS_SYSTEMD && exists(layouts[sys].init)) {
+            const char *stop[] = { layouts[sys].init, "stop", NULL };
+            run(stop);
+        }
+    }
+    for (i = 0; i < sizeof(all_files) / sizeof(all_files[0]); i++)
+        if (remove_file(rp(all_files[i])) < 0)
+            rc = 1;
+    for (i = 0; i < sizeof(all_dirs) / sizeof(all_dirs[0]); i++) {
+        size_t j;
+        char path[1024];
+
+        for (j = 0; j < sizeof(hook_scripts) / sizeof(hook_scripts[0]); j++) {
+            snprintf(path, sizeof(path), "%s%s/%s", root, all_dirs[i], hook_scripts[j]);
+            if (remove_file(path) < 0)
+                rc = 1;
+        }
+        if (rmdir(rp(all_dirs[i])) == 0)
+            printf("removed %s\n", rp(all_dirs[i]));
+        else if (errno != ENOENT)
+            fprintf(stderr, "vtesse: %s is not empty, left in place\n", rp(all_dirs[i]));
+    }
+    if (!root[0] && sys == SYS_SYSTEMD) {
+        const char *reload[] = { "systemctl", "daemon-reload", NULL };
+        run(reload);
+    }
+    printf(rc ? "vtesse: uninstalled with errors\n" : "vtesse is uninstalled\n");
+    return rc;
+}
+
+static int read_password(char *buf, size_t size)
+{
+    size_t n;
+
+    if (!fgets(buf, (int)size, stdin))
+        return -1;
+    n = strlen(buf);
+    while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r'))
+        buf[--n] = '\0';
+    return n ? 0 : -1;
+}
+
+int vi_main(int argc, char **argv)
+{
+    static char password[256];
+    kv_t set[MAX_KEYS];
+    const char *sys_name = NULL;
+    int i, n = 0, install = 0, uninstall = 0, scripts = 0, start = 1;
+    sys_t sys;
+
+    for (i = 1; i < argc; i++) {
+        const char *a = argv[i];
+        const char *key = NULL;
+
+        if (!strcmp(a, "--install"))
+            install = 1;
+        else if (!strcmp(a, "--uninstall"))
+            uninstall = 1;
+        else if (!strcmp(a, "--scripts"))
+            scripts = 1;
+        else if (!strcmp(a, "--no-start"))
+            start = 0;
+        else if (!strcmp(a, "--root") && i + 1 < argc)
+            root = argv[++i];
+        else if (!strcmp(a, "--system") && i + 1 < argc)
+            sys_name = argv[++i];
+        else if (!strcmp(a, "--host"))
+            key = "host";
+        else if (!strcmp(a, "--port"))
+            key = "port";
+        else if (!strcmp(a, "--password"))
+            key = "password";
+        else if (!strcmp(a, "--session"))
+            key = "session";
+        else if (!strcmp(a, "--id-from"))
+            key = "id_from";
+        else if (!strcmp(a, "--ip"))
+            key = "ip";
+        else if (!strcmp(a, "--gw"))
+            key = "gw";
+        else {
+            usage();
+            return 2;
+        }
+        if (!key)
+            continue;
+        if (i + 1 >= argc || !argv[i + 1][0] || strchr(argv[i + 1], '\n') || n >= MAX_KEYS) {
+            fprintf(stderr, "vtesse: %s needs a value\n", a);
+            return 2;
+        }
+        if (find(set, n, key)) {
+            fprintf(stderr, "vtesse: %s is given twice\n", a);
+            return 2;
+        }
+        set[n].key = key;
+        set[n].val = argv[++i];
+        set[n].done = 0;
+        if (!strcmp(key, "password") && !strcmp(set[n].val, "-")) {
+            if (read_password(password, sizeof(password)) < 0) {
+                fprintf(stderr, "vtesse: --password -: no password on standard input\n");
+                return 2;
+            }
+            set[n].val = password;
+        }
+        if (!strcmp(key, "port")) {
+            char *end;
+            long p = strtol(set[n].val, &end, 10);
+            if (*end || p < 1 || p > 65535) {
+                fprintf(stderr, "vtesse: --port: expected 1..65535, got '%s'\n", set[n].val);
+                return 2;
+            }
+        }
+        n++;
+    }
+    if (install == uninstall) {
+        usage();
+        return 2;
+    }
+    if (find(set, n, "session") && find(set, n, "id_from")) {
+        fprintf(stderr, "vtesse: --session and --id-from exclude each other\n");
+        return 2;
+    }
+    if (uninstall && (n || scripts || !start)) {
+        fprintf(stderr, "vtesse: --uninstall takes only --system and --root\n");
+        return 2;
+    }
+    if (!strcmp(root, "/"))
+        root = "";
+    if (!root[0] && geteuid() != 0) {
+        fprintf(stderr, "vtesse: --%s needs root\n", install ? "install" : "uninstall");
+        return 1;
+    }
+    if (sys_name) {
+        sys = parse_system(sys_name);
+        if (sys == SYS_NONE) {
+            fprintf(stderr, "vtesse: --system: openipc, openwrt, systemd or busybox, got '%s'\n", sys_name);
+            return 2;
+        }
+    } else {
+        sys = detect();
+    }
+    if (uninstall)
+        return do_uninstall(sys);
+    if (sys == SYS_NONE) {
+        fprintf(stderr, "vtesse: unknown system (no /etc/init.d, no systemd): use --system\n");
+        return 1;
+    }
+    return do_install(sys, set, n, scripts, start);
+}

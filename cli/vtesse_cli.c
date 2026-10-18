@@ -9,7 +9,8 @@
  *    the system (e.g. a DHCP client started from the --hook script).
  * Build without lwIP: make LWIP=0 (TAP only).
  *
- * Credentials are read from a key=value file, never from the command line.
+ * Credentials are read from a key=value file, never from the command line
+ * ("--install" writes that file from its keys, see install.c).
  * The session name is the device ID and doubles as the client MAC.
  */
 #include <errno.h>
@@ -21,6 +22,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "install.h"
 #include "netcore/loop.h"
 #include "netcore/route.h"
 #include "vtesse/version.h"
@@ -119,7 +121,10 @@ static void usage(void)
             "                  [--ip A.B.C.D/P [--gw A.B.C.D]]   (manual IPv4 instead of DHCP)\n"
 #endif
 #if VTESSE_WITH_TAP
-            "  TAP backend:    --tap [--ifname NAME] [--hook SCRIPT]\n"
+            "  TAP backend:    --tap [--ifname NAME] [--hook SCRIPT|none]\n"
+            "                  (no --hook: <prefix>/libexec/vtesse/vtesse-hook.sh, else the built-in one)\n"
+            "  vtesse --install [--host SERVER --password PASSWORD ...]   install as a service\n"
+            "  vtesse --uninstall                                         remove it (--install --help)\n"
 #endif
             "  --id-from IFACE  device ID (session name) = MAC of IFACE, e.g. eth0\n"
             "  FILE: key=value lines: host, port, session, password, auth (xor),\n"
@@ -510,7 +515,8 @@ static void print_tunnel_event(int tev, int err)
 #if VTESSE_WITH_TAP
 /* ---- TAP backend: hook script ---- */
 
-static const char *hook;
+static const char *hook;        /* --hook FILE, NULL: the built-in hook */
+static int no_hook;             /* --hook none */
 static const char *session_name;
 static nc_tap_t *tap;
 
@@ -578,7 +584,7 @@ static void run_hook(const char *event)
     size_t slot;
 
     reap_children();
-    if (!hook)
+    if (no_hook)
         return;
     /* a free slot first: every hook we start must be one shutdown can wait for */
     for (slot = 0; slot < sizeof(hook_pids) / sizeof(hook_pids[0]); slot++)
@@ -596,7 +602,13 @@ static void run_hook(const char *event)
         setenv("VTESSE_IFNAME", nc_tap_ifname(tap), 1);
         setenv("VTESSE_LINK", nc_tap_link(tap) == TUNNEL_LINK_L3 ? "tun" : "ether", 1);
         setenv("VTESSE_SESSION", session_name, 1);
-        execl("/bin/sh", "sh", hook, event, (char *)NULL);
+        if (hook)
+            execl("/bin/sh", "sh", hook, event, (char *)NULL);
+        else {
+            /* the built-in hook runs the binary itself as its udhcpc script */
+            setenv("VTESSE_SELF", vi_self_path(), 1);
+            execl("/bin/sh", "sh", "-c", vi_script("vtesse-hook.sh"), "vtesse-hook", event, (char *)NULL);
+        }
         _exit(127);
     }
     if (pid < 0)
@@ -614,8 +626,8 @@ static void on_tap_event(void *user, int ev, int tev, int err)
     case NC_TAP_EV_CREATED:
         printf("[%8.3f] interface %s (%s) created\n", elapsed(t_start), nc_tap_ifname(tap),
                nc_tap_link(tap) == TUNNEL_LINK_L3 ? "tun" : "tap");
-        if (!hook)
-            printf("[%8.3f] no --hook: configure the address yourself (e.g. udhcpc -i %s)\n",
+        if (no_hook)
+            printf("[%8.3f] --hook none: configure the address yourself (e.g. udhcpc -i %s)\n",
                    elapsed(t_start), nc_tap_ifname(tap));
         run_hook("up");
         break;
@@ -666,6 +678,11 @@ int main(int argc, char **argv)
     memset(&sc, 0, sizeof(sc));
     memset(&pc, 0, sizeof(pc));
 #endif
+    /* called by udhcpc as its script (the built-in hook sets this up) */
+    if (getenv("VTESSE_RUN") && !strcmp(getenv("VTESSE_RUN"), "udhcpc-script"))
+        return vi_run_embedded(argc, argv);
+    if (vi_wanted(argc, argv))
+        return vi_main(argc, argv);
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--config") && i + 1 < argc)
             config = argv[++i];
@@ -697,8 +714,13 @@ int main(int argc, char **argv)
             use_tap = 1;
         else if (!strcmp(argv[i], "--ifname") && i + 1 < argc)
             tc.ifname = argv[++i];
-        else if (!strcmp(argv[i], "--hook") && i + 1 < argc)
+        else if (!strcmp(argv[i], "--hook") && i + 1 < argc) {
             hook = argv[++i];
+            if (!strcmp(hook, "none")) {
+                hook = NULL;
+                no_hook = 1;
+            }
+        }
 #else
         else if (!strcmp(argv[i], "--tap") || !strcmp(argv[i], "--ifname") || !strcmp(argv[i], "--hook")) {
             fprintf(stderr, "%s: built without the TAP/TUN backend (make TAP=0)\n", argv[i]);
@@ -868,6 +890,9 @@ int main(int argc, char **argv)
                 setenv("VTESSE_ROUTES", routes, 1);
         }
         session_name = c.session;
+        if (!hook && !no_hook)
+            hook = vi_libexec_hook();   /* NULL: the built-in hook */
+        printf("hook: %s\n", no_hook ? "none" : hook ? hook : "built-in");
         tap = nc_tap_create(&t, &tc, on_tap_event, NULL);
         if (!tap) {
             fprintf(stderr, "out of memory\n");

@@ -3,13 +3,14 @@
 #
 #   /etc/init.d/S99vtesse start|stop|restart|status
 #
-# Runs the TAP backend with the hook scripts from /usr/share/vtesse.
-# Settings can be overridden in /etc/default/vtesse.
+# Installed by "vtesse --install". Runs the TAP backend with the built-in hook
+# scripts, or with the copies in /usr/libexec/vtesse when they exist
+# ("vtesse --install --scripts"). Settings can be overridden in /etc/default/vtesse.
 
 DAEMON=/usr/bin/vtesse
 CONFIG=/etc/vtesse.conf
 PIDFILE=/var/run/vtesse.pid
-ARGS="--tap --ifname vtesse0 --hook /usr/share/vtesse/vtesse-hook.sh"
+ARGS="--tap --ifname vtesse0"
 [ -f /etc/default/vtesse ] && . /etc/default/vtesse
 
 start() {
@@ -17,6 +18,7 @@ start() {
         echo "vtesse: $CONFIG not found, not starting"
         return 1
     fi
+    [ -e /dev/net/tun ] || modprobe tun 2>/dev/null
     printf "Starting vtesse: "
     start-stop-daemon -S -q -b -m -p "$PIDFILE" -x "$DAEMON" -- --config "$CONFIG" $ARGS \
         && echo "OK" || echo "FAIL"

@@ -1,5 +1,8 @@
 #!/bin/sh
-# vtesse-cli --tap --hook scripts/vtesse-hook.sh
+# The TAP backend's hook. vtesse carries a copy and runs it when --hook is not
+# given (the built-in hook); this file is for --hook FILE, e.g. a copy edited by
+# hand ("vtesse --install --scripts" writes one to <prefix>/libexec/vtesse):
+#   vtesse-cli --tap --hook scripts/vtesse-hook.sh
 #
 # Called as "$0 <event>" with VTESSE_IFNAME, VTESSE_LINK (ether|tun),
 # VTESSE_SESSION and VTESSE_EVENT in the environment:
@@ -22,6 +25,12 @@
 IF=$VTESSE_IFNAME
 PIDFILE=/var/run/vtesse-dhcp.$IF.pid
 UDHCPC_SCRIPT=$(dirname "$0")/vtesse-udhcpc.script
+# The built-in hook gets the path of the binary in VTESSE_SELF: the binary runs
+# its built-in copy of vtesse-udhcpc.script when called with VTESSE_RUN set.
+if [ -n "$VTESSE_SELF" ]; then
+    UDHCPC_SCRIPT=$VTESSE_SELF
+    export VTESSE_RUN=udhcpc-script
+fi
 
 dhcp_start() {
     if command -v udhcpc >/dev/null 2>&1; then

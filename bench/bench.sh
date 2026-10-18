@@ -136,13 +136,15 @@ cmd_tap_test() {
         ip link set idsrc0 address $(echo $SESSION | sed 's/../&:/g; s/:$//')
         printf 'host=$SERVER\nport=5000\nid_from=idsrc0\npassword=$PASSWORD\n' > /tmp/vtesse.conf
         python3 -m http.server 8080 --bind 0.0.0.0 --directory /etc >/dev/null 2>&1 &
-        exec /src/build-bench-tap/vtesse-cli --tap --ifname vtesse0 --hook /src/scripts/vtesse-hook.sh --config /tmp/vtesse.conf
+        # no --hook: the built-in hook and udhcpc script (#52); tun-test uses the file
+        exec /src/build-bench-tap/vtesse-cli --tap --ifname vtesse0 --config /tmp/vtesse.conf
     " >/dev/null
 
     i=0
     until inc 'ip -4 addr show vtesse0 2>/dev/null | grep -q "inet 10\.77\.0\."' || [ $i -gt 20 ]; do sleep 1; i=$((i + 1)); done
     addr=$(inc "ip -4 -o addr show vtesse0" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p')
     check "device ID taken from the MAC of idsrc0 (id_from)" 'docker logs "$tapc" 2>&1 | grep -q "device ID $SESSION (MAC of idsrc0)"'
+    check "built-in hook (no --hook)" 'docker logs "$tapc" 2>&1 | grep -q "^hook: built-in"'
     check "tap interface vtesse0 with DHCP address" '[ -n "$addr" ]'
     check "MAC of vtesse0 is the device ID" 'inc "cat /sys/class/net/vtesse0/address" | grep -qi "^02:be:0c:00:00:01$"'
     check "option 121 route via the tunnel, no default route through it" \
