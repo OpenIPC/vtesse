@@ -4,6 +4,7 @@
 - [vtesse-cli](#vtesse-cli)
 - [TAP backend](#tap-backend)
 - [Installation](#installation)
+- [U-Boot environment (helpdesk access)](#u-boot-environment-helpdesk-access)
 - [Configuration file](#configuration-file)
 - [Device ID](#device-id)
 - [Addressing (DHCP)](#addressing-dhcp)
@@ -91,6 +92,8 @@ vtesse --uninstall [--system SYSTEM] [--root DIR]
 | `--tap`                          | [TAP backend](#tap-backend): kernel interface instead of lwIP (Linux, root)                                                                                   |
 | `--ifname NAME`                  | interface name for `--tap`, default `vtesse%d`                                                                                                                |
 | `--hook SCRIPT`                  | script run on interface events for `--tap`; default: the [built-in hook](#tap-backend), `none`: no hook                                                       |
+| `--show-config`                  | print the settings in effect (file, [U-Boot environment](#u-boot-environment-helpdesk-access), defaults) and exit                                             |
+| `--no-env`                       | ignore the U-Boot environment                                                                                                                                 |
 | `--install`, `--uninstall`       | [install](#installation) the binary as a service, or remove it                                                                                                |
 
 The CLI brings the tunnel and the userspace stack up, prints link events, the DHCP
@@ -205,6 +208,51 @@ an error. `--root DIR` does the same below `DIR` without touching the service
 The service files are also in [`scripts/`](../scripts): `S99vtesse`
 (`start|stop|restart|status`, overrides in `/etc/default/vtesse`, loads the `tun`
 module), `vtesse.init` (procd, respawn) and `vtesse.service` (systemd, restart).
+
+## U-Boot environment (helpdesk access)
+
+For quick remote access by support staff, the settings can live in the U-Boot
+environment instead of a file, the way OpenIPC keeps its VTun server there (#64):
+
+```sh
+fw_setenv vtesse vtun.example.org     # on: the service starts at boot with this server
+fw_setenv vtesse                      # off
+```
+
+With only `vtesse` set, the client uses the defaults of OpenIPC's VTun client
+([`tunnel`](https://github.com/OpenIPC/firmware/blob/master/general/package/vtund-openipc/files/tunnel)),
+so it reaches the same server with the same credentials:
+
+- port `5000`;
+- the interface of the default route (it must have a MAC), its MAC in upper case;
+- session = that MAC without colons (the [device ID](#device-id));
+- password = `echo "$MAC" | sha1sum`: SHA-1 of the MAC with colons **and a newline**.
+
+Optional variables override these and the file, one key at a time:
+
+| Variable                            | Key                   |
+|-------------------------------------|-----------------------|
+| `vtesse`                            | `host`                |
+| `vtesse_port`                       | `port`                |
+| `vtesse_session` / `vtesse_id_from` | `session` / `id_from` |
+| `vtesse_password`                   | `password`            |
+| `vtesse_ip`, `vtesse_gw`            | `ip`, `gw`            |
+
+Everything else (`route`, `udp_relay`, SOCKS5 users, `auth`) is set only in
+`/etc/vtesse.conf`. The order for each key: command line, U-Boot environment,
+`/etc/vtesse.conf`, the VTun defaults (only with `vtesse` set). The variables are read
+with `fw_printenv`; without it (a PC, most OpenWrt routers) this step is skipped.
+`--no-env` ignores them; `--show-config` prints the result.
+
+- The service scripts start without `/etc/vtesse.conf` when `vtesse` is set.
+- `vtesse --install` without keys and without a configuration installs the binary and
+  the service when `vtesse` is set; keys given to `--install` are also stored with
+  `fw_setenv` when it is available (not with `--root`).
+- `vtesse --uninstall` leaves the variables alone, so a reinstall picks them up again.
+
+Anyone with root or a flash dump can read `vtesse_password`, and the default password
+is derived from the MAC: this mode is for helpdesk access and is no stronger than VTun
+on OpenIPC ([security](security.md)).
 
 ## Configuration file
 

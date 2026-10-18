@@ -38,3 +38,14 @@
 - Only outbound connections are possible through the lwIP backend: nothing behind the
   tunnel can connect to services of the device running VTesse (the tunnel address
   answers ARP and ping only).
+
+## U-Boot environment
+
+- Settings in the [U-Boot environment](usage.md#u-boot-environment-helpdesk-access)
+  (`vtesse`, `vtesse_*`) are readable by anyone with root (`fw_printenv`) or a dump of
+  the flash, including `vtesse_password`, and they survive a firmware upgrade and
+  `vtesse --uninstall`.
+- With only `vtesse` set, the password is derived from the device's MAC the way
+  OpenIPC's VTun client does it: anyone who knows the MAC (it is on the LAN and often on
+  a label) knows the password. This mode is for quick helpdesk access, as VTun on
+  OpenIPC, not for a tunnel that needs a secret.
