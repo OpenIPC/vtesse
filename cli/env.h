@@ -44,6 +44,9 @@ int ve_set_script(const char *script);
 /* The interface of the default route if it has a MAC; -1: none (yet) */
 int ve_route_iface(char *out, size_t size);
 
+/* 1 when there is a default route, through any interface */
+int ve_has_default_route(void);
+
 /* The interface of the default route (/proc/net/route), as OpenIPC's VTun
  * client picks it, if it has a MAC (PPPoE, WireGuard and tun have none); else
  * eth0 if that has one. -1: none of them. */

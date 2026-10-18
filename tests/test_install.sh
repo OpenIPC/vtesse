@@ -243,6 +243,9 @@ printf 'vtesse=h\nvtesse_session=02AB34CD56EF\nvtesse_id_from=eth9\n' > "$T/env/
 PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
 check "vtesse_session and vtesse_id_from both set: refused, not picked by order" \
     '[ $rc -eq 2 ] && grep -q "both set" "$T/log"'
+printf 'vtesse=h\nvtesse_session=02AB34CD56EF\nvtesse_password=p\nvtesse_ip=10.0.0.2/garbage\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "vtesse_ip with a malformed prefix: refused, not taken for /0" '[ $rc -eq 2 ]'
 printf 'host=file.example\nport=6000\nsession=02AB34CD56EF\npassword=filepw\nudp_relay=not-a-port\n' > "$T/r.conf"
 echo vtesse=env.example > "$T/env/vars"
 PATH=$EP "$CLI" --config "$T/r.conf" --show-config >"$T/log" 2>&1; rc=$?

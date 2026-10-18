@@ -171,22 +171,39 @@ int ve_set_script(const char *script)
     return WIFEXITED(st) && WEXITSTATUS(st) == 0 ? 0 : -1;
 }
 
-int ve_route_iface(char *out, size_t size)
+/* The interface of the first default route in /proc/net/route (destination and mask
+ * 0: a VPN's 0.0.0.0/1 is not one), with a MAC when mac is set; -1: none */
+static int default_route(char *out, size_t size, int mac)
 {
     FILE *f = fopen("/proc/net/route", "r");
     char line[256], ifname[64];
-    unsigned long dst;
+    unsigned long dst, gw, mask;
+    unsigned flags;
+    int ref, use, metric;
 
     if (!f)
         return -1;
     while (fgets(line, sizeof(line), f))
-        if (sscanf(line, "%63s %lx", ifname, &dst) == 2 && dst == 0 && has_mac(ifname)) {
+        if (sscanf(line, "%63s %lx %lx %x %d %d %d %lx", ifname, &dst, &gw, &flags, &ref, &use, &metric,
+                   &mask) == 8 && dst == 0 && mask == 0 && (!mac || has_mac(ifname))) {
             snprintf(out, size, "%s", ifname);
             fclose(f);
             return 0;
         }
     fclose(f);
     return -1;
+}
+
+int ve_route_iface(char *out, size_t size)
+{
+    return default_route(out, size, 1);
+}
+
+int ve_has_default_route(void)
+{
+    char ifname[64];
+
+    return default_route(ifname, sizeof(ifname), 0) == 0;
 }
 
 int ve_default_iface(char *out, size_t size)

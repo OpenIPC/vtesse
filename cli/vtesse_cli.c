@@ -313,15 +313,17 @@ static int parse_ip4(const char *s, uint32_t *out)
 static int parse_prefix(const char *s, uint32_t *addr, uint32_t *mask)
 {
     char buf[32];
-    const char *slash = strchr(s, '/');
-    int p;
+    const char *slash = strchr(s, '/'), *d;
+    int p = 0;
 
     if (!slash || (size_t)(slash - s) >= sizeof(buf))
         return -1;
     memcpy(buf, s, (size_t)(slash - s));
     buf[slash - s] = '\0';
-    p = atoi(slash + 1);
-    if (p < 0 || p > 32 || parse_ip4(buf, addr) < 0)
+    /* digits only: "/garbage" must not become /0 */
+    for (d = slash + 1; *d >= '0' && *d <= '9' && p <= 32; d++)
+        p = p * 10 + (*d - '0');
+    if (d == slash + 1 || *d || p > 32 || parse_ip4(buf, addr) < 0)
         return -1;
     *mask = p ? 0xffffffffu << (32 - p) : 0;
     return 0;
@@ -893,10 +895,11 @@ int main(int argc, char **argv)
         /* at boot the uplink (wlan0 with a background udhcpc) may get its default
          * route after the service starts: the MAC must be the uplink's, not eth0's */
         if (!show_config && (!c.password[0] || (!c.session[0] && !c.id_from[0] && !id_from))) {
-            char ifname[32];
             int waited;
 
-            for (waited = 0; waited < ENV_ROUTE_WAIT && ve_route_iface(ifname, sizeof(ifname)) < 0; waited++) {
+            /* any default route ends the wait: through PPPoE or tun (no MAC) eth0 is
+             * taken at once */
+            for (waited = 0; waited < ENV_ROUTE_WAIT && !ve_has_default_route(); waited++) {
                 if (!waited)
                     printf("waiting up to %d s for a default route (the MAC for the VTun defaults)\n",
                            ENV_ROUTE_WAIT);
