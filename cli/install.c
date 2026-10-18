@@ -434,8 +434,6 @@ typedef struct kv {
 
 #define MAX_KEYS 8
 
-/* The interface of the default route (/proc/net/route), as the OpenIPC VTun
- * client picks it; eth0 if there is none. */
 /* The key of a "key=value" line of len bytes, or 0 for a comment, a blank line and
  * anything else. */
 static int key_of(const char *line, size_t len, char *key, size_t size)
