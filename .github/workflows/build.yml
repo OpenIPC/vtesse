@@ -18,7 +18,9 @@
 # MAJOR.MINOR.PATCH) and its notes are one short line; the change history lives
 # in CHANGELOG.md. No versioned releases are kept.
 # On pull requests, .github/check-version.sh checks that a change to the code or
-# the build comes with a new VTESSE_VERSION and its CHANGELOG.md section.
+# the build (this workflow included) comes with a new VTESSE_VERSION and its
+# CHANGELOG.md section, unless the pull request is labelled no-release: a change
+# that leaves the release files as they are. Only the head of main is published.
 #
 
 name: VTesse CI
@@ -28,6 +30,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # labeled / unlabeled: the version check reads the no-release label
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:
 
 # One run per branch: on pull requests a newer push cancels the older run; on
@@ -55,6 +59,9 @@ jobs:
       # base it was made from, so both versions come from the same base.
       - name: Code changes come with a new version
         run: .github/check-version.sh HEAD^1
+        env:
+          # a change that leaves the release files as they are may skip the new version
+          NO_RELEASE: ${{ contains(github.event.pull_request.labels.*.name, 'no-release') }}
 
   # ------------------------------------------------------------------ tests
   tests:
@@ -244,12 +251,22 @@ jobs:
           cp scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse scripts/vtesse.init release/
           ls -l release
 
+      # Only the head of main is published: a re-run of an older run, or a run that
+      # finishes after a newer push, must not put an older commit back as "latest".
+      # Checked last, right before anything is deleted.
       - name: Publish "latest"
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
           VER: ${{ steps.vars.outputs.ver }}
           VTUN: ${{ steps.vars.outputs.vtun }}
         run: |
+          head=$(git ls-remote origin refs/heads/main | cut -f 1)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::notice::main is at ${head:0:7} now, not ${GITHUB_SHA::7}: not published"
+            exit 0
+          fi
+          echo "published=true" >> "$GITHUB_OUTPUT"
           gh release delete latest --cleanup-tag --yes 2>/dev/null || true
           gh release create latest release/* \
             --latest \
@@ -260,7 +277,7 @@ jobs:
       # The Telegram channel gets the APK of every new version, as in OpenIPC/decoder (#33).
       # Organization secrets; a failed upload is reported but does not fail the release.
       - name: Telegram
-        if: steps.vars.outputs.new == 'true'
+        if: steps.vars.outputs.new == 'true' && steps.publish.outputs.published == 'true'
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_TOKEN_BOT_OPENIPC }}
           TG_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL_OPENIPC_DEV }}
