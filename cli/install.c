@@ -25,6 +25,8 @@
 #define _XOPEN_SOURCE 700       /* realpath() */
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -703,6 +705,27 @@ static int service(sys_t sys, const layout_t *l, int start)
     return 0;
 }
 
+/* udhcpc in PATH (the built-in hook does not fall back to dhclient) */
+static int have_udhcpc(void)
+{
+    const char *path = getenv("PATH");
+    char dir[512], file[600];
+
+    while (path && *path) {
+        size_t n = strcspn(path, ":");
+
+        if (n && n < sizeof(dir)) {
+            memcpy(dir, path, n);
+            dir[n] = '\0';
+            snprintf(file, sizeof(file), "%s/udhcpc", dir);
+            if (access(file, X_OK) == 0)
+                return 1;
+        }
+        path += n + (path[n] == ':');
+    }
+    return 0;
+}
+
 static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
 {
     const layout_t *l = &layouts[sys];
@@ -787,6 +810,9 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         }
     }
 
+    if (sys == SYS_SYSTEMD && !have_udhcpc())
+        fprintf(stderr, "vtesse: warning: no udhcpc found: the built-in hook needs BusyBox udhcpc "
+                        "(e.g. the udhcpc package) to get an address on vtesse0\n");
     if (root[0]) {
         printf("--root: the service is not started\n");
         return 0;
@@ -797,6 +823,33 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
     }
     printf(start ? "vtesse is installed and running\n" : "vtesse is installed (not started: --no-start)\n");
     return 0;
+}
+
+/* The PID of S99vtesse's daemon (/var/run/vtesse.pid), 0 if none. */
+static pid_t service_pid(void)
+{
+    FILE *f = fopen("/var/run/vtesse.pid", "r");
+    long pid = 0;
+
+    if (f) {
+        if (fscanf(f, "%ld", &pid) != 1)
+            pid = 0;
+        fclose(f);
+    }
+    return pid > 1 ? (pid_t)pid : 0;
+}
+
+/* 1 when the process has exited within ms milliseconds */
+static int gone(pid_t pid, int ms)
+{
+    for (; ms > 0; ms -= 100) {
+        struct timespec ts = { 0, 100 * 1000000L };
+
+        if (kill(pid, 0) < 0 && errno == ESRCH)
+            return 1;
+        nanosleep(&ts, NULL);
+    }
+    return kill(pid, 0) < 0 && errno == ESRCH;
 }
 
 static int do_uninstall(sys_t sys)
@@ -815,10 +868,11 @@ static int do_uninstall(sys_t sys)
             }
         } else if (sys != SYS_NONE && sys != SYS_SYSTEMD && exists(layouts[sys].init)) {
             const char *stop[] = { layouts[sys].init, "stop", NULL };
-            const char *status[] = { layouts[sys].init, "status", NULL };
+            pid_t pid = sys != SYS_OPENWRT ? service_pid() : 0;
 
-            /* S99vtesse status: 0 while running; procd's vtesse.init stop reports itself */
-            if (run(stop) != 0 || (sys != SYS_OPENWRT && run(status) == 0)) {
+            /* S99vtesse removes its PID file even when the process survives: the PID
+             * is read first and the process watched for up to 5 s */
+            if (run(stop) != 0 || (pid > 0 && !gone(pid, 5000))) {
                 fprintf(stderr, "vtesse: the service is still running; nothing removed\n");
                 return 1;
             }

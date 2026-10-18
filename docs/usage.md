@@ -146,7 +146,7 @@ that file, `--hook none` runs no hook. The hook starts BusyBox `udhcpc` with
   would also capture the connection to the VTun server unless a host route to the
   server exists.
 
-`dhclient` is a fallback in the hook; its stock script has the two problems above.
+`dhclient` is a fallback of a hook file only; its stock script has the two problems above. The built-in hook needs BusyBox `udhcpc` (on a PC: the `udhcpc` package) and refuses to fall back; `--install` warns on a PC without it.
 
 ```sh
 vtesse-cli --config /etc/vtesse.conf --tap --ifname vtesse0

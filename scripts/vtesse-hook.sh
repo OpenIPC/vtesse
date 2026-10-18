@@ -14,8 +14,9 @@
 #
 # DHCP: BusyBox udhcpc with vtesse-udhcpc.script (address and option 121/249
 # routes only; DNS and the default route are left alone, see the script).
-# dhclient is a fallback: its stock script may rewrite /etc/resolv.conf with
-# the tunnel DNS and install a default route through the tunnel.
+# dhclient is a fallback for a hook file only (not for the built-in hook): its
+# stock script may rewrite /etc/resolv.conf with the tunnel DNS and install a
+# default route through the tunnel.
 # Manual IPv4 (ip=, gw=, route= in the vtesse-cli config; required for type tun,
 # which has no DHCP over L3) arrives as VTESSE_IP (A.B.C.D/P), VTESSE_GW and
 # VTESSE_ROUTES ("NET/P NET/P ..."): the address and routes are set here instead of
@@ -35,6 +36,12 @@ fi
 dhcp_start() {
     if command -v udhcpc >/dev/null 2>&1; then
         udhcpc -i "$IF" -b -p "$PIDFILE" -s "$UDHCPC_SCRIPT" -O staticroutes -O msstaticroutes
+    elif [ -n "$VTESSE_SELF" ]; then
+        # the built-in hook does not fall back to dhclient: its stock script may
+        # replace /etc/resolv.conf and add a default route through the tunnel
+        echo "vtesse-hook: no udhcpc found (BusyBox udhcpc, e.g. the udhcpc package);" \
+             "install it, or run with --hook FILE / --hook none" >&2
+        exit 1
     elif command -v dhclient >/dev/null 2>&1; then
         dhclient -nw -pf "$PIDFILE" -lf "/var/lib/dhcp/vtesse.$IF.leases" "$IF"
     else
