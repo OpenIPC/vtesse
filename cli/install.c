@@ -23,6 +23,7 @@
  * --root DIR does all of it below DIR and skips the service (tests, staging).
  */
 #define _XOPEN_SOURCE 700       /* realpath() */
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -35,6 +36,7 @@
 #include <unistd.h>
 
 #include "install.h"
+#include "netcore/route.h"
 #include "vtesse/vtun_proto.h"
 #include "vtesse_scripts.h"     /* generated from scripts/ (tools/embed-scripts.sh) */
 
@@ -397,10 +399,11 @@ typedef struct kv {
 
 /* The interface of the default route (/proc/net/route), as the OpenIPC VTun
  * client picks it; eth0 if there is none. */
-/* 1 when the interface has a usable MAC: PPPoE, WireGuard and tun have none */
+/* 1 when the interface has a MAC the client accepts as the device ID (the same
+ * parser as id_from at runtime): PPPoE, WireGuard and tun have none */
 static int has_mac(const char *ifname)
 {
-    char path[96], line[64];
+    char path[96], line[64], id[13];
     FILE *f;
     int ok;
 
@@ -408,7 +411,7 @@ static int has_mac(const char *ifname)
     f = fopen(path, "r");
     if (!f)
         return 0;
-    ok = fgets(line, sizeof(line), f) && strlen(line) >= 17 && strncmp(line, "00:00:00:00:00:00", 17) != 0;
+    ok = fgets(line, sizeof(line), f) && nc_devid_from_mac_str(line, id) == 0;
     fclose(f);
     return ok;
 }
@@ -515,7 +518,7 @@ static int out_kv(outbuf_t *o, const char *key, const char *val)
 static int build_config(const char *old, kv_t *set, int n, char *out)
 {
     static char iface[64];
-    int has_host = 0, has_port = 0, has_pass = 0, has_id = 0, i;
+    int has_host = 0, has_port = 0, has_pass = 0, has_id = 0, has_ip = 0, has_gw = 0, i;
     outbuf_t o = { out, 0 };
     const char *p = old;
     char key[64];
@@ -557,6 +560,8 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
             has_port |= !strcmp(key, "port");
             has_pass |= !strcmp(key, "password");
             has_id |= !strcmp(key, "session") || !strcmp(key, "id_from");
+            has_ip |= !strcmp(key, "ip");
+            has_gw |= !strcmp(key, "gw") || !strcmp(key, "route");
         }
         p = e + 1;
     }
@@ -567,6 +572,10 @@ static int build_config(const char *old, kv_t *set, int n, char *out)
                 "        [--port 5000] [--session ID | --id-from IFACE] [--ip A.B.C.D/P [--gw A.B.C.D]]\n"
                 "  (--password - reads it from standard input)\n",
                 root, CONF_PATH);
+        return -1;
+    }
+    if (has_gw && !has_ip) {
+        fprintf(stderr, "vtesse: gw and route need ip (--ip A.B.C.D/P)\n");
         return -1;
     }
     if (!has_port && out_kv(&o, "port", "5000") < 0)
@@ -698,6 +707,34 @@ static void migrate_legacy(const layout_t *l, int moved[])
     free(def);
 }
 
+/* 1 when a process named vtesse other than this installer runs (BusyBox pidof of
+ * OpenWrt 15.05 has no -o to leave ourselves out) */
+static int daemon_running(void)
+{
+    DIR *d = opendir("/proc");
+    struct dirent *e;
+    int found = 0;
+
+    if (!d)
+        return 0;
+    while (!found && (e = readdir(d))) {
+        char path[64], comm[32];
+        long pid = strtol(e->d_name, NULL, 10);
+        FILE *f;
+
+        if (pid <= 0 || pid == (long)getpid())
+            continue;
+        snprintf(path, sizeof(path), "/proc/%ld/comm", pid);
+        f = fopen(path, "r");
+        if (!f)
+            continue;
+        found = fgets(comm, sizeof(comm), f) && !strcmp(comm, "vtesse\n");
+        fclose(f);
+    }
+    closedir(d);
+    return found;
+}
+
 static int service(sys_t sys, const layout_t *l, int start)
 {
     if (sys == SYS_SYSTEMD) {
@@ -718,13 +755,14 @@ static int service(sys_t sys, const layout_t *l, int start)
     if (start) {
         const char *restart[] = { l->init, "restart", NULL };
         const char *status[] = { l->init, "status", NULL };
-        const char *pidof[] = { "pidof", "vtesse", NULL };
 
         if (run(restart) != 0)
             return -1;
         sleep(2);
         /* procd's vtesse.init has no status in older OpenWrt: look for the process */
-        return run(sys == SYS_OPENWRT ? pidof : status) == 0 ? 0 : -1;
+        if (sys == SYS_OPENWRT)
+            return daemon_running() ? 0 : -1;
+        return run(status) == 0 ? 0 : -1;
     }
     return 0;
 }
@@ -937,6 +975,18 @@ static int do_uninstall(sys_t sys)
     return rc;
 }
 
+/* A.B.C.D, or A.B.C.D/P with prefix: the forms the client parses */
+static int ip4_ok(const char *v, int prefix)
+{
+    unsigned a, b, c, d, p;
+    char tail;
+
+    if (prefix)
+        return sscanf(v, "%u.%u.%u.%u/%u%c", &a, &b, &c, &d, &p, &tail) == 5 &&
+               a < 256 && b < 256 && c < 256 && d < 256 && p <= 32;
+    return sscanf(v, "%u.%u.%u.%u%c", &a, &b, &c, &d, &tail) == 4 && a < 256 && b < 256 && c < 256 && d < 256;
+}
+
 /* The limits of the runtime parser (load_config in vtesse_cli.c): longer values
  * would be cut there, and it trims spaces around a value. */
 static int check_value(const char *key, const char *v)
@@ -956,6 +1006,14 @@ static int check_value(const char *key, const char *v)
             fprintf(stderr, "vtesse: the %s value is longer than %u characters\n", key, (unsigned)limits[i].max);
             return -1;
         }
+    if (!strcmp(key, "id_from") && (strchr(v, '/') || !strcmp(v, ".") || !strcmp(v, ".."))) {
+        fprintf(stderr, "vtesse: --id-from: an interface name, e.g. eth0\n");
+        return -1;
+    }
+    if ((!strcmp(key, "ip") && !ip4_ok(v, 1)) || (!strcmp(key, "gw") && !ip4_ok(v, 0))) {
+        fprintf(stderr, "vtesse: --%s: expected %s, got '%s'\n", key, !strcmp(key, "ip") ? "A.B.C.D/P" : "A.B.C.D", v);
+        return -1;
+    }
     if (!strcmp(key, "session") && !vt_session_name_valid(v)) {
         fprintf(stderr, "vtesse: --session: no spaces, colons or control characters (a device ID: 12 x 0-9A-F)\n");
         return -1;

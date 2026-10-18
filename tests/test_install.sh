@@ -142,6 +142,12 @@ check "password of 128 characters: refused (127 is the limit)" '[ $rc -eq 2 ]'
 check "password of 127 characters: accepted" '[ $rc -eq 0 ]'
 "$CLI" --install --root "$R" --password " secret" >/dev/null 2>&1; rc=$?
 check "password with a leading space: refused" '[ $rc -eq 2 ]'
+"$CLI" --install --root "$R" --id-from ../eth0 >/dev/null 2>&1; rc=$?
+check "--id-from with a slash: refused" '[ $rc -eq 2 ]'
+"$CLI" --install --root "$R" --ip nope >/dev/null 2>&1; rc=$?
+check "--ip without a prefix: refused" '[ $rc -eq 2 ]'
+"$CLI" --install --root "$R" --system systemd --gw 10.0.0.1 >/dev/null 2>&1; rc=$?
+check "--gw without ip: refused" '[ $rc -ne 0 ] && ! grep -q "^gw=" "$R/etc/vtesse.conf"'
 
 # ---- the built-in udhcpc script: the binary runs it with VTESSE_RUN=udhcpc-script
 mkdir -p "$T/bin"
