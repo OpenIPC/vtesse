@@ -10,7 +10,8 @@
 # tests), the Makefile, ci/, scripts/ and the build workflow
 # (.github/workflows/build.yml) count as code or build, without the Markdown
 # files in them (server/README.md, android/README.md); docs, tests/, bench/,
-# screenshots and the rest of .github/ need no new version.  The script does
+# screenshots and the rest of .github/ (version.yml, which runs this check,
+# included) need no new version.  The script does
 # not tell the build steps of the workflow from its test or release steps:
 # NO_RELEASE=true (the pull request's `no-release` label) lets a change to
 # the code or the build through without a new version, for changes that
