@@ -267,8 +267,15 @@ static void apply_env(cfg_file_t *c, const ve_t *e)
             continue;
         if (dst)
             snprintf(dst, size, "%s", v);
-        else
-            c->port = atoi(v);
+        else {
+            char *end;
+            long port = strtol(v, &end, 10);
+
+            /* -1: check_config() refuses it, a typo must not become port 5000 */
+            c->port = *end || port < 1 || port > 65535 ? -1 : (int)port;
+            if (c->port < 0)
+                fprintf(stderr, "vtesse_port: expected 1..65535, got '%s'\n", v);
+        }
         /* session and id_from exclude each other: the variable replaces the file's */
         if (!strcmp(key, "session"))
             c->id_from[0] = '\0';
@@ -889,16 +896,21 @@ int main(int argc, char **argv)
         fprintf(stderr, "%s: session or id_from is required\n", config);
         return 2;
     }
-    if (env_mode && !c.password[0] && c.id_from[0]) {
-        char mac_str[18];
+    if (env_mode && !c.password[0]) {
+        char mac_str[18], pw_if[32];
 
-        if (ve_iface_mac(c.id_from, mac_str) < 0) {
-            fprintf(stderr, "cannot read the MAC of %s for the password\n", c.id_from);
+        /* the interface of the session, or (with an explicit session) the default one */
+        if (c.id_from[0])
+            snprintf(pw_if, sizeof(pw_if), "%s", c.id_from);
+        else if (ve_default_iface(pw_if, sizeof(pw_if)) < 0)
+            pw_if[0] = '\0';
+        if (!pw_if[0] || ve_iface_mac(pw_if, mac_str) < 0) {
+            fprintf(stderr, "no interface with a MAC for the password: set vtesse_password\n");
             return 2;
         }
         ve_vtun_password(mac_str, c.password);
         derived_password = 1;
-        printf("password: SHA-1 of the MAC of %s, as VTun on OpenIPC\n", c.id_from);
+        printf("password: SHA-1 of the MAC of %s, as VTun on OpenIPC\n", pw_if);
     }
     if (check_config(&c, env_mode ? "U-Boot environment and config" : config) < 0)
         return 2;

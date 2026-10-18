@@ -36,7 +36,7 @@ int ve_load(ve_t *e);
 /* 1 when fw_setenv is in PATH */
 int ve_can_write(void);
 
-/* fw_setenv NAME VALUE; 0 on success */
+/* fw_setenv NAME VALUE, or fw_setenv NAME (deletes it) for a NULL value; 0 on success */
 int ve_set(const char *name, const char *value);
 
 /* The interface of the default route (/proc/net/route), as OpenIPC's VTun

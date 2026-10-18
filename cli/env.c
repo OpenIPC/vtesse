@@ -104,7 +104,11 @@ int ve_set(const char *name, const char *value)
     int st;
 
     if (pid == 0) {
-        execlp("fw_setenv", "fw_setenv", name, value, (char *)NULL);
+        /* no value: fw_setenv NAME deletes the variable */
+        if (value)
+            execlp("fw_setenv", "fw_setenv", name, value, (char *)NULL);
+        else
+            execlp("fw_setenv", "fw_setenv", name, (char *)NULL);
         _exit(127);
     }
     if (pid < 0)

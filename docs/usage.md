@@ -245,9 +245,10 @@ with `fw_printenv`; without it (a PC, most OpenWrt routers) this step is skipped
 `--no-env` ignores them; `--show-config` prints the result.
 
 - The service scripts start without `/etc/vtesse.conf` when `vtesse` is set.
-- `vtesse --install` without keys and without a configuration installs the binary and
-  the service when `vtesse` is set; keys given to `--install` are also stored with
-  `fw_setenv` when it is available (not with `--root`).
+- `vtesse --install` without a configuration installs the binary and the service when
+  `vtesse` is set; keys given to `--install` are also stored with `fw_setenv` when it is
+  available (`vtesse_session` and `vtesse_id_from` replace each other), and a failed
+  `fw_setenv` stops the install. With `--root` this machine's environment is not used.
 - `vtesse --uninstall` leaves the variables alone, so a reinstall picks them up again.
 
 Anyone with root or a flash dump can read `vtesse_password`, and the default password

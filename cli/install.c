@@ -857,7 +857,8 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         return 1;
     }
     printf("system: %s%s\n", l->name, root[0] ? " (below --root)" : "");
-    if (ve_load(&env))
+    /* this device's environment: under --root it says nothing about the image */
+    if (!root[0] && ve_load(&env))
         snprintf(env_host, sizeof(env_host), "%s", env.host);
 
     /* the configuration first: nothing is written when it is incomplete */
@@ -866,7 +867,9 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         fprintf(stderr, "vtesse: cannot read %s: %s\n", rp(CONF_PATH), strerror(errno));
         return 1;
     }
-    if (!old && n == 0 && env_host[0]) {
+    /* the server is in the U-Boot environment and there is no file: given keys go
+     * there too (below), so no file is needed */
+    if (!old && env_host[0] && (n == 0 || ve_can_write())) {
         /* helpdesk set-up (#64): the settings come from the U-Boot environment */
         conf[0] = '\0';
     } else if (build_config(old, set, n, conf) < 0) {
@@ -912,13 +915,21 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         int k;
 
         for (k = 0; k < n; k++)
-            for (v = 0; v < ve_nvars; v++)
-                if (!strcmp(ve_vars[v].key, set[k].key)) {
-                    if (ve_set(ve_vars[v].name, set[k].val) == 0)
-                        printf("U-Boot environment: %s set\n", ve_vars[v].name);
-                    else
-                        fprintf(stderr, "vtesse: fw_setenv %s failed\n", ve_vars[v].name);
+            for (v = 0; v < ve_nvars; v++) {
+                const char *other = !strcmp(set[k].key, "session") ? "vtesse_id_from" :
+                                    !strcmp(set[k].key, "id_from") ? "vtesse_session" : NULL;
+
+                if (strcmp(ve_vars[v].key, set[k].key) != 0)
+                    continue;
+                /* the variable would override the new key at runtime: a failure stops here */
+                if (ve_set(ve_vars[v].name, set[k].val) != 0 || (other && ve_set(other, NULL) != 0)) {
+                    fprintf(stderr, "vtesse: fw_setenv %s failed: the service is not started\n",
+                            ve_vars[v].name);
+                    return 1;
                 }
+                printf("U-Boot environment: %s set%s%s%s\n", ve_vars[v].name, other ? ", " : "",
+                       other ? other : "", other ? " cleared" : "");
+            }
     }
     if (sys == SYS_OPENWRT) {
         const char *keep = "/usr/bin/vtesse\n/usr/libexec/vtesse/\n/etc/init.d/vtesse\n"

@@ -199,9 +199,16 @@ if [ -n "$iface" ] && [ -r "/sys/class/net/$iface/address" ]; then
     check "env: only the server -> port 5000, session = MAC of $iface, password as VTun" \
         'grep -qx "host vtun.helpdesk" "$T/log" && grep -qx "port 5000" "$T/log" &&
          grep -qx "session $id" "$T/log" && grep -qx "password $pw" "$T/log"'
+    printf 'vtesse=vtun.helpdesk\nvtesse_session=02AB34CD56EF\n' > "$T/env/vars"
+    PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1
+    check "env: an explicit session still gets the MAC-derived password" \
+        'grep -qx "session 02AB34CD56EF" "$T/log" && grep -qx "password $pw" "$T/log"'
 else
     echo "SKIP  env defaults: no default route"
 fi
+printf 'vtesse=vtun.helpdesk\nvtesse_port=60x0\nvtesse_password=p\nvtesse_session=02AB34CD56EF\n' > "$T/env/vars"
+PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "a mistyped vtesse_port is refused, not turned into 5000" '[ $rc -ne 0 ] && grep -q "vtesse_port: expected" "$T/log"'
 printf 'host=file.example\nport=6000\nsession=02AB34CD56EF\npassword=filepw\n' > "$T/f.conf"
 printf 'vtesse=env.example\nvtesse_port=7000\nbootargs=x\n' > "$T/env/vars"
 PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
@@ -219,8 +226,8 @@ mkdir -p "$R/etc"
 printf 'NAME=Buildroot\nOPENIPC_VERSION=2.6\n' > "$R/etc/os-release"
 echo "vtesse=vtun.helpdesk" > "$T/env/vars"
 PATH=$EP "$CLI" --install --root "$R" >"$T/log" 2>&1; rc=$?
-check "install without keys when the server is in the environment: no config written" \
-    '[ $rc -eq 0 ] && [ ! -e "$R/etc/vtesse.conf" ] && [ -x "$R/usr/bin/vtesse" ] && grep -q "U-Boot environment" "$T/log"'
+check "--root: this machine's environment does not stand in for the image's config" \
+    '[ $rc -ne 0 ] && [ ! -e "$R/usr/bin/vtesse" ] && grep -q "needs at least the server" "$T/log"'
 PATH=$EP "$CLI" --install --root "$R" --host h --password p >/dev/null 2>&1
 check "--root: fw_setenv is not called" '[ ! -e "$T/env/setenv.log" ]'
 PATH=$EP "$CLI" --uninstall --root "$R" >"$T/log" 2>&1
