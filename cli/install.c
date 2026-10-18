@@ -609,7 +609,8 @@ static int build_config(const char *old, kv_t *set, int n, char *out, const ve_t
         fprintf(stderr, "vtesse: %s%s: port must be 1..65535: give --port\n", root, CONF_PATH);
         return -1;
     }
-    if (has_session && has_idfrom) {
+    /* vtesse_session or vtesse_id_from replaces both keys at runtime */
+    if (has_session && has_idfrom && !(env && (env->session[0] || env->id_from[0]))) {
         fprintf(stderr, "vtesse: %s%s has both session and id_from: give --session or --id-from\n", root, CONF_PATH);
         return -1;
     }
