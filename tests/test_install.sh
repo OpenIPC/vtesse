@@ -109,7 +109,25 @@ check "systemd: binary in /usr/local/bin, unit in /etc/systemd/system" \
     '[ -x "$R/usr/local/bin/vtesse" ] && cmp -s "$SCRIPTS/vtesse.service" "$R/etc/systemd/system/vtesse.service"'
 check "--password - reads standard input" 'conf_has "$R" password=h'
 
+# ---- a commented OPENIPC_VERSION is not OpenIPC; symlinks are not followed
+R=$T/other
+mkdir -p "$R/etc/init.d" "$T/outside"
+printf 'NAME=Debian\n#OPENIPC_VERSION=1\n' > "$R/etc/os-release"
+"$CLI" --install --root "$R" --host h --password p >"$T/log" 2>&1
+check "commented OPENIPC_VERSION: BusyBox init, not OpenIPC" 'grep -q "system: BusyBox" "$T/log"'
+ln -s "$T/outside/conf" "$R/etc/vtesse.conf.new"
+"$CLI" --install --root "$R" --port 6000 >/dev/null 2>&1
+check "a symlink at PATH.new is not followed" '[ ! -e "$T/outside/conf" ] && conf_has "$R" port=6000'
+"$CLI" --uninstall --root "$R" >/dev/null 2>&1
+echo keep > "$T/outside/vtesse-hook.sh"
+mkdir -p "$R/usr/share"
+ln -s "$T/outside" "$R/usr/libexec"
+ln -s "$T/outside" "$R/usr/share/vtesse"
+"$CLI" --uninstall --root "$R" >/dev/null 2>&1
+check "uninstall does not delete through a symlinked directory" '[ -f "$T/outside/vtesse-hook.sh" ]'
+
 # ---- bad arguments
+R=$T/pc
 "$CLI" --install --root "$R" --session A --id-from eth0 >/dev/null 2>&1; rc=$?
 check "--session and --id-from together: refused" '[ $rc -eq 2 ]'
 "$CLI" --install --root "$R" --port 70000 >/dev/null 2>&1; rc=$?

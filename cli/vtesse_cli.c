@@ -716,10 +716,9 @@ int main(int argc, char **argv)
             tc.ifname = argv[++i];
         else if (!strcmp(argv[i], "--hook") && i + 1 < argc) {
             hook = argv[++i];
-            if (!strcmp(hook, "none")) {
+            no_hook = !strcmp(hook, "none");    /* the last --hook wins */
+            if (no_hook)
                 hook = NULL;
-                no_hook = 1;
-            }
         }
 #else
         else if (!strcmp(argv[i], "--tap") || !strcmp(argv[i], "--ifname") || !strcmp(argv[i], "--hook")) {

@@ -225,7 +225,9 @@ static int write_file(const char *path, const void *data, size_t len, mode_t mod
         return -1;
     }
     snprintf(tmp, sizeof(tmp), "%s.new", path);
-    fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, mode);
+    /* a fresh file: a left-over PATH.new, or a symlink in its place, is not followed */
+    unlink(tmp);
+    fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode);
     if (fd < 0) {
         fprintf(stderr, "vtesse: cannot write %s: %s\n", tmp, strerror(errno));
         return -1;
@@ -332,12 +334,23 @@ static int run(const char *const argv[])
 
 /* ---- system detection (#51) ---- */
 
-static int file_has(const char *path, const char *needle)
+/* 1 when a line of the file starts with prefix (a "KEY=" assignment of os-release;
+ * comments and other keys do not count) */
+static int file_has_line(const char *path, const char *prefix)
 {
-    size_t len;
-    char *s = read_file(path, &len);
-    int found = s && strstr(s, needle);
+    size_t len, n = strlen(prefix);
+    char *s = read_file(path, &len), *p;
+    int found = 0;
 
+    for (p = s; p && *p; ) {
+        char *e = strchr(p, '\n');
+
+        if (!strncmp(p, prefix, n)) {
+            found = 1;
+            break;
+        }
+        p = e ? e + 1 : p + strlen(p);
+    }
     free(s);
     return found;
 }
@@ -348,7 +361,7 @@ static sys_t detect(void)
 
     if (exists(rp("/etc/openwrt_release")))
         return SYS_OPENWRT;
-    if (file_has(rp("/etc/os-release"), "OPENIPC_VERSION="))
+    if (file_has_line(rp("/etc/os-release"), "OPENIPC_VERSION="))
         return SYS_OPENIPC;
     if (stat(rp("/run/systemd/system"), &st) == 0 && S_ISDIR(st.st_mode))
         return SYS_SYSTEMD;
@@ -560,16 +573,22 @@ static void usage(void)
 static int copy_self(const char *dst)
 {
     const char *src = vi_self_path();
-    char rsrc[1024], rdst[1024];
+    char *rsrc, *rdst;
     size_t len;
     char *data;
-    int rc;
+    int rc, same;
 
     if (!src[0]) {
         fprintf(stderr, "vtesse: cannot find the running binary (/proc/self/exe)\n");
         return -1;
     }
-    if (realpath(src, rsrc) && realpath(dst, rdst) && !strcmp(rsrc, rdst)) {
+    /* realpath() allocates: a fixed buffer must be PATH_MAX (glibc's fortify aborts) */
+    rsrc = realpath(src, NULL);
+    rdst = realpath(dst, NULL);
+    same = rsrc && rdst && !strcmp(rsrc, rdst);
+    free(rsrc);
+    free(rdst);
+    if (same) {
         printf("binary %s (already in place)\n", dst);
         return 0;
     }
@@ -709,6 +728,12 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         return 1;
     }
 
+    /* S99vtesse finds its daemon by the executable (start-stop-daemon -x): stop it
+     * before the binary is replaced, or the restart below would miss it */
+    if (!root[0] && (sys == SYS_OPENIPC || sys == SYS_BUSYBOX) && exists(l->init)) {
+        const char *stop[] = { l->init, "stop", NULL };
+        run(stop);
+    }
     if (copy_self(rp(l->bin)) < 0) {
         free(old);
         return 1;
@@ -803,8 +828,17 @@ static int do_uninstall(sys_t sys)
         if (remove_file(rp(all_files[i])) < 0)
             rc = 1;
     for (i = 0; i < sizeof(all_dirs) / sizeof(all_dirs[0]); i++) {
+        struct stat st;
         size_t j;
         char path[1024];
+
+        /* never through a symlink: only a real directory of ours is emptied */
+        if (lstat(rp(all_dirs[i]), &st) < 0)
+            continue;
+        if (!S_ISDIR(st.st_mode)) {
+            fprintf(stderr, "vtesse: %s is not a directory, left in place\n", rp(all_dirs[i]));
+            continue;
+        }
 
         for (j = 0; j < sizeof(hook_scripts) / sizeof(hook_scripts[0]); j++) {
             snprintf(path, sizeof(path), "%s%s/%s", root, all_dirs[i], hook_scripts[j]);
