@@ -68,7 +68,7 @@
 #define MEM_ALIGNMENT                   4
 #endif
 #define MEMP_NUM_UDP_PCB                4
-#define MEMP_NUM_TCP_PCB_LISTEN         1
+#define MEMP_NUM_TCP_PCB_LISTEN         4       /* accept= listeners (#67) */
 #define TCP_SND_QUEUELEN                ((4 * (TCP_SND_BUF) + (TCP_MSS - 1)) / (TCP_MSS))
 
 /* ---- protocols ---- */

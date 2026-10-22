@@ -35,9 +35,13 @@
 - Credentials are read from a configuration file only (never from the command line,
   where other users could see them in the process list); keep it with mode 600. The
   CLI wipes the password from memory after use.
-- Only outbound connections are possible through the lwIP backend: nothing behind the
-  tunnel can connect to services of the device running VTesse (the tunnel address
-  answers ARP and ping only).
+- Without `accept=` only outbound connections are possible: nothing behind the tunnel
+  can connect to services of the device running VTesse (the tunnel address answers ARP
+  and ping only). Each `accept=` line ([inbound forwards](usage.md#inbound-forwards))
+  opens one port of the device to everyone on the VTun server side, in clear text. The
+  service started by `vtesse --install` or the U-Boot environment opens 80, 22 and 554
+  by default, to the device's LAN address: its own logins (web, ssh, RTSP) still
+  apply, so keep them set; remove the `accept` lines that are not needed.
 
 ## U-Boot environment
 

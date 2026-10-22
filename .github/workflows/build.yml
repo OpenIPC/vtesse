@@ -64,11 +64,8 @@ jobs:
             CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" \
             LDFLAGS="-fsanitize=address,undefined" test
 
-      - name: TAP-only build (LWIP=0)
-        run: make -j"$(nproc)" BUILD=build-tap LWIP=0 all
-
-      - name: Minimal lwIP build (SOCKS=0 UDP_RELAY=0 TAP=0) and its tests
-        run: make -j"$(nproc)" BUILD=build-min SOCKS=0 UDP_RELAY=0 TAP=0 test
+      - name: Minimal build (SOCKS=0 UDP_RELAY=0) and its tests
+        run: make -j"$(nproc)" BUILD=build-min SOCKS=0 UDP_RELAY=0 test
 
   # ------------------------------------------------------------------ cross
   build:
@@ -140,10 +137,10 @@ jobs:
       - name: Stage 2 acceptance (SOCKS5, port forwards)
         run: bench/bench.sh proxy-test
 
-      - name: TAP backend acceptance
-        run: bench/bench.sh tap-test
+      - name: Inbound forwards and ip=learn acceptance (#67, #68)
+        run: bench/bench.sh accept-test
 
-      - name: type tun acceptance (manual IPv4, lwIP and TAP)
+      - name: type tun acceptance (manual IPv4)
         run: bench/bench.sh tun-test
 
       - name: UDP relay acceptance (RTP from cameras)
@@ -234,7 +231,7 @@ jobs:
           apk=$(find artifacts -type f -name app-release.apk | head -1)
           [ -n "$apk" ] || { echo "::error::no signed release APK"; exit 1; }
           cp "$apk" release/vtesse-android.apk
-          cp scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse scripts/vtesse.init release/
+          cp scripts/S99vtesse scripts/vtesse.init release/
           ls -l release
 
       # Only the head of main is published: a re-run of an older run, or a run that

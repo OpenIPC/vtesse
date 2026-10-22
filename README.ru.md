@@ -19,7 +19,8 @@
 
 - **Без VPN:** не нужны root, `/dev/net/tun` и Android `VpnService` (нет значка VPN)
 - **VTun:** серверы 3.0.x, транспорт TCP, сессии `type ether` и `type tun`, ответ на challenge методом XOR, keepalive, автоматическое переподключение с экспоненциальной задержкой
-- **Сеть:** адрес и маршруты по DHCP через туннель (опция 121, RFC 3442), IPv4, только исходящие подключения
+- **Сеть:** адрес и маршруты по DHCP через туннель (опция 121, RFC 3442), а для `type tun` — вручную или из первого пакета, который пришлёт сервер (`ip=learn`); IPv4
+- **Входящий доступ:** подключения с сервера к адресу туннеля доходят до служб самого устройства (`accept=80`): веб-интерфейс камеры, ssh и RTSP, по-прежнему без интерфейса ядра
 - **UDP-ретранслятор:** RTP, который камера шлёт на адрес в туннеле, попадает в локальный плеер (`--udp-relay`)
 - **Локальный прокси:** SOCKS5 `CONNECT` с необязательной аутентификацией по логину и паролю, статический проброс TCP-портов (например, RTSP по TCP для видеоплееров)
 - **Платформы:** встраиваемый Linux (IP-камеры, роутеры; ARM и MIPS, в том числе big-endian, uClibc/musl), Android, в будущем — встраиваемый модуль связи
@@ -37,7 +38,7 @@
 | 64-битный ARM: Raspberry Pi с 64-битной ОС, Rockchip, другие платы ARM64                      | `arm64`  |
 | ПК и серверы                                                                                  | `x86_64` |
 
-На каждую платформу один бинарник, `vtesse-ARCH`, с обоими режимами: lwIP (SOCKS5 / проброс портов без root) и TAP (интерфейс ядра с `--tap`). Режиму TAP нужны root и драйвер `tun` (`/dev/net/tun`); хук-скрипты `vtesse-hook.sh` и `vtesse-udhcpc.script` встроены в бинарник. До версии 1.12 выкладывался ещё `vtesse-tap-ARCH` (только TAP); его ссылки теперь отдают 404, вместо него — `vtesse-ARCH --tap`.
+На каждую платформу один бинарник, `vtesse-ARCH`: стек в пространстве пользователя с локальным прокси и входящими пробросами, root не нужен. Режим TAP (интерфейс ядра с `--tap`) удалён в 2.0.0 ([#72](https://github.com/OpenIPC/vtesse/issues/72)): `--tap` отклоняется, хук-скрипты `vtesse-hook.sh` и `vtesse-udhcpc.script` больше не выкладываются (их ссылки отдают 404).
 
 В релизах также есть сервер VTun для ПК и серверов, `vtund-3.0.2-x86_64`: оригинальный VTun 3.0.2 с нашими патчами (отказ во входе пишется в лог с ID устройства и причиной), см. [server/README.md](server/README.md). Для камер и роутеров vtund при необходимости собирается в среде OpenIPC.
 
@@ -45,19 +46,17 @@
 
 Релиз один — [`latest`](https://github.com/OpenIPC/vtesse/releases/latest), с заголовком `VTesse <версия>`; он пересобирается при каждом push в `main`, релизы по версиям не хранятся. В именах файлов нет версии (только у сервера VTun — версия VTun), поэтому эти ссылки не меняются:
 
-| Файл                   | Что это                                                        | Постоянная ссылка                                                                 |
-|------------------------|----------------------------------------------------------------|-----------------------------------------------------------------------------------|
-| `vtesse-arm32`         | клиент, 32-битный ARM                                          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32>         |
-| `vtesse-mipsel`        | клиент, MIPS little-endian                                     | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mipsel>        |
-| `vtesse-mips`          | клиент, MIPS big-endian                                        | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mips>          |
-| `vtesse-arm64`         | клиент, 64-битный ARM                                          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm64>         |
-| `vtesse-x86_64`        | клиент, ПК и серверы                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-x86_64>        |
-| `vtesse-android.apk`   | приложение для Android                                         | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk>   |
-| `vtund-3.0.2-x86_64`   | сервер VTun с нашими патчами, ПК (имя меняется с версией VTun) | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtund-3.0.2-x86_64>   |
-| `vtesse-hook.sh`       | хук-скрипт режима TAP (встроен в бинарник; для `--hook FILE`)  | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-hook.sh>       |
-| `vtesse-udhcpc.script` | скрипт udhcpc для интерфейса TAP (встроен)                     | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
-| `S99vtesse`            | init-скрипт, OpenIPC (BusyBox; его пишет `--install`)          | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
-| `vtesse.init`          | init-скрипт, OpenWrt (procd; его пишет `--install`)            | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
+| Файл                 | Что это                                                        | Постоянная ссылка                                                               |
+|----------------------|----------------------------------------------------------------|---------------------------------------------------------------------------------|
+| `vtesse-arm32`       | клиент, 32-битный ARM                                          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32>       |
+| `vtesse-mipsel`      | клиент, MIPS little-endian                                     | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mipsel>      |
+| `vtesse-mips`        | клиент, MIPS big-endian                                        | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mips>        |
+| `vtesse-arm64`       | клиент, 64-битный ARM                                          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm64>       |
+| `vtesse-x86_64`      | клиент, ПК и серверы                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-x86_64>      |
+| `vtesse-android.apk` | приложение для Android                                         | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk> |
+| `vtund-3.0.2-x86_64` | сервер VTun с нашими патчами, ПК (имя меняется с версией VTun) | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtund-3.0.2-x86_64> |
+| `S99vtesse`          | init-скрипт, OpenIPC (BusyBox; его пишет `--install`)          | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>          |
+| `vtesse.init`        | init-скрипт, OpenWrt (procd; его пишет `--install`)            | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>        |
 
 ```sh
 curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32 &&
@@ -66,7 +65,7 @@ curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-ar
 
 ### Установка службой: камера OpenIPC, роутер OpenWrt, Linux на ПК
 
-От root: скачайте бинарник для своего `ARCH` (см. таблицу) и дайте ему установить себя. Он определяет систему, копирует себя в `/usr/bin/vtesse` (на ПК — в `/usr/local/bin`), пишет `/etc/vtesse.conf` (права 600) из ключей и init-скрипт (OpenIPC — `S99vtesse`, OpenWrt — procd `vtesse.init`, systemd — `vtesse.service`) и запускает службу сразу и при каждой загрузке. Хук-скрипты встроены. На OpenWrt установка переживает `sysupgrade`.
+От root: скачайте бинарник для своего `ARCH` (см. таблицу) и дайте ему установить себя. Он определяет систему, копирует себя в `/usr/bin/vtesse` (на ПК — в `/usr/local/bin`), пишет `/etc/vtesse.conf` (права 600) из ключей и init-скрипт (OpenIPC — `S99vtesse`, OpenWrt — procd `vtesse.init`, systemd — `vtesse.service`) и запускает службу сразу и при каждой загрузке. На OpenWrt установка переживает `sysupgrade`. Служба работает на стеке в пространстве пользователя; сервер достаёт до веб-интерфейса, ssh и RTSP устройства по адресу туннеля: `--install` пишет в `/etc/vtesse.conf` строки `accept=80`, `accept=22` и `accept=554`, если строк `accept` там нет ([inbound forwards](docs/usage.md#inbound-forwards)), а подключения уходят на собственный LAN-адрес устройства, поэтому веб-интерфейс спрашивает пароль, как из локальной сети.
 
 ```sh
 ARCH=arm32   # arm32 или mipsel на камерах, mipsel / mips / arm64 на роутерах, x86_64 на ПК
@@ -79,10 +78,10 @@ curl -fsSL -o /tmp/vtesse https://github.com/OpenIPC/vtesse/releases/latest/down
 - `--password -` читает пароль со стандартного ввода, а не из командной строки. Без `--port` порт — 5000.
 - Существующий `/etc/vtesse.conf` сохраняется: `vtesse --install` без ключей только обновляет бинарник и init-скрипт, заданные снова ключи заменяют свои строки. Файл — обычные строки `key=value` ([configuration file](docs/usage.md#configuration-file)).
 - `vtesse --uninstall` останавливает службу и удаляет всё, включая `/etc/vtesse.conf`.
-- `--scripts` дополнительно пишет хук-скрипты в `/usr/libexec/vtesse` для правки; `--no-start` устанавливает без запуска. Все ключи: [Installation](docs/usage.md#installation).
-- На OpenWrt режиму TAP нужен драйвер `tun`: `opkg update && opkg install kmod-tun` (на OpenWrt 25+: `apk add kmod-tun`).
+- `--no-start` устанавливает без запуска. Все ключи: [Installation](docs/usage.md#installation).
+- Обновление установки 1.x удаляет её хук-скрипты; `ARGS="--tap ..."` в `/etc/default/vtesse` установщик называет, и его нужно убрать вручную, иначе служба не запустится.
 
-**Доступ для техподдержки** на камере OpenIPC с установленным vtesse: достаточно `fw_setenv vtesse vtun.example.org` и перезагрузки, как с `fw_setenv vtun` для VTun. Если задан только сервер, порт — 5000, сессия — MAC интерфейса по умолчанию, а пароль получается из него так же, как у VTun-клиента OpenIPC; `vtesse_port`, `vtesse_password` и другие переменные это переопределяют ([U-Boot environment](docs/usage.md#u-boot-environment-helpdesk-access)). `fw_setenv vtesse` выключает доступ. Эти переменные, включая `vtesse_password`, может прочитать любой с root или с дампом флешки, а пароль из MAC не секрет (MAC виден в локальной сети): режим — для доступа техподдержки и защищён не сильнее, чем VTun в OpenIPC ([security](docs/security.md)).
+**Доступ для техподдержки** на камере OpenIPC с установленным vtesse: достаточно `fw_setenv vtesse vtun.example.org` и перезагрузки, как с `fw_setenv vtun` для VTun. Если задан только сервер, порт — 5000, сессия — MAC интерфейса по умолчанию, а пароль получается из него так же, как у VTun-клиента OpenIPC; `vtesse_port`, `vtesse_password` и другие переменные это переопределяют ([U-Boot environment](docs/usage.md#u-boot-environment-helpdesk-access)). Сервер тогда достаёт до веб-интерфейса, ssh и RTSP камеры по адресу туннеля (порты 80, 22, 554, если строки `accept=` в `/etc/vtesse.conf` не задают другие). `fw_setenv vtesse` выключает доступ. Эти переменные, включая `vtesse_password`, может прочитать любой с root или с дампом флешки, а пароль из MAC не секрет (MAC виден в локальной сети): режим — для доступа техподдержки и защищён не сильнее, чем VTun в OpenIPC ([security](docs/security.md)).
 
 Управление службой: `/etc/init.d/S99vtesse start|stop|restart|status` на OpenIPC (настройки переопределяются в `/etc/default/vtesse`), `/etc/init.d/vtesse start|stop` на OpenWrt, `systemctl status vtesse` на ПК.
 
@@ -90,7 +89,7 @@ curl -fsSL -o /tmp/vtesse https://github.com/OpenIPC/vtesse/releases/latest/down
 
 Пока не поддерживается. KeeneticOS (NDMS) — закрытая прошивка: по SSH доступна только командная строка NDMS, Linux-shell нет. Свои программы запускаются только через компонент **OPKG**, который ставит Entware в `/opt` на том хранения (`opkg disk <том> <URL установщика>`), поэтому роутеру нужна USB-флешка или внутренний раздел `storage:`.
 
-Проверено на Netcraze Explorer NC-1621 (ребренд Keenetic, NDMS 5.2 beta, MIPS, 128 МБ RAM, `small_flash`): компонент `opkg` есть и ставится (`components install opkg`, `components commit`, прошивка пересобирается, роутер перезагружается), но у модели нет USB и раздела `storage:`, а Entware на RAM-диск `temp:` роутер ставить отказывается (`unsuitable disk type`). Дальше: Keenetic с USB-портом (MT7621 или arm64) и пакет `.ipk` с `vtesse-mipsel`/`vtesse-arm64`, init-скриптом Entware и хуками NDMS для TAP-бэкенда.
+Проверено на Netcraze Explorer NC-1621 (ребренд Keenetic, NDMS 5.2 beta, MIPS, 128 МБ RAM, `small_flash`): компонент `opkg` есть и ставится (`components install opkg`, `components commit`, прошивка пересобирается, роутер перезагружается), но у модели нет USB и раздела `storage:`, а Entware на RAM-диск `temp:` роутер ставить отказывается (`unsuitable disk type`). Дальше: Keenetic с USB-портом (MT7621 или arm64) и пакет `.ipk` с `vtesse-mipsel`/`vtesse-arm64` и init-скриптом Entware.
 
 ### Linux на ПК, Raspberry Pi
 
@@ -102,7 +101,7 @@ curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/lat
 ~/.local/bin/vtesse --config ~/.config/vtesse/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
 
-В файле те же строки `key=value`, что в `/etc/vtesse.conf` (см. [Сборка из исходников](#сборка-из-исходников)). Режим TAP службой systemd — установкой, как выше.
+В файле те же строки `key=value`, что в `/etc/vtesse.conf` (см. [Сборка из исходников](#сборка-из-исходников)). Службой systemd — установкой, как выше.
 
 ### Android
 
@@ -134,33 +133,34 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 
 Документация на английском языке.
 
-| Документ                             | Содержание                                                                                                                          |
-|--------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
-| [Usage](docs/usage.md)               | сборка, опции `vtesse-cli`, файл конфигурации, ID устройства, DHCP и маршруты, локальный прокси, сообщения об ошибках, утилита-зонд |
-| [VTun protocol](docs/protocol.md)    | рукопожатие, ответ на challenge, флаги сессии, кадры, keepalive, особенности сервера, важные для клиента, UDP                       |
-| [Architecture](docs/architecture.md) | слои, `tunnel_ops_t`, клиент VTun, стек lwIP, прокси и управление потоком, структура репозитория                                    |
-| [Embedding](docs/embedding.md)       | использование библиотек в другом приложении, интеграция с циклом событий, пример                                                    |
-| [Security](docs/security.md)         | слабые места аутентификации VTun, открытый трафик, доступ к локальному прокси                                                       |
-| [VTun server](server/README.md)      | сборки vtund с патчами, бинарники в релизах, список патчей                                                                          |
-| [Testing](docs/testing.md)           | юнит-тесты, санитайзеры, big-endian MIPS, тестовый стенд в Docker и приёмочные тесты                                                |
+| Документ                             | Содержание                                                                                                                                             |
+|--------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [Usage](docs/usage.md)               | сборка, опции `vtesse-cli`, файл конфигурации, ID устройства, DHCP и маршруты, локальный прокси, входящие пробросы, сообщения об ошибках, утилита-зонд |
+| [VTun protocol](docs/protocol.md)    | рукопожатие, ответ на challenge, флаги сессии, кадры, keepalive, особенности сервера, важные для клиента, UDP                                          |
+| [Architecture](docs/architecture.md) | слои, `tunnel_ops_t`, клиент VTun, стек lwIP, прокси и управление потоком, структура репозитория                                                       |
+| [Embedding](docs/embedding.md)       | использование библиотек в другом приложении, интеграция с циклом событий, пример                                                                       |
+| [Security](docs/security.md)         | слабые места аутентификации VTun, открытый трафик, доступ к локальному прокси                                                                          |
+| [VTun server](server/README.md)      | сборки vtund с патчами, бинарники в релизах, список патчей                                                                                             |
+| [Testing](docs/testing.md)           | юнит-тесты, санитайзеры, big-endian MIPS, тестовый стенд в Docker и приёмочные тесты                                                                   |
 
 ## План работ
 
 Этапы и задачи ведутся в [GitHub Issues](https://github.com/OpenIPC/vtesse/issues):
 
-| Этап                                                                | Статус     | Задачи                                                                                                                                                                                                                                                                                                                                                                      |
-|---------------------------------------------------------------------|------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0. Тестовый стенд (VTun 3.0.2 в Docker, мост, DHCP с опцией 121)    | ✅ Готово  | [#1](https://github.com/OpenIPC/vtesse/issues/1) ✅                                                                                                                                                                                                                                                                                                                         |
-| 1. Прототип CLI для Linux: TCP + `type ether` + DHCP поверх lwIP    | ✅ Готово  | [#2](https://github.com/OpenIPC/vtesse/issues/2) ✅ [#3](https://github.com/OpenIPC/vtesse/issues/3) ✅ [#4](https://github.com/OpenIPC/vtesse/issues/4) ✅ [#5](https://github.com/OpenIPC/vtesse/issues/5) ✅ [#6](https://github.com/OpenIPC/vtesse/issues/6) ✅ [#7](https://github.com/OpenIPC/vtesse/issues/7) ✅ [#8](https://github.com/OpenIPC/vtesse/issues/8) ✅ |
-| 2. Локальный прокси: SOCKS5 и проброс портов                        | ✅ Готово  | [#10](https://github.com/OpenIPC/vtesse/issues/10) ✅ [#11](https://github.com/OpenIPC/vtesse/issues/11) ✅                                                                                                                                                                                                                                                                 |
-| 3. Встраиваемый Linux: кросс-сборка ARM/MIPS, размер и память, CI   | ✅ Готово  | [#12](https://github.com/OpenIPC/vtesse/issues/12) ✅ [#20](https://github.com/OpenIPC/vtesse/issues/20) ✅                                                                                                                                                                                                                                                                 |
-| 3. Режим TAP/TUN (интерфейс ядра вместо lwIP, Linux)                | ✅ Готово  | [#19](https://github.com/OpenIPC/vtesse/issues/19) ✅                                                                                                                                                                                                                                                                                                                       |
-| 4. Приложение для Android (без VpnService)                          | ✅ Готово  | [#13](https://github.com/OpenIPC/vtesse/issues/13) ✅                                                                                                                                                                                                                                                                                                                       |
-| 5. Опционально: транспорт UDP, обёртка TLS, аутентификация Blowfish | ⏸ Отложено | [#14](https://github.com/OpenIPC/vtesse/issues/14) [#15](https://github.com/OpenIPC/vtesse/issues/15) [#16](https://github.com/OpenIPC/vtesse/issues/16)                                                                                                                                                                                                                    |
-| 6. Повторное использование верхних слоёв в camex                    | ⏸ Отложено | [#17](https://github.com/OpenIPC/vtesse/issues/17)                                                                                                                                                                                                                                                                                                                          |
-| Общее: тесты, лицензия                                              | ✅ Готово  | [#9](https://github.com/OpenIPC/vtesse/issues/9) ✅ [#18](https://github.com/OpenIPC/vtesse/issues/18) ✅                                                                                                                                                                                                                                                                   |
+| Этап                                                                  | Статус           | Задачи                                                                                                                                                                                                                                                                                                                                                                      |
+|-----------------------------------------------------------------------|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0. Тестовый стенд (VTun 3.0.2 в Docker, мост, DHCP с опцией 121)      | ✅ Готово        | [#1](https://github.com/OpenIPC/vtesse/issues/1) ✅                                                                                                                                                                                                                                                                                                                         |
+| 1. Прототип CLI для Linux: TCP + `type ether` + DHCP поверх lwIP      | ✅ Готово        | [#2](https://github.com/OpenIPC/vtesse/issues/2) ✅ [#3](https://github.com/OpenIPC/vtesse/issues/3) ✅ [#4](https://github.com/OpenIPC/vtesse/issues/4) ✅ [#5](https://github.com/OpenIPC/vtesse/issues/5) ✅ [#6](https://github.com/OpenIPC/vtesse/issues/6) ✅ [#7](https://github.com/OpenIPC/vtesse/issues/7) ✅ [#8](https://github.com/OpenIPC/vtesse/issues/8) ✅ |
+| 2. Локальный прокси: SOCKS5 и проброс портов                          | ✅ Готово        | [#10](https://github.com/OpenIPC/vtesse/issues/10) ✅ [#11](https://github.com/OpenIPC/vtesse/issues/11) ✅                                                                                                                                                                                                                                                                 |
+| 3. Встраиваемый Linux: кросс-сборка ARM/MIPS, размер и память, CI     | ✅ Готово        | [#12](https://github.com/OpenIPC/vtesse/issues/12) ✅ [#20](https://github.com/OpenIPC/vtesse/issues/20) ✅                                                                                                                                                                                                                                                                 |
+| 3. Режим TAP/TUN (интерфейс ядра вместо lwIP, Linux)                  | ✖ Удалён в 2.0.0 | [#19](https://github.com/OpenIPC/vtesse/issues/19) ✅                                                                                                                                                                                                                                                                                                                       |
+| 4. Приложение для Android (без VpnService)                            | ✅ Готово        | [#13](https://github.com/OpenIPC/vtesse/issues/13) ✅                                                                                                                                                                                                                                                                                                                       |
+| 5. Опционально: транспорт UDP, обёртка TLS, аутентификация Blowfish   | ⏸ Отложено       | [#14](https://github.com/OpenIPC/vtesse/issues/14) [#15](https://github.com/OpenIPC/vtesse/issues/15) [#16](https://github.com/OpenIPC/vtesse/issues/16)                                                                                                                                                                                                                    |
+| 6. Повторное использование верхних слоёв в camex                      | ⏸ Отложено       | [#17](https://github.com/OpenIPC/vtesse/issues/17)                                                                                                                                                                                                                                                                                                                          |
+| 7. Только userspace: входящие пробросы, `ip=learn`, ожидание маршрута | ✅ Готово        | [#67](https://github.com/OpenIPC/vtesse/issues/67) ✅ [#68](https://github.com/OpenIPC/vtesse/issues/68) ✅ [#72](https://github.com/OpenIPC/vtesse/issues/72) ✅ [#73](https://github.com/OpenIPC/vtesse/issues/73) ✅                                                                                                                                                     |
+| Общее: тесты, лицензия                                                | ✅ Готово        | [#9](https://github.com/OpenIPC/vtesse/issues/9) ✅ [#18](https://github.com/OpenIPC/vtesse/issues/18) ✅                                                                                                                                                                                                                                                                   |
 
-✅ — задача закрыта. ⏸ — отложено.
+✅ — задача закрыта. ⏸ — отложено. ✖ — удалено.
 
 ## Лицензия
 

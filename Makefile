@@ -1,9 +1,8 @@
 # VTesse build.
 #   make CROSS_COMPILE=mipsel-linux-musl- STATIC=1   cross compile, static binary
-#   make LWIP=0                                       TAP backend only (no stack, no proxy)
 #   make LWIP_PROFILE=medium                          lwIP memory profile: large (default),
 #                                                     medium (cameras, routers), small
-#   make SOCKS=0 UDP_RELAY=0 TAP=0                   leave out optional modules (default 1)
+#   make SOCKS=0 UDP_RELAY=0                         leave out optional modules (default 1)
 #   (use a separate BUILD=... directory per variant: objects are not rebuilt on a change)
 CROSS_COMPILE ?=
 ifneq ($(CROSS_COMPILE),)
@@ -28,22 +27,16 @@ LWIP_CFLAGS := -std=gnu99 -Wall -Wno-unused-parameter -Wno-address \
                -ffunction-sections -fdata-sections $(INCLUDES)
 LDFLAGS ?=
 BUILD   ?= build
-LWIP    ?= 1
 # lwIP memory profile (port/lwip/lwipopts.h): large (PCs, Android), medium (cameras,
 # routers), small
 LWIP_PROFILE ?= large
-# optional modules of the lwIP build (1 = in, 0 = out): SOCKS5 server, UDP relay,
-# TAP/TUN backend (kernel interface; Linux only)
+# optional modules (1 = in, 0 = out): SOCKS5 server, UDP relay. The TAP backend
+# (kernel interface) and LWIP=0 were removed in 2.0.0 (#72).
 SOCKS     ?= 1
 UDP_RELAY ?= 1
-TAP       ?= 1
 
-NETCORE_SRC := netcore/tunnel.c netcore/loop.c netcore/route.c
-ifeq ($(TAP),1)
-NETCORE_SRC += netcore/tapdev.c
-else
-BASE_CFLAGS += -DVTESSE_WITH_TAP=0
-endif
+NETCORE_SRC := netcore/tunnel.c netcore/loop.c netcore/route.c netcore/hostaddr.c \
+               netcore/stack.c netcore/proxy.c
 VTUN_SRC    := vtun/vtun_proto.c vtun/vtun_client.c
 LWIP_SRC    := $(addprefix $(LWIP_DIR)/src/core/, def.c inet_chksum.c init.c ip.c mem.c \
                  memp.c netif.c pbuf.c stats.c sys.c tcp.c tcp_in.c tcp_out.c timeouts.c udp.c) \
@@ -54,8 +47,6 @@ LWIP_PROFILE_NUM := $(if $(filter small,$(LWIP_PROFILE)),0,$(if $(filter medium,
 BASE_CFLAGS += -DVTESSE_LWIP_PROFILE=$(LWIP_PROFILE_NUM)
 LWIP_CFLAGS += -DVTESSE_LWIP_PROFILE=$(LWIP_PROFILE_NUM)
 
-ifeq ($(LWIP),1)
-NETCORE_SRC += netcore/stack.c netcore/proxy.c
 BASE_CFLAGS += -DNC_WITH_SOCKS=$(SOCKS)
 ifeq ($(UDP_RELAY),1)
 NETCORE_SRC += netcore/udprelay.c
@@ -63,15 +54,10 @@ else
 BASE_CFLAGS += -DVTESSE_WITH_UDP_RELAY=0
 endif
 NETCORE_OBJ := $(NETCORE_SRC:%.c=$(BUILD)/%.o) $(LWIP_SRC:%.c=$(BUILD)/%.o)
-else
-BASE_CFLAGS += -DVTESSE_WITH_LWIP=0
-NETCORE_OBJ := $(NETCORE_SRC:%.c=$(BUILD)/%.o)
-endif
 VTUN_OBJ    := $(VTUN_SRC:%.c=$(BUILD)/%.o)
 
-# scripts/ built into the binary: the default hook and "vtesse --install" (#52)
-SCRIPTS    := scripts/vtesse-hook.sh scripts/vtesse-udhcpc.script scripts/S99vtesse \
-              scripts/vtesse.init scripts/vtesse.service
+# scripts/ built into the binary: the service scripts of "vtesse --install" (#52)
+SCRIPTS    := scripts/S99vtesse scripts/vtesse.init scripts/vtesse.service
 SCRIPTS_H  := $(BUILD)/gen/vtesse_scripts.h
 CLI_OBJ    := $(BUILD)/cli/vtesse_cli.o $(BUILD)/cli/install.o $(BUILD)/cli/env.o
 

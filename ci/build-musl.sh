@@ -9,8 +9,8 @@
 #                 MediaTek/Atheros routers (MT7620/7621/7628, ath79), whose kernels often
 #                 lack FPU emulation, so hard-float code dies with SIGILL (#30)
 #         arm64 | x86_64 | armv5 | armv7   Bootlin musl toolchains
-# Produces <outdir>/vtesse-<target> (lwIP and TAP backends, --tap), stripped; a TAP-only
-# build stays a build option (make LWIP=0) and is not published. For x86_64 also <outdir>/vtund-<vtun version>-x86_64:
+# Produces <outdir>/vtesse-<target> (the userspace stack, proxy and inbound forwards),
+# stripped. For x86_64 also <outdir>/vtund-<vtun version>-x86_64:
 # the VTun server with our patches (server/build-vtund.sh), a PC/server binary only;
 # VTUND=1 builds it for another target too, VTUND=0 skips it. With QEMU=1 the unit tests are run under
 # qemu-user as well. musl is used because a static glibc binary cannot resolve
@@ -103,7 +103,7 @@ cd "$ROOT"
 build=build-$TARGET-full
 bin=vtesse-$TARGET
 rm -rf "$build"     # objects of another toolchain or profile are never rebuilt by make
-make -s BUILD="$build" CROSS_COMPILE="$CROSS" STATIC=1 LWIP=1 LWIP_PROFILE=$PROFILE CFLAGS=-Os all tests
+make -s BUILD="$build" CROSS_COMPILE="$CROSS" STATIC=1 LWIP_PROFILE=$PROFILE CFLAGS=-Os all tests
 "${CROSS}strip" --strip-unneeded -o "$OUT/$bin" "$build/vtesse-cli"
 echo "$bin: $(wc -c < "$OUT/$bin") bytes (lwIP profile $PROFILE)"
 

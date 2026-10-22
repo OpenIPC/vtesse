@@ -2,7 +2,7 @@
 
 - [Building](#building)
 - [vtesse-cli](#vtesse-cli)
-- [TAP backend](#tap-backend)
+- [Inbound forwards](#inbound-forwards)
 - [Installation](#installation)
 - [U-Boot environment (helpdesk access)](#u-boot-environment-helpdesk-access)
 - [Configuration file](#configuration-file)
@@ -20,9 +20,8 @@ C99 + POSIX, plain `make`.
 ```sh
 make            # build/libnetcore.a, build/libvtesse.a, build/vtesse-cli
 make test       # unit tests and client scenarios against a scripted server
-make LWIP=0     # TAP backend only: no userspace stack and proxy
 make LWIP_PROFILE=medium   # lwIP memory profile: large (default), medium, small
-make SOCKS=0 UDP_RELAY=0 TAP=0   # leave out optional modules (default: all in)
+make SOCKS=0 UDP_RELAY=0   # leave out optional modules (default: all in)
 make CROSS_COMPILE=mipsel-linux-musl- STATIC=1      # cross compile, static binary
 ```
 
@@ -47,18 +46,16 @@ OpenWrt MT7620 router, #30).
 
 Optional modules (#29), `vtesse-cli --version` lists what a binary contains:
 
-| Switch        | Leaves out                                                          | arm32/x86_64 code saved |
-|---------------|---------------------------------------------------------------------|-------------------------|
-| `LWIP=0`      | lwIP stack, port forwards, SOCKS5, UDP relay (TAP/TUN backend only) | ~75 %                   |
-| `SOCKS=0`     | SOCKS5 server (port forwards stay)                                  | ~1.7 KB                 |
-| `UDP_RELAY=0` | UDP relay                                                           | ~2 KB                   |
-| `TAP=0`       | TAP/TUN backend (kernel interface)                                  | ~5 KB                   |
+| Switch        | Leaves out                         | arm32/x86_64 code saved |
+|---------------|------------------------------------|-------------------------|
+| `SOCKS=0`     | SOCKS5 server (port forwards stay) | ~1.7 KB                 |
+| `UDP_RELAY=0` | UDP relay                          | ~2 KB                   |
 
 A disabled feature is refused with a clear message (`--socks: built without SOCKS5`).
-Release binaries contain everything, one per platform; the `LWIP=0` build is not published
-(build it with `make LWIP=0` when the flash is tight).
+Release binaries contain everything, one per platform. The TAP backend (`--tap`, a kernel
+interface) and the `LWIP=0` and `TAP=0` switches were removed in 2.0.0 (#72).
 
-Each target gives `vtesse-<target>` (lwIP and TAP backends, `--tap`); x86_64 also `vtund-3.0.2-x86_64`, the VTun server with our patches
+Each target gives `vtesse-<target>`; x86_64 also `vtund-3.0.2-x86_64`, the VTun server with our patches
 ([server/README.md](../server/README.md)). Use musl builds on devices: a static glibc binary cannot resolve host names
 without the NSS libraries of the same glibc. Prebuilt binaries are on the
 [releases page](https://github.com/OpenIPC/vtesse/releases) (`latest` is rebuilt
@@ -69,35 +66,36 @@ from every push to `main`).
 ```
 vtesse-cli [--config FILE] [--seconds N] [-v]
            [--socks PORT] [--forward LPORT:IP:RPORT]... [--listen ADDR]
+           [--accept PORT[:IP:PORT]]...
            [--fetch http://IP[:PORT]/PATH] [--udp-relay PORT[:LOCAL_PORT]]...
-           [--ip A.B.C.D/P [--gw A.B.C.D]]
-vtesse-cli [--config FILE] [--seconds N] --tap [--ifname NAME] [--hook SCRIPT|none]
+           [--ip A.B.C.D/P|learn [--gw A.B.C.D]]
 vtesse --install [--host SERVER] [--port N] [--password PASSWORD|-]
                  [--session ID | --id-from IFACE] [--ip A.B.C.D/P] [--gw A.B.C.D]
-                 [--scripts] [--no-start] [--system SYSTEM] [--root DIR]
+                 [--no-start] [--system SYSTEM] [--root DIR]
 vtesse --uninstall [--system SYSTEM] [--root DIR]
 ```
 
-| Option                           | Meaning                                                                                                                                                       |
-|----------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--config FILE`                  | configuration file, default `~/.config/vtesse/probe.conf`                                                                                                     |
-| `--seconds N`                    | stop after N seconds (default: run until SIGINT/SIGTERM)                                                                                                      |
-| `--id-from IFACE`                | [device ID](#device-id) = MAC of the local interface `IFACE` (overrides `session`/`id_from` of the file)                                                      |
-| `--socks PORT`                   | SOCKS5 server on `LISTEN:PORT`                                                                                                                                |
-| `--forward LPORT:IP:RPORT`       | TCP forward `LISTEN:LPORT → IP:RPORT` through the tunnel (repeatable, up to 16)                                                                               |
-| `--listen ADDR`                  | address of the local listeners, default `127.0.0.1`                                                                                                           |
-| `--udp-relay PORT[:LOCAL_PORT]`  | [UDP relay](#udp-relay-rtp-from-cameras): datagrams to the tunnel address on `PORT` go to `127.0.0.1:LOCAL_PORT` (default the same port); repeatable, up to 3 |
-| `--fetch URL`                    | one HTTP GET through the stack once an address is bound (diagnostics)                                                                                         |
-| `--ip A.B.C.D/P`, `--gw A.B.C.D` | [manual IPv4](#manual-ipv4-type-tun) instead of DHCP; override `ip`/`gw` of the file (`--debug-ip`/`--debug-gw` are accepted as old names)                    |
-| `--tap`                          | [TAP backend](#tap-backend): kernel interface instead of lwIP (Linux, root)                                                                                   |
-| `--ifname NAME`                  | interface name for `--tap`, default `vtesse%d`                                                                                                                |
-| `--hook SCRIPT`                  | script run on interface events for `--tap`; default: the [built-in hook](#tap-backend), `none`: no hook                                                       |
-| `--show-config`                  | print the settings in effect (file, [U-Boot environment](#u-boot-environment-helpdesk-access), defaults) and exit                                             |
-| `--no-env`                       | ignore the U-Boot environment                                                                                                                                 |
-| `--install`, `--uninstall`       | [install](#installation) the binary as a service, or remove it                                                                                                |
+| Option                           | Meaning                                                                                                                                                                                                                       |
+|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--config FILE`                  | configuration file, default `~/.config/vtesse/probe.conf`                                                                                                                                                                     |
+| `--seconds N`                    | stop after N seconds (default: run until SIGINT/SIGTERM)                                                                                                                                                                      |
+| `--id-from IFACE`                | [device ID](#device-id) = MAC of the local interface `IFACE` (overrides `session`/`id_from` of the file)                                                                                                                      |
+| `--socks PORT`                   | SOCKS5 server on `LISTEN:PORT`                                                                                                                                                                                                |
+| `--forward LPORT:IP:RPORT`       | TCP forward `LISTEN:LPORT → IP:RPORT` through the tunnel (repeatable, up to 16)                                                                                                                                               |
+| `--listen ADDR`                  | address of the local listeners, default `127.0.0.1`                                                                                                                                                                           |
+| `--accept PORT[:IP:PORT]`        | [inbound forward](#inbound-forwards): connections from the tunnel to `PORT` of the tunnel address go to `IP:PORT` on this machine (default: the same port on the address of the default-route interface); repeatable, up to 4 |
+| `--udp-relay PORT[:LOCAL_PORT]`  | [UDP relay](#udp-relay-rtp-from-cameras): datagrams to the tunnel address on `PORT` go to `127.0.0.1:LOCAL_PORT` (default the same port); repeatable, up to 3                                                                 |
+| `--fetch URL`                    | one HTTP GET through the stack once an address is bound (diagnostics)                                                                                                                                                         |
+| `--ip A.B.C.D/P`, `--gw A.B.C.D` | [manual IPv4](#manual-ipv4-type-tun) instead of DHCP; override `ip`/`gw` of the file (`--debug-ip`/`--debug-gw` are accepted as old names)                                                                                    |
+| `--ip learn`                     | `type tun`: the address is learnt from the first packet the server sends ([manual IPv4](#manual-ipv4-type-tun))                                                                                                               |
+| `--show-config`                  | print the settings in effect (file, [U-Boot environment](#u-boot-environment-helpdesk-access), defaults) and exit                                                                                                             |
+| `--no-env`                       | ignore the U-Boot environment                                                                                                                                                                                                 |
+| `--install`, `--uninstall`       | [install](#installation) the binary as a service, or remove it                                                                                                                                                                |
 
 The CLI brings the tunnel and the userspace stack up, prints link events, the DHCP
-address and routes, runs the local proxy and prints proxy statistics on exit. Exit
+address and routes, runs the local proxy and the inbound forwards and prints proxy
+statistics on exit. There is no kernel interface: the TAP backend (`--tap`, `--ifname`,
+`--hook`) was removed in 2.0.0 (#72), and those options are refused with that reason. Exit
 code 0 means the tunnel was up at the end (and `--fetch`, if given, succeeded).
 
 Before it starts, the client waits for a default route (any interface): without one
@@ -122,46 +120,36 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 [   3.522] fetch 10.78.0.10:80/: ok, 205 bytes, "HTTP/1.0 200 OK"
 ```
 
-## TAP backend
+## Inbound forwards
 
-`--tap` passes tunnel frames to a kernel interface (`/dev/net/tun`) instead of the
-userspace stack. Every program on the device then uses the tunnel, including
-**inbound** connections to the device's own services. Requires root or
-`CAP_NET_ADMIN` and the `tun` driver; not available on Android.
+Without a kernel interface the device's own services (web interface, ssh, RTSP) are
+not on the tunnel by themselves. `accept=PORT[:IP:PORT]` (or `--accept`, #67) makes the
+stack listen on `PORT` of the tunnel address and relays every connection from the
+tunnel to a host socket:
 
-- The interface is created on the first tunnel `UP`: TAP for `type ether`, TUN for
-  `type tun`; MAC = device ID, MTU 1500, IPv6 disabled on it.
-- It is kept across reconnects; while the tunnel is down the carrier is off (which
-  also clears the kernel's ARP neighbours, see
-  [protocol](protocol.md#server-behaviour-that-affects-clients)), so addresses and
-  routes survive a reconnect.
-- Addressing is done by the system: a hook runs `SCRIPT <event>` with
-  `VTESSE_EVENT`, `VTESSE_IFNAME`, `VTESSE_LINK` (`ether`/`tun`) and
-  `VTESSE_SESSION` in the environment; events: `up` (interface created), `reconnect`,
-  `down`, `stop`.
-
-The hook scripts are built into the binary (#52). Without `--hook` it runs
-`<prefix>/libexec/vtesse/vtesse-hook.sh` next to its `<prefix>/bin` if that file exists
-(`vtesse --install --scripts` writes it, to be edited), otherwise its built-in copy of
-[`scripts/vtesse-hook.sh`](../scripts/vtesse-hook.sh); the binary itself then serves as
-the `udhcpc` script (called with `VTESSE_RUN=udhcpc-script`, it runs its built-in copy of
-[`scripts/vtesse-udhcpc.script`](../scripts/vtesse-udhcpc.script)). `--hook FILE` runs
-that file, `--hook none` runs no hook. The hook starts BusyBox `udhcpc` with
-`vtesse-udhcpc.script`, which
-
-- sets the address and installs the option 121 (or 249) routes via the interface;
-- **never touches `/etc/resolv.conf`** — stock DHCP scripts replace the device's
-  resolver with the tunnel DNS, which may be unreachable and breaks resolving the
-  VTun server itself (found on the bench);
-- installs a default route through the tunnel only with `VTESSE_DEFAULT_ROUTE=1` — it
-  would also capture the connection to the VTun server unless a host route to the
-  server exists.
-
-`dhclient` is a fallback of a hook file only; its stock script has the two problems above. The built-in hook needs BusyBox `udhcpc` (on a PC: the `udhcpc` package) and refuses to fall back; `--install` warns on a PC without it.
-
-```sh
-vtesse-cli --config /etc/vtesse.conf --tap --ifname vtesse0
 ```
+accept=80                    # tunnel address:80 -> the device's LAN address:80
+accept=22
+accept=8554:127.0.0.1:554    # explicit target
+```
+
+- Without `IP:PORT` the target is the same port on the address of the default-route
+  interface, looked up at each connection: the device's own LAN address. Its services
+  see a LAN client, so a web interface that trusts `127.0.0.1` still asks for the
+  password. `127.0.0.1` has to be named explicitly.
+- Up to 4 lines; command-line `--accept` come before the file's. Inbound connections
+  share the proxy's connection limit (24); over it, and when the local port refuses or
+  does not answer within 15 s, the connection from the tunnel is reset.
+- Each connection is logged (`accept 80 -> 192.168.1.10:80: connected`, or the error)
+  and counted in the proxy statistics.
+- The service: `vtesse --install` writes `accept=80`, `accept=22` and `accept=554` to a
+  configuration without `accept` lines, and a client started from the
+  [U-Boot environment](#u-boot-environment-helpdesk-access) without `accept` lines opens
+  the same ports: the server reaches the camera's web interface, ssh and RTSP, as the
+  TAP backend of 1.x gave it.
+- On a `type tun` session the server needs the client's address before it can connect:
+  set it with `ip=`, or let the client learn it from the first connection
+  (`ip=learn`, [manual IPv4](#manual-ipv4-type-tun)).
 
 ## Installation
 
@@ -175,12 +163,12 @@ vtesse --uninstall
 
 1. It detects the system, or takes `--system`:
 
-   | System                 | Detected by                                              | Binary                  | Service                                                                           | Hook copies (`--scripts`)   |
-   |------------------------|----------------------------------------------------------|-------------------------|-----------------------------------------------------------------------------------|-----------------------------|
-   | `openwrt`              | `/etc/openwrt_release`                                   | `/usr/bin/vtesse`       | `/etc/init.d/vtesse` (procd), `/etc/rc.d/S99vtesse`, `/lib/upgrade/keep.d/vtesse` | `/usr/libexec/vtesse`       |
-   | `openipc`              | `OPENIPC_VERSION` in `/etc/os-release`                   | `/usr/bin/vtesse`       | `/etc/init.d/S99vtesse`                                                           | `/usr/libexec/vtesse`       |
-   | `systemd` (a Linux PC) | `/run/systemd/system`                                    | `/usr/local/bin/vtesse` | `/etc/systemd/system/vtesse.service`                                              | `/usr/local/libexec/vtesse` |
-   | `busybox`              | BusyBox init: `/etc/init.d/rcS` runs `S??*` (not OpenRC) | `/usr/bin/vtesse`       | `/etc/init.d/S99vtesse`                                                           | `/usr/libexec/vtesse`       |
+   | System                 | Detected by                                              | Binary                  | Service                                                                           |
+   |------------------------|----------------------------------------------------------|-------------------------|-----------------------------------------------------------------------------------|
+   | `openwrt`              | `/etc/openwrt_release`                                   | `/usr/bin/vtesse`       | `/etc/init.d/vtesse` (procd), `/etc/rc.d/S99vtesse`, `/lib/upgrade/keep.d/vtesse` |
+   | `openipc`              | `OPENIPC_VERSION` in `/etc/os-release`                   | `/usr/bin/vtesse`       | `/etc/init.d/S99vtesse`                                                           |
+   | `systemd` (a Linux PC) | `/run/systemd/system`                                    | `/usr/local/bin/vtesse` | `/etc/systemd/system/vtesse.service`                                              |
+   | `busybox`              | BusyBox init: `/etc/init.d/rcS` runs `S??*` (not OpenRC) | `/usr/bin/vtesse`       | `/etc/init.d/S99vtesse`                                                           |
 
 2. It writes `/etc/vtesse.conf` (mode 600) from the keys `--host`, `--port`, `--password`,
    `--session` or `--id-from`, `--ip`, `--gw` ([configuration file](#configuration-file)).
@@ -189,18 +177,19 @@ vtesse --uninstall
    `id_from=` the interface of the default route (it must have a MAC; with `--root` the
    identity must be given, as this machine's interfaces say nothing about the image). `--password -` reads the password from
    standard input instead of the command line (which other users can see in `ps`).
-   Without a configuration and without keys nothing is installed.
+   Without a configuration and without keys nothing is installed. A configuration
+   without `accept` lines gets `accept=80`, `accept=22` and `accept=554`
+   ([inbound forwards](#inbound-forwards)).
 3. It copies itself, writes the service file from its built-in copy and (re)starts the
    service; `--no-start` only installs. Only the binary, the service file and the
-   configuration are written: the hook scripts run from the binary. `--scripts` also
-   writes them to the libexec directory, where the binary finds them.
+   configuration are written.
 4. On OpenWrt `sysupgrade` keeps only the changed files under `/etc`: the keep list in
-   `/lib/upgrade/keep.d/vtesse` carries the binary and the scripts over.
-5. Hook scripts of 1.13 and older in `/usr/share/vtesse`: when `/etc/default/vtesse`
-   names that path, they were chosen on purpose and move to the libexec directory, where
-   they stay in use (the path in the file is changed, `--scripts` does not overwrite
-   them); otherwise they were the stock scripts of the old init script and are kept as
-   inactive `*.1.13` copies there, and the built-in scripts take over.
+   `/lib/upgrade/keep.d/vtesse` carries the binary and the init script over.
+5. Updating a 1.x installation removes the hook scripts of the TAP backend (in
+   `/usr/libexec/vtesse`, `/usr/local/libexec/vtesse`, and `/usr/share/vtesse` up to
+   1.13). An `/etc/default/vtesse` that still passes `--tap`, `--ifname` or `--hook` is
+   reported and left alone: the client refuses those options, so the service does not
+   start until they are removed. `--scripts` is refused.
 6. Values are checked against the limits of the service: no spaces around a value, a
    password of up to 127 characters, a session name of up to 42 characters without
    spaces or colons. A kept `/etc/vtesse.conf` is set to mode 600 as well.
@@ -214,8 +203,8 @@ an error. `--root DIR` does the same below `DIR` without touching the service
 `/etc/init.d` but another init (OpenRC, sysvinit) is not guessed: name it with `--system`.
 
 The service files are also in [`scripts/`](../scripts): `S99vtesse`
-(`start|stop|restart|status`, overrides in `/etc/default/vtesse`, loads the `tun`
-module), `vtesse.init` (procd, respawn) and `vtesse.service` (systemd, restart).
+(`start|stop|restart|status`, overrides in `/etc/default/vtesse`), `vtesse.init` (procd,
+respawn) and `vtesse.service` (systemd, restart).
 
 ## U-Boot environment (helpdesk access)
 
@@ -250,8 +239,11 @@ Optional variables override these and the file, one key at a time:
 | `vtesse_password`                   | `password`            |
 | `vtesse_ip`, `vtesse_gw`            | `ip`, `gw`            |
 
-Everything else (`route`, `udp_relay`, SOCKS5 users, `auth`) is set only in
-`/etc/vtesse.conf`. The order for each key: command line, U-Boot environment,
+Everything else (`route`, `udp_relay`, `accept`, SOCKS5 users, `auth`) is set only in
+`/etc/vtesse.conf`. Without `accept` lines there, a client started with `vtesse` set
+opens ports 80, 22 and 554 to the server ([inbound forwards](#inbound-forwards)): the
+camera's web interface, ssh and RTSP on its own LAN address. `vtesse_ip=learn` takes
+the address from the first packet of a `type tun` session. The order for each key: command line, U-Boot environment,
 `/etc/vtesse.conf`, the VTun defaults (only with `vtesse` set). The variables are read
 with `fw_printenv`; without it (a PC, most OpenWrt routers) this step is skipped.
 `--no-env` ignores them; `--show-config` prints the result.
@@ -276,17 +268,18 @@ on OpenIPC ([security](security.md)).
 `key=value` lines, `#` starts a comment. Credentials are read only from this file,
 never from the command line; keep it outside the repository with mode 600.
 
-| Key                            | Meaning                                                                                                                                    |
-|--------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| `host`                         | VTun server name or IPv4 address                                                                                                           |
-| `port`                         | VTun server TCP port                                                                                                                       |
-| `session`                      | session name = [device ID](#device-id)                                                                                                     |
-| `id_from`                      | instead of `session`: take the device ID from the MAC of this interface, e.g. `eth0`                                                       |
-| `udp_relay`                    | `PORT[:LOCAL_PORT]`, repeatable: [UDP relay](#udp-relay-rtp-from-cameras) (lwIP backend)                                                   |
-| `ip`, `gw`, `route`            | [manual IPv4](#manual-ipv4-type-tun): `ip=A.B.C.D/P`, optional `gw=A.B.C.D`, `route=NET/P` (repeatable, up to 16); required for `type tun` |
-| `password`                     | session password                                                                                                                           |
-| `auth`                         | challenge response, `xor` (default; servers built without OpenSSL)                                                                         |
-| `socks_user`, `socks_password` | optional SOCKS5 username/password (RFC 1929)                                                                                               |
+| Key                            | Meaning                                                                                                                                                  |
+|--------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `host`                         | VTun server name or IPv4 address                                                                                                                         |
+| `port`                         | VTun server TCP port                                                                                                                                     |
+| `session`                      | session name = [device ID](#device-id)                                                                                                                   |
+| `id_from`                      | instead of `session`: take the device ID from the MAC of this interface, e.g. `eth0`                                                                     |
+| `udp_relay`                    | `PORT[:LOCAL_PORT]`, repeatable: [UDP relay](#udp-relay-rtp-from-cameras)                                                                                |
+| `accept`                       | `PORT[:IP:PORT]`, repeatable, up to 4: [inbound forwards](#inbound-forwards)                                                                             |
+| `ip`, `gw`, `route`            | [manual IPv4](#manual-ipv4-type-tun): `ip=A.B.C.D/P` or `ip=learn`, optional `gw=A.B.C.D`, `route=NET/P` (repeatable, up to 16); required for `type tun` |
+| `password`                     | session password                                                                                                                                         |
+| `auth`                         | challenge response, `xor` (default; servers built without OpenSSL)                                                                                       |
+| `socks_user`, `socks_password` | optional SOCKS5 username/password (RFC 1929)                                                                                                             |
 
 ## Device ID
 
@@ -303,8 +296,7 @@ client's Ethernet MAC in `type ether` sessions.
   `/sys/class/net/eth0/address` and uses it as the session name, e.g.
   `a4:5e:60:12:34:5c` → `A45E6012345C`. The CLI prints `device ID … (MAC of eth0)`
   and refuses a multicast or all-zero MAC. `session` and `id_from` are mutually
-  exclusive in the file. With `--tap` the tunnel interface gets the same MAC as
-  `eth0`; they are different L2 segments, so this is harmless.
+  exclusive in the file.
 - Android: the hardware MAC is not available to apps — a random locally administered
   unicast ID is generated once and stored (second character `2`, `6`, `A` or `E`),
   or the ID is entered manually. A session with that name must exist on the server.
@@ -340,12 +332,28 @@ route=10.78.0.0/24       # networks behind the server, repeatable
 
 - `route` lines are the reachable networks, like option 121; without them and with
   `gw` there is a default route through the tunnel.
-- lwIP backend: applied when the tunnel comes up; the CLI prints
-  `address … (manual)`. The same keys work on a `type ether` session instead of DHCP.
-- TAP backend (`--tap`): a TUN interface is created; `vtesse-hook.sh` gets
-  `VTESSE_IP`, `VTESSE_GW`, `VTESSE_ROUTES` and sets the address and routes
-  (`ip addr`/`ip route`) instead of starting DHCP. A default route via `gw` is added
-  only with `VTESSE_DEFAULT_ROUTE=1`.
+- Applied when the tunnel comes up; the CLI prints `address … (manual)`. The same
+  keys work on a `type ether` session instead of DHCP.
+
+`ip=learn` (or `--ip learn`, #68): VTun does not hand out addresses, so with a manual
+address every device needs its own configuration. A stock server keeps the address in
+the session's `up {}` and routes only that address into the session, so the
+destination of the first unicast IPv4 packet from the server is ours, and its source is
+the server's end:
+
+- the address (`/32`) and the peer are set before that packet enters the stack, so a
+  first SYN (an [inbound forward](#inbound-forwards)) is accepted;
+- broadcast, multicast and `0.0.0.0` destinations are ignored;
+- after a reconnect the next packet is checked again: a changed address replaces the
+  old one, the same address changes nothing;
+- `route` lines apply as with a manual address; without them the default route points
+  into the link (the peer). `gw` is refused (the peer is learnt);
+- until the address is known, outbound use (SOCKS5, forwards) fails as without DHCP;
+  the CLI prints `waiting for the first packet from the server for the address`, then
+  `address … (learnt), peer …`;
+- `type tun` only: on a `type ether` session the client stops (exit code 2) and DHCP is
+  the way. To make the address known right after connect, the server can send a packet
+  from `up {}` (e.g. `program "ping -c1 <address>"`).
 - Acceptance: `bench/bench.sh tun-test` (both backends).
 
 ## Local proxy
@@ -417,7 +425,6 @@ via `--udp-relay 1559:5600`).
   as IP fragments and are reassembled.
 - The tunnel address is stable: the DHCP lease is kept and requested again after a
   reconnect, so the camera's setting stays valid.
-- lwIP backend only: with `--tap` the kernel receives UDP on the interface itself.
 - Statistics at exit: `udp relay :1559: datagrams N, B bytes, dropped D`.
 - Android: per-server option on port S559 (1559, 2559, 3559), see
   [android/README.md](../android/README.md).

@@ -25,8 +25,10 @@ typedef void (*nc_stack_event_cb)(void *user, int event, int tunnel_event, int e
 typedef struct nc_stack_cfg {
     uint8_t mac[6];             /* own MAC for L2 links (from the device ID) */
     int static_ip;              /* 1: use addr/mask/gw/routes below instead of DHCP */
+    int learn_ip;               /* type tun (#68): the address is the destination of the first
+                                 * unicast packet, gw its source; routes below, none: default */
     uint32_t addr, mask, gw;    /* host byte order */
-    nc_routes_t routes;         /* static routes (static_ip only); none: default route via gw */
+    nc_routes_t routes;         /* static routes (static_ip, learn_ip); none: default route via gw */
     int opt3_default_route;     /* debug: keep option 3 as default route even with 121 */
 } nc_stack_cfg_t;
 

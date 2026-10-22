@@ -19,7 +19,8 @@ A resource access microsystem: a client for existing **VTun** servers (`vtund -s
 
 - **No VPN:** no root, no `/dev/net/tun`, no Android `VpnService` (no VPN icon)
 - **VTun:** 3.0.x servers, TCP transport, `type ether` and `type tun` sessions, XOR challenge response, keepalive, automatic reconnection with exponential back-off
-- **Network:** address and routes via DHCP through the tunnel (option 121, RFC 3442), IPv4, outbound connections only
+- **Network:** address and routes via DHCP through the tunnel (option 121, RFC 3442), or on `type tun` set by hand or learnt from the first packet the server sends (`ip=learn`); IPv4
+- **Inbound access:** connections from the server to the tunnel address reach services of the device itself (`accept=80`): a camera's web interface, ssh and RTSP, still without a kernel interface
 - **UDP relay:** RTP pushed by cameras to the tunnel address reaches a local player (`--udp-relay`)
 - **Local proxy:** SOCKS5 `CONNECT` with optional username/password, static TCP port forwards (e.g. RTSP over TCP for video players)
 - **Targets:** embedded Linux (IP cameras, routers; ARM and MIPS, including big-endian, uClibc/musl), Android, and later an embeddable communication module
@@ -37,7 +38,7 @@ Static binaries (no dependencies) are on the [releases page](https://github.com/
 | 64-bit ARM: Raspberry Pi with a 64-bit OS, Rockchip, other ARM64 boards                         | `arm64`  |
 | PCs and servers                                                                                 | `x86_64` |
 
-One binary per platform, `vtesse-ARCH`, with both backends: lwIP (SOCKS5 / port forwards without root) and TAP (a kernel interface with `--tap`). The TAP backend needs root and the `tun` driver (`/dev/net/tun`); the hook scripts `vtesse-hook.sh` and `vtesse-udhcpc.script` are built into the binary. Until 1.12 a TAP-only `vtesse-tap-ARCH` was published too; its links now return 404, use `vtesse-ARCH --tap` instead.
+One binary per platform, `vtesse-ARCH`: the userspace stack with the local proxy and inbound forwards, no root needed. The TAP backend (a kernel interface with `--tap`) was removed in 2.0.0 ([#72](https://github.com/OpenIPC/vtesse/issues/72)): `--tap` is refused, and the hook scripts `vtesse-hook.sh` and `vtesse-udhcpc.script` are no longer published (their links return 404).
 
 The releases also carry the VTun server for PCs and servers, `vtund-3.0.2-x86_64`: the original VTun 3.0.2 with our patches (a refused login is logged with the device ID and the reason), see [server/README.md](server/README.md). For cameras and routers vtund is built in the OpenIPC environment when needed.
 
@@ -45,19 +46,17 @@ The releases also carry the VTun server for PCs and servers, `vtund-3.0.2-x86_64
 
 There is one release, [`latest`](https://github.com/OpenIPC/vtesse/releases/latest), titled `VTesse <version>`; every push to `main` rebuilds it, and no versioned releases are kept. File names carry no version (only the VTun server's follows the VTun version), so these links never change:
 
-| File                   | What it is                                                   | Permanent link                                                                    |
-|------------------------|--------------------------------------------------------------|-----------------------------------------------------------------------------------|
-| `vtesse-arm32`         | client, 32-bit ARM                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32>         |
-| `vtesse-mipsel`        | client, MIPS little-endian                                   | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mipsel>        |
-| `vtesse-mips`          | client, MIPS big-endian                                      | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mips>          |
-| `vtesse-arm64`         | client, 64-bit ARM                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm64>         |
-| `vtesse-x86_64`        | client, PCs and servers                                      | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-x86_64>        |
-| `vtesse-android.apk`   | Android app                                                  | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk>   |
-| `vtund-3.0.2-x86_64`   | VTun server with our patches, PCs (follows the VTun version) | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtund-3.0.2-x86_64>   |
-| `vtesse-hook.sh`       | TAP hook script (built into the binary; for `--hook FILE`)   | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-hook.sh>       |
-| `vtesse-udhcpc.script` | udhcpc script for the TAP interface (built in)               | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-udhcpc.script> |
-| `S99vtesse`            | init script, OpenIPC (BusyBox; `--install` writes it)        | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>            |
-| `vtesse.init`          | init script, OpenWrt (procd; `--install` writes it)          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>          |
+| File                 | What it is                                                   | Permanent link                                                                  |
+|----------------------|--------------------------------------------------------------|---------------------------------------------------------------------------------|
+| `vtesse-arm32`       | client, 32-bit ARM                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32>       |
+| `vtesse-mipsel`      | client, MIPS little-endian                                   | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mipsel>      |
+| `vtesse-mips`        | client, MIPS big-endian                                      | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-mips>        |
+| `vtesse-arm64`       | client, 64-bit ARM                                           | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm64>       |
+| `vtesse-x86_64`      | client, PCs and servers                                      | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-x86_64>      |
+| `vtesse-android.apk` | Android app                                                  | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-android.apk> |
+| `vtund-3.0.2-x86_64` | VTun server with our patches, PCs (follows the VTun version) | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtund-3.0.2-x86_64> |
+| `S99vtesse`          | init script, OpenIPC (BusyBox; `--install` writes it)        | <https://github.com/OpenIPC/vtesse/releases/latest/download/S99vtesse>          |
+| `vtesse.init`        | init script, OpenWrt (procd; `--install` writes it)          | <https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse.init>        |
 
 ```sh
 curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-arm32 &&
@@ -66,7 +65,7 @@ curl -fsSLO https://github.com/OpenIPC/vtesse/releases/latest/download/vtesse-ar
 
 ### Install as a service: OpenIPC camera, OpenWrt router, Linux PC
 
-As root: download the binary for your `ARCH` (see the table) and let it install itself. It detects the system, copies itself to `/usr/bin/vtesse` (`/usr/local/bin` on a PC), writes `/etc/vtesse.conf` (mode 600) from the keys and the init script (OpenIPC `S99vtesse`, OpenWrt procd `vtesse.init`, systemd `vtesse.service`), and starts the service at once and at every boot. The hook scripts are built in. On OpenWrt the installation survives `sysupgrade`.
+As root: download the binary for your `ARCH` (see the table) and let it install itself. It detects the system, copies itself to `/usr/bin/vtesse` (`/usr/local/bin` on a PC), writes `/etc/vtesse.conf` (mode 600) from the keys and the init script (OpenIPC `S99vtesse`, OpenWrt procd `vtesse.init`, systemd `vtesse.service`), and starts the service at once and at every boot. On OpenWrt the installation survives `sysupgrade`. The service runs the userspace stack; the server reaches the device's web interface, ssh and RTSP on its tunnel address: `--install` writes `accept=80`, `accept=22` and `accept=554` to `/etc/vtesse.conf` when it has no `accept` line ([inbound forwards](docs/usage.md#inbound-forwards)), and the connections go to the device's own LAN address, so its web interface asks for the password as on the LAN.
 
 ```sh
 ARCH=arm32   # arm32 or mipsel on cameras, mipsel / mips / arm64 on routers, x86_64 on a PC
@@ -79,10 +78,10 @@ curl -fsSL -o /tmp/vtesse https://github.com/OpenIPC/vtesse/releases/latest/down
 - `--password -` reads the password from standard input instead of the command line. Without `--port` the port is 5000.
 - An existing `/etc/vtesse.conf` is kept: `vtesse --install` without keys only updates the binary and the init script, keys given again replace their lines. The file is plain `key=value` ([configuration file](docs/usage.md#configuration-file)).
 - `vtesse --uninstall` stops the service and removes everything, `/etc/vtesse.conf` included.
-- `--scripts` also writes the hook scripts to `/usr/libexec/vtesse` to be edited; `--no-start` installs without starting. All options: [Installation](docs/usage.md#installation).
-- OpenWrt needs the `tun` driver for the TAP backend: `opkg update && opkg install kmod-tun` (`apk add kmod-tun` on OpenWrt 25+).
+- `--no-start` installs without starting. All options: [Installation](docs/usage.md#installation).
+- Updating a 1.x installation removes its hook scripts; an `ARGS="--tap ..."` in `/etc/default/vtesse` is reported and must be removed by hand, otherwise the service does not start.
 
-**Helpdesk access** on an OpenIPC camera with vtesse installed: `fw_setenv vtesse vtun.example.org` and a reboot are enough, as with `fw_setenv vtun` for VTun. With only the server set, the port is 5000, the session is the MAC of the default interface and the password is derived from it the way OpenIPC's VTun client does; `vtesse_port`, `vtesse_password` and other variables override that ([U-Boot environment](docs/usage.md#u-boot-environment-helpdesk-access)). `fw_setenv vtesse` turns it off. Anyone with root or a flash dump can read these variables, `vtesse_password` included, and the derived password is no secret (the MAC is visible on the LAN): this mode is for helpdesk access and is no stronger than VTun on OpenIPC ([security](docs/security.md)).
+**Helpdesk access** on an OpenIPC camera with vtesse installed: `fw_setenv vtesse vtun.example.org` and a reboot are enough, as with `fw_setenv vtun` for VTun. With only the server set, the port is 5000, the session is the MAC of the default interface and the password is derived from it the way OpenIPC's VTun client does; `vtesse_port`, `vtesse_password` and other variables override that ([U-Boot environment](docs/usage.md#u-boot-environment-helpdesk-access)). The server then reaches the camera's web interface, ssh and RTSP on its tunnel address (ports 80, 22, 554, unless `accept=` lines in `/etc/vtesse.conf` say otherwise). `fw_setenv vtesse` turns it off. Anyone with root or a flash dump can read these variables, `vtesse_password` included, and the derived password is no secret (the MAC is visible on the LAN): this mode is for helpdesk access and is no stronger than VTun on OpenIPC ([security](docs/security.md)).
 
 Service control: `/etc/init.d/S99vtesse start|stop|restart|status` on OpenIPC (overrides in `/etc/default/vtesse`), `/etc/init.d/vtesse start|stop` on OpenWrt, `systemctl status vtesse` on a PC.
 
@@ -90,7 +89,7 @@ Service control: `/etc/init.d/S99vtesse start|stop|restart|status` on OpenIPC (o
 
 Not supported yet. KeeneticOS (NDMS) is closed firmware: SSH gives only the NDMS command line, no Linux shell. Own software runs only through the **OPKG** component, which installs Entware into `/opt` on a storage volume (`opkg disk <volume> <installer URL>`), so the router needs a USB drive or an internal `storage:` partition.
 
-Tried on a Netcraze Explorer NC-1621 (Keenetic rebrand, NDMS 5.2 beta, MIPS, 128 MB RAM, `small_flash`): the `opkg` component is available and installs (`components install opkg`, `components commit`, firmware rebuilt and the router restarts), but the model has no USB and no `storage:` volume, and Entware on the RAM disk `temp:` is refused (`unsuitable disk type`). Next: a Keenetic with a USB port (MT7621 or arm64) and an `.ipk` package with `vtesse-mipsel`/`vtesse-arm64`, an Entware init script and NDMS hooks for the TAP backend.
+Tried on a Netcraze Explorer NC-1621 (Keenetic rebrand, NDMS 5.2 beta, MIPS, 128 MB RAM, `small_flash`): the `opkg` component is available and installs (`components install opkg`, `components commit`, firmware rebuilt and the router restarts), but the model has no USB and no `storage:` volume, and Entware on the RAM disk `temp:` is refused (`unsuitable disk type`). Next: a Keenetic with a USB port (MT7621 or arm64) and an `.ipk` package with `vtesse-mipsel`/`vtesse-arm64` and an Entware init script.
 
 ### Linux PC, Raspberry Pi
 
@@ -102,7 +101,7 @@ curl -fsSL -o ~/.local/bin/vtesse https://github.com/OpenIPC/vtesse/releases/lat
 ~/.local/bin/vtesse --config ~/.config/vtesse/vtesse.conf --socks 1080 --forward 8554:10.78.0.10:554
 ```
 
-The file has the same `key=value` lines as `/etc/vtesse.conf` (see [Build from source](#build-from-source)). For the TAP backend as a systemd service, install it as above.
+The file has the same `key=value` lines as `/etc/vtesse.conf` (see [Build from source](#build-from-source)). As a systemd service: install it as above.
 
 ### Android
 
@@ -132,33 +131,34 @@ The session name is the device ID (12 characters `0-9A-F`, also used as the MAC)
 
 ## Documentation
 
-| Document                             | Contents                                                                                                                |
-|--------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
-| [Usage](docs/usage.md)               | building, `vtesse-cli` options, configuration file, device ID, DHCP and routes, local proxy, error messages, probe tool |
-| [VTun protocol](docs/protocol.md)    | handshake, challenge response, session flags, framing, keepalive, server behaviour that affects clients, UDP            |
-| [Architecture](docs/architecture.md) | layers, `tunnel_ops_t`, VTun client, lwIP stack, proxy and flow control, repository layout                              |
-| [Embedding](docs/embedding.md)       | using the libraries in another application, loop integration, example                                                   |
-| [Security](docs/security.md)         | VTun authentication weaknesses, clear-text data, local proxy exposure                                                   |
-| [VTun server](server/README.md)      | patched vtund builds, release binaries, patch list                                                                      |
-| [Testing](docs/testing.md)           | unit tests, sanitizers, big-endian MIPS, Docker test bench and acceptance tests                                         |
+| Document                             | Contents                                                                                                                                  |
+|--------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| [Usage](docs/usage.md)               | building, `vtesse-cli` options, configuration file, device ID, DHCP and routes, local proxy, inbound forwards, error messages, probe tool |
+| [VTun protocol](docs/protocol.md)    | handshake, challenge response, session flags, framing, keepalive, server behaviour that affects clients, UDP                              |
+| [Architecture](docs/architecture.md) | layers, `tunnel_ops_t`, VTun client, lwIP stack, proxy and flow control, repository layout                                                |
+| [Embedding](docs/embedding.md)       | using the libraries in another application, loop integration, example                                                                     |
+| [Security](docs/security.md)         | VTun authentication weaknesses, clear-text data, local proxy exposure                                                                     |
+| [VTun server](server/README.md)      | patched vtund builds, release binaries, patch list                                                                                        |
+| [Testing](docs/testing.md)           | unit tests, sanitizers, big-endian MIPS, Docker test bench and acceptance tests                                                           |
 
 ## Roadmap
 
 Stages and tasks are tracked as [GitHub issues](https://github.com/OpenIPC/vtesse/issues):
 
-| Stage                                                                | Status     | Issues                                                                                                                                                                                                                                                                                                                                                                      |
-|----------------------------------------------------------------------|------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0. Test bench (VTun 3.0.2 in Docker, bridge, DHCP with option 121)   | ✅ Done    | [#1](https://github.com/OpenIPC/vtesse/issues/1) ✅                                                                                                                                                                                                                                                                                                                         |
-| 1. CLI prototype on Linux: TCP + `type ether` + DHCP over lwIP       | ✅ Done    | [#2](https://github.com/OpenIPC/vtesse/issues/2) ✅ [#3](https://github.com/OpenIPC/vtesse/issues/3) ✅ [#4](https://github.com/OpenIPC/vtesse/issues/4) ✅ [#5](https://github.com/OpenIPC/vtesse/issues/5) ✅ [#6](https://github.com/OpenIPC/vtesse/issues/6) ✅ [#7](https://github.com/OpenIPC/vtesse/issues/7) ✅ [#8](https://github.com/OpenIPC/vtesse/issues/8) ✅ |
-| 2. Local proxy: SOCKS5 and port forwarding                           | ✅ Done    | [#10](https://github.com/OpenIPC/vtesse/issues/10) ✅ [#11](https://github.com/OpenIPC/vtesse/issues/11) ✅                                                                                                                                                                                                                                                                 |
-| 3. Embedded Linux: ARM/MIPS cross builds, footprint, CI              | ✅ Done    | [#12](https://github.com/OpenIPC/vtesse/issues/12) ✅ [#20](https://github.com/OpenIPC/vtesse/issues/20) ✅                                                                                                                                                                                                                                                                 |
-| 3. TAP/TUN backend (kernel interface instead of lwIP, Linux targets) | ✅ Done    | [#19](https://github.com/OpenIPC/vtesse/issues/19) ✅                                                                                                                                                                                                                                                                                                                       |
-| 4. Android app (no VpnService)                                       | ✅ Done    | [#13](https://github.com/OpenIPC/vtesse/issues/13) ✅                                                                                                                                                                                                                                                                                                                       |
-| 5. Optional: UDP transport, TLS wrapper, Blowfish auth               | ⏸ Deferred | [#14](https://github.com/OpenIPC/vtesse/issues/14) [#15](https://github.com/OpenIPC/vtesse/issues/15) [#16](https://github.com/OpenIPC/vtesse/issues/16)                                                                                                                                                                                                                    |
-| 6. Reuse of the upper layers for camex                               | ⏸ Deferred | [#17](https://github.com/OpenIPC/vtesse/issues/17)                                                                                                                                                                                                                                                                                                                          |
-| Cross-cutting: tests, license                                        | ✅ Done    | [#9](https://github.com/OpenIPC/vtesse/issues/9) ✅ [#18](https://github.com/OpenIPC/vtesse/issues/18) ✅                                                                                                                                                                                                                                                                   |
+| Stage                                                                | Status             | Issues                                                                                                                                                                                                                                                                                                                                                                      |
+|----------------------------------------------------------------------|--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0. Test bench (VTun 3.0.2 in Docker, bridge, DHCP with option 121)   | ✅ Done            | [#1](https://github.com/OpenIPC/vtesse/issues/1) ✅                                                                                                                                                                                                                                                                                                                         |
+| 1. CLI prototype on Linux: TCP + `type ether` + DHCP over lwIP       | ✅ Done            | [#2](https://github.com/OpenIPC/vtesse/issues/2) ✅ [#3](https://github.com/OpenIPC/vtesse/issues/3) ✅ [#4](https://github.com/OpenIPC/vtesse/issues/4) ✅ [#5](https://github.com/OpenIPC/vtesse/issues/5) ✅ [#6](https://github.com/OpenIPC/vtesse/issues/6) ✅ [#7](https://github.com/OpenIPC/vtesse/issues/7) ✅ [#8](https://github.com/OpenIPC/vtesse/issues/8) ✅ |
+| 2. Local proxy: SOCKS5 and port forwarding                           | ✅ Done            | [#10](https://github.com/OpenIPC/vtesse/issues/10) ✅ [#11](https://github.com/OpenIPC/vtesse/issues/11) ✅                                                                                                                                                                                                                                                                 |
+| 3. Embedded Linux: ARM/MIPS cross builds, footprint, CI              | ✅ Done            | [#12](https://github.com/OpenIPC/vtesse/issues/12) ✅ [#20](https://github.com/OpenIPC/vtesse/issues/20) ✅                                                                                                                                                                                                                                                                 |
+| 3. TAP/TUN backend (kernel interface instead of lwIP, Linux targets) | ✖ Removed in 2.0.0 | [#19](https://github.com/OpenIPC/vtesse/issues/19) ✅                                                                                                                                                                                                                                                                                                                       |
+| 4. Android app (no VpnService)                                       | ✅ Done            | [#13](https://github.com/OpenIPC/vtesse/issues/13) ✅                                                                                                                                                                                                                                                                                                                       |
+| 5. Optional: UDP transport, TLS wrapper, Blowfish auth               | ⏸ Deferred         | [#14](https://github.com/OpenIPC/vtesse/issues/14) [#15](https://github.com/OpenIPC/vtesse/issues/15) [#16](https://github.com/OpenIPC/vtesse/issues/16)                                                                                                                                                                                                                    |
+| 6. Reuse of the upper layers for camex                               | ⏸ Deferred         | [#17](https://github.com/OpenIPC/vtesse/issues/17)                                                                                                                                                                                                                                                                                                                          |
+| 7. Userspace only: inbound forwards, `ip=learn`, default-route wait  | ✅ Done            | [#67](https://github.com/OpenIPC/vtesse/issues/67) ✅ [#68](https://github.com/OpenIPC/vtesse/issues/68) ✅ [#72](https://github.com/OpenIPC/vtesse/issues/72) ✅ [#73](https://github.com/OpenIPC/vtesse/issues/73) ✅                                                                                                                                                     |
+| Cross-cutting: tests, license                                        | ✅ Done            | [#9](https://github.com/OpenIPC/vtesse/issues/9) ✅ [#18](https://github.com/OpenIPC/vtesse/issues/18) ✅                                                                                                                                                                                                                                                                   |
 
-✅ — closed issue. ⏸ — deferred.
+✅ — closed issue. ⏸ — deferred. ✖ — removed.
 
 ## License
 

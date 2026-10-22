@@ -7,7 +7,8 @@
 - [VTun client](#vtun-client)
 - [Userspace stack](#userspace-stack)
 - [Local proxy](#local-proxy)
-- [Backends](#backends)
+- [UDP relay](#udp-relay)
+- [No kernel interface](#no-kernel-interface)
 - [Android](#android)
 
 ## Layers
@@ -49,7 +50,7 @@ the tunnel; there is no system network interface.
 - **Explicit byte order** everywhere (frame headers, DHCP options); tests also run on
   big-endian MIPS.
 - **Small footprint:** `-Os`, strip; lwIP memory profiles (see below); optional
-  modules `LWIP=0`, `SOCKS=0`, `UDP_RELAY=0`, `TAP=0`
+  modules `SOCKS=0`, `UDP_RELAY=0`
   ([#29](https://github.com/OpenIPC/vtesse/issues/29), [usage](usage.md#building)).
 - **Protocol-agnostic upper layers.** Everything above the transport talks to
   `tunnel_ops_t` only, so the stack, proxy and Android layers can later serve another
@@ -57,22 +58,22 @@ the tunnel; there is no system network interface.
 
 ## Repository layout
 
-| Path                           | Contents                                                                                                |
-|--------------------------------|---------------------------------------------------------------------------------------------------------|
-| `include/netcore/`, `netcore/` | `tunnel_ops_t`, poll loop helper, route table, lwIP stack glue, proxy, TAP backend (protocol-agnostic)  |
-| `include/vtesse/`, `vtun/`     | VTun wire format helpers and the VTun client                                                            |
-| `cli/`                         | `vtesse-cli`                                                                                            |
-| `port/lwip/`                   | lwIP configuration (`lwipopts.h`), `arch/cc.h`, hook prototypes                                         |
-| `third_party/lwip/`            | vendored lwIP 2.2.1, unmodified subset                                                                  |
-| `tests/`                       | unit tests and client scenarios                                                                         |
-| `bench/`                       | Docker test bench                                                                                       |
-| `android/`                     | Android app: Gradle project, JNI bridge, foreground service ([android/README.md](../android/README.md)) |
-| `server/`                      | vtund build script and our VTun server patches (bench and release builds)                               |
-| `ci/`                          | cross builds (`build-musl.sh`), build containers, big-endian MIPS tests under qemu                      |
-| `.github/workflows/`           | CI: tests, cross builds, test bench, releases                                                           |
-| `tools/`                       | probe script                                                                                            |
-| `scripts/`                     | hook and udhcpc scripts for the TAP backend, service scripts (`S99vtesse`, `vtesse.init`)               |
-| `docs/`                        | documentation                                                                                           |
+| Path                           | Contents                                                                                                       |
+|--------------------------------|----------------------------------------------------------------------------------------------------------------|
+| `include/netcore/`, `netcore/` | `tunnel_ops_t`, poll loop helper, route table, lwIP stack glue, proxy and inbound forwards (protocol-agnostic) |
+| `include/vtesse/`, `vtun/`     | VTun wire format helpers and the VTun client                                                                   |
+| `cli/`                         | `vtesse-cli`                                                                                                   |
+| `port/lwip/`                   | lwIP configuration (`lwipopts.h`), `arch/cc.h`, hook prototypes                                                |
+| `third_party/lwip/`            | vendored lwIP 2.2.1, unmodified subset                                                                         |
+| `tests/`                       | unit tests and client scenarios                                                                                |
+| `bench/`                       | Docker test bench                                                                                              |
+| `android/`                     | Android app: Gradle project, JNI bridge, foreground service ([android/README.md](../android/README.md))        |
+| `server/`                      | vtund build script and our VTun server patches (bench and release builds)                                      |
+| `ci/`                          | cross builds (`build-musl.sh`), build containers, big-endian MIPS tests under qemu                             |
+| `.github/workflows/`           | CI: tests, cross builds, test bench, releases                                                                  |
+| `tools/`                       | probe script                                                                                                   |
+| `scripts/`                     | service scripts (`S99vtesse`, `vtesse.init`, `vtesse.service`), built into the binary for `--install`          |
+| `docs/`                        | documentation                                                                                                  |
 
 ## Tunnel interface
 
@@ -136,14 +137,18 @@ See [`include/netcore/tunnel.h`](../include/netcore/tunnel.h).
 - On every tunnel `UP` the ARP cache is flushed (the bridge MAC may have changed).
 - After a reconnect the link comes up again and lwIP requests the previous address
   (DHCP INIT-REBOOT); the lease is never released.
+- `type tun` without DHCP: a manual address, or `learn_ip` (#68): the destination of
+  the first unicast packet from the tunnel becomes the address (`/32`) and its source
+  the gateway, set in `on_rx` before the packet enters lwIP (a first SYN is accepted);
+  every `UP` checks the next packet again and replaces a changed address.
 - `port/lwip/lwipopts.h`: memory profiles (`make LWIP_PROFILE=…`, #12), `MEM_ALIGNMENT`
   follows the pointer size, system byte-order functions.
 
-  | Profile | TCP window | Static pools (arm32 bss) | Peak RSS on a camera | Use |
-  |---|---|---|---|---|
-  | large (default) | ~125 KiB, window scaling | ~1.3 MiB | ~1 MiB | PCs, Android, arm64 |
-  | medium | 64 KiB | ~250 KiB | ~400 KiB | cameras, routers (arm32, mipsel, mips releases) |
-  | small | 4 × MSS | ~95 KiB | — | very tight devices; ~1 Mbit/s at 50 ms |
+  | Profile         | TCP window               | Static pools (arm32 bss) | Peak RSS on a camera | Use                                             |
+  |-----------------|--------------------------|--------------------------|----------------------|-------------------------------------------------|
+  | large (default) | ~125 KiB, window scaling | ~1.3 MiB                 | ~1 MiB               | PCs, Android, arm64                             |
+  | medium          | 64 KiB                   | ~250 KiB                 | ~400 KiB             | cameras, routers (arm32, mipsel, mips releases) |
+  | small           | 4 × MSS                  | ~95 KiB                  | —                    | very tight devices; ~1 Mbit/s at 50 ms          |
 
   One connection carries at most window / RTT: medium gives ~3.4 Mbit/s at 150 ms and
   ~8.9 Mbit/s was measured at 48 ms on an OpenIPC camera (SigmaStar SSC337, 27 MiB RAM).
@@ -162,6 +167,13 @@ TCP connections.
 - The proxy is a multi-fd loop source (`poll_fill` / `poll_dispatch`).
 - TCP-over-TCP: inner connections share one VTun TCP stream; on the bench a single
   download reaches ~110–140 MiB/s and 8 parallel downloads ~55 MiB/s in total.
+- Inbound forwards (#67): an lwIP listener per `accept=` port (`MEMP_NUM_TCP_PCB_LISTEN`
+  4) on any address of the netif; an accepted PCB gets a connection whose host socket
+  connects non-blocking (state `C_LCONNECT`) to the target, by default the address of
+  the default-route interface ([`hostaddr.c`](../netcore/hostaddr.c), looked up per
+  connection). Data from the tunnel waits in the PCB's receive queue, unacknowledged,
+  until the host socket is connected; from then on it is the same relay as an outbound
+  forward. A refused or timed-out host connect aborts the PCB (RST to the tunnel).
 
 User-facing behaviour (reply codes, limits): [usage](usage.md#local-proxy).
 
@@ -174,25 +186,14 @@ UDP socket (`127.0.0.1:LOCAL_PORT`). No loop source of its own; a full local buf
 drops the datagram instead of stalling the tunnel. One direction only (camera →
 device), for RTP pushed by cameras. User-facing: [usage](usage.md#udp-relay-rtp-from-cameras).
 
-## Backends
+## No kernel interface
 
-Two consumers of `tunnel_ops_t`:
-
-|                           | lwIP (default)                            | TAP ([`tapdev.h`](../include/netcore/tapdev.h))      |
-|---------------------------|-------------------------------------------|------------------------------------------------------|
-| Interface in the system   | none                                      | `vtesse0` (TAP for `type ether`, TUN for `type tun`) |
-| Who can use the tunnel    | the application, programs using its proxy | every program                                        |
-| Inbound connections       | no                                        | yes                                                  |
-| Addressing                | built-in DHCP client (lwIP)               | system DHCP client via the hook script               |
-| Privileges                | none                                      | root or `CAP_NET_ADMIN`, `tun` driver                |
-| Platforms                 | Linux, Android                            | Linux                                                |
-| Code size (x86_64, `-Os`) | ~107 KiB code + lwIP pools                | ~23 KiB (`make LWIP=0`)                              |
-
-The TAP backend creates the interface on the first tunnel `UP`, keeps it across
-reconnects and switches the carrier off while the tunnel is down
-(`TUNSETCARRIER`; on kernels without it the interface just stays up and the hook
-flushes neighbours). Frames are read in batches and dropped while the tunnel is down
-or its output buffer is full; frames from the tunnel are written non-blocking.
+The userspace stack is the only consumer of `tunnel_ops_t` in the CLI: no root, no
+`tun` driver, nothing changes in the system's network. The TAP backend (a kernel
+interface through `/dev/net/tun`, addressed by hook and udhcpc scripts) was removed in
+2.0.0 ([#72](https://github.com/OpenIPC/vtesse/issues/72)). What it gave beyond the
+proxy, inbound access to the device's own services, comes from the inbound forwards
+(below); a kernel-interface client for stock vtund servers is a separate project.
 
 ## Android
 

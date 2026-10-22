@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "lwip/tcp.h"
+#include "netcore/hostaddr.h"
 #include "netcore/route.h"
 #include "netcore/stack.h"
 
@@ -45,6 +46,7 @@ enum conn_state {
     C_AUTH,
     C_REQUEST,
     C_CONNECTING,
+    C_LCONNECT,                 /* inbound (#67): connecting the host socket */
     C_RELAY
 };
 
@@ -54,6 +56,8 @@ typedef struct conn {
     struct tcp_pcb *pcb;
     int state;
     int socks;                  /* SOCKS5 client: a reply is owed */
+    int inbound;                /* accepted from the tunnel (#67); dst:dport is the host side */
+    uint16_t aport;             /* inbound: the port on the tunnel address */
     int replied;
 
     uint8_t hs[HS_MAX];
@@ -83,6 +87,8 @@ struct nc_proxy {
     int auth;
 
     int lfd[LISTEN_MAX];        /* [0] SOCKS, [1 + i] forward i; -1 if unused */
+    struct tcp_pcb *lpcb[NC_PROXY_MAX_ACCEPTS];     /* accept= listeners on lwIP */
+    struct lctx { nc_proxy_t *px; int i; } lctx[NC_PROXY_MAX_ACCEPTS];
 
     conn_t **conns;
     int nconns;
@@ -145,7 +151,10 @@ static void fail_conn(conn_t *c, uint8_t rep, const char *why)
     char d[24];
 
     dst_str(c, d, sizeof(d));
-    logf_(c->px, "%s %s: %s", c->socks ? "socks" : "forward", d, why);
+    if (c->inbound)
+        logf_(c->px, "accept %u -> %s: %s", (unsigned)c->aport, d, why);
+    else
+        logf_(c->px, "%s %s: %s", c->socks ? "socks" : "forward", d, why);
     socks_reply(c, rep);
     c->px->st.failed++;
     c->dead = 1;
@@ -260,7 +269,8 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
     } else {
         c->rx = p;
     }
-    pump_down(c);
+    if (c->state == C_RELAY)
+        pump_down(c);           /* inbound: kept until the host socket is connected */
     return ERR_OK;
 }
 
@@ -323,6 +333,117 @@ static void start_connect(conn_t *c)
         tcp_abort(pcb);
         fail_conn(c, REP_FAILURE, "connect failed");
     }
+}
+
+/* ---- inbound forwards (#67) ---- */
+
+static void local_connected(conn_t *c)
+{
+    char d[24];
+
+    c->state = C_RELAY;
+    c->deadline = 0;
+    c->px->st.connected++;
+    dst_str(c, d, sizeof(d));
+    logf_(c->px, "accept %u -> %s: connected", (unsigned)c->aport, d);
+    pump_down(c);               /* data the remote side sent meanwhile */
+    flush_tx(c);
+}
+
+static void start_local_connect(conn_t *c)
+{
+    struct sockaddr_in a;
+    int fd, one = 1;
+
+    if (!c->dst && !(c->dst = nc_default_route_addr())) {
+        fail_conn(c, REP_FAILURE, "no default-route interface address");
+        return;
+    }
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        fail_conn(c, REP_FAILURE, strerror(errno));
+        return;
+    }
+    c->fd = fd;
+    set_nonblock(fd);
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_port = htons(c->dport);
+    a.sin_addr.s_addr = htonl(c->dst);
+    c->state = C_LCONNECT;
+    c->deadline = nc_now_ms() + (uint64_t)c->px->cfg.connect_timeout_ms;
+    if (connect(fd, (struct sockaddr *)&a, sizeof(a)) == 0)
+        local_connected(c);
+    else if (errno != EINPROGRESS)
+        fail_conn(c, REP_FAILURE, strerror(errno));
+}
+
+static void finish_local_connect(conn_t *c)
+{
+    int e = 0;
+    socklen_t len = sizeof(e);
+
+    if (getsockopt(c->fd, SOL_SOCKET, SO_ERROR, &e, &len) < 0)
+        e = errno;
+    if (e)
+        fail_conn(c, REP_FAILURE, strerror(e));
+    else
+        local_connected(c);
+}
+
+static err_t on_accept(void *arg, struct tcp_pcb *pcb, err_t err)
+{
+    struct lctx *l = arg;
+    nc_proxy_t *px = l->px;
+    const nc_accept_t *a = &px->cfg.accepts[l->i];
+    conn_t *c;
+
+    if (err != ERR_OK || !pcb)
+        return ERR_VAL;
+    if (px->nconns >= px->cfg.max_conns || !(c = calloc(1, sizeof(*c)))) {
+        px->st.rejected++;
+        logf_(px, "accept %u: connection limit reached (%d), reset", (unsigned)a->port, px->cfg.max_conns);
+        tcp_abort(pcb);
+        return ERR_ABRT;
+    }
+    c->px = px;
+    c->fd = -1;
+    c->pcb = pcb;
+    c->inbound = 1;
+    c->aport = a->port;
+    c->dst = a->ip;
+    c->dport = a->local_port;
+    px->conns[px->nconns++] = c;
+    px->st.accepted++;
+    px->st.active++;
+    tcp_arg(pcb, c);
+    tcp_recv(pcb, on_recv);
+    tcp_err(pcb, on_err);
+    tcp_nagle_disable(pcb);
+    start_local_connect(c);
+    return ERR_OK;
+}
+
+int nc_accept_parse(const char *s, nc_accept_t *out)
+{
+    unsigned p, lp, a, b, cc, d;
+    char tail;
+
+    memset(out, 0, sizeof(*out));
+    if (sscanf(s, "%u%c", &p, &tail) == 1) {
+        lp = p;
+    } else if (sscanf(s, "%u:%u.%u.%u.%u:%u%c", &p, &a, &b, &cc, &d, &lp, &tail) == 6 &&
+               a <= 255 && b <= 255 && cc <= 255 && d <= 255) {
+        out->ip = a << 24 | b << 16 | cc << 8 | d;
+    } else {
+        return -1;
+    }
+    if (!p || p > 65535 || !lp || lp > 65535 || strspn(s, "0123456789:.") != strlen(s))
+        return -1;
+    out->port = (uint16_t)p;
+    out->local_port = (uint16_t)lp;
+    return 0;
 }
 
 #if NC_WITH_SOCKS
@@ -581,8 +702,12 @@ static int px_fill(void *ctx, struct pollfd *pfd, int max)
         conn_t *c = px->conns[i];
         short ev = 0;
 
+        if (c->fd < 0)
+            continue;               /* inbound, the host socket is not open (yet) */
         if (c->state < C_CONNECTING)
             ev = POLLIN;
+        else if (c->state == C_LCONNECT)
+            ev = POLLOUT;
         else if (c->state == C_RELAY) {
             if (can_read_local(c))
                 ev |= POLLIN;
@@ -615,6 +740,10 @@ static void px_dispatch(void *ctx, const struct pollfd *pfd, int n)
         }
         if (c->dead)
             continue;
+        if (c->state == C_LCONNECT) {
+            finish_local_connect(c);    /* POLLOUT, POLLERR or POLLHUP: the result is in SO_ERROR */
+            continue;
+        }
         if (re & POLLERR) {
             c->dead = c->abort = 1;
             continue;
@@ -641,7 +770,7 @@ static int px_next_timeout(void *ctx)
 
     for (i = 0; i < px->nconns; i++) {
         const conn_t *c = px->conns[i];
-        if (c->state <= C_CONNECTING && !c->dead && c->deadline && (!next || c->deadline < next))
+        if (c->state != C_RELAY && !c->dead && c->deadline && (!next || c->deadline < next))
             next = c->deadline;
     }
     if (!next)
@@ -661,6 +790,9 @@ static void px_timer(void *ctx)
             struct tcp_pcb *pcb = c->pcb;
             c->deadline = 0;
             tcp_abort(pcb);         /* calls on_err(ERR_ABRT) -> "connect timeout" */
+        } else if (c->state == C_LCONNECT && !c->dead && c->deadline && now >= c->deadline) {
+            c->deadline = 0;
+            fail_conn(c, REP_FAILURE, "connect timeout");
         } else if (c->state < C_CONNECTING && !c->dead && c->deadline && now >= c->deadline) {
             logf_(px, "socks: handshake timeout");
             c->deadline = 0;
@@ -754,6 +886,29 @@ nc_proxy_t *nc_proxy_create(const nc_proxy_cfg_t *cfg, nc_proxy_log_cb log, void
     for (i = 0; i < px->cfg.forward_count; i++)
         if ((px->lfd[1 + i] = open_listener(px, px->cfg.forwards[i].local_port)) < 0)
             goto fail;
+    if (px->cfg.accept_count < 0 || px->cfg.accept_count > NC_PROXY_MAX_ACCEPTS)
+        goto fail;
+    for (i = 0; i < px->cfg.accept_count; i++) {
+        struct tcp_pcb *pcb = tcp_new(), *l;
+
+        /* any address: the netif has only the tunnel address, whatever it is now */
+        if (!pcb || tcp_bind(pcb, IP_ANY_TYPE, px->cfg.accepts[i].port) != ERR_OK) {
+            logf_(px, "accept %u: cannot listen in the stack", (unsigned)px->cfg.accepts[i].port);
+            if (pcb)
+                tcp_abort(pcb);
+            goto fail;
+        }
+        if (!(l = tcp_listen(pcb))) {
+            tcp_abort(pcb);
+            logf_(px, "accept %u: cannot listen in the stack", (unsigned)px->cfg.accepts[i].port);
+            goto fail;
+        }
+        px->lctx[i].px = px;
+        px->lctx[i].i = i;
+        tcp_arg(l, &px->lctx[i]);
+        tcp_accept(l, on_accept);
+        px->lpcb[i] = l;
+    }
     return px;
 fail:
     nc_proxy_destroy(px);
@@ -773,6 +928,12 @@ void nc_proxy_destroy(nc_proxy_t *px)
     for (i = 0; i < LISTEN_MAX; i++)
         if (px->lfd[i] >= 0)
             close(px->lfd[i]);
+    for (i = 0; i < NC_PROXY_MAX_ACCEPTS; i++)
+        if (px->lpcb[i]) {
+            tcp_arg(px->lpcb[i], NULL);
+            tcp_accept(px->lpcb[i], NULL);
+            tcp_close(px->lpcb[i]);
+        }
     memset(px->pass, 0, sizeof(px->pass));
     free(px->conns);
     free(px);

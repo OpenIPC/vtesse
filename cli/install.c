@@ -12,12 +12,13 @@
  *  4. writes the init script of the system from the built-in copy: S99vtesse,
  *     the procd vtesse.init with its rc.d link and /lib/upgrade/keep.d/vtesse
  *     (OpenWrt keeps only /etc across sysupgrade), or the systemd unit;
- *  5. --scripts also writes the hook scripts to <prefix>/libexec/vtesse (#50):
- *     the binary prefers them to its built-in copies, so they can be edited;
+ *  5. a file-based service gets accept=80, 22 and 554 when it has no accept line
+ *     (#67): the camera's web, ssh and RTSP from the server, as the TAP backend of
+ *     1.x gave them; the hook scripts of 1.x are removed (#72);
  *  6. (re)starts the service, unless --no-start.
  * --uninstall stops the service and removes everything --install may have
  * written, /etc/vtesse.conf included, for any of the layouts.
- * Both can run again: --install updates the binary, the scripts and the given
+ * Both can run again: --install updates the binary, the init script and the given
  * keys, --uninstall on a clean system is not an error.
  *
  * --root DIR does all of it below DIR and skips the service (tests, staging).
@@ -41,14 +42,6 @@
 #include "vtesse/vtun_proto.h"
 #include "vtesse_scripts.h"     /* generated from scripts/ (tools/embed-scripts.sh) */
 
-#ifndef VTESSE_WITH_TAP
-#ifdef __linux__
-#define VTESSE_WITH_TAP 1
-#else
-#define VTESSE_WITH_TAP 0
-#endif
-#endif
-
 #define CONF_PATH "/etc/vtesse.conf"
 #define CONF_MAX  (64 * 1024)
 
@@ -60,24 +53,22 @@ typedef struct layout {
     const char *init;       /* init script or unit */
     const char *init_src;   /* its built-in copy (scripts/) */
     mode_t init_mode;
-    const char *libexec;    /* hook scripts written by --scripts */
 } layout_t;
 
 static const layout_t layouts[] = {
-    [SYS_OPENIPC] = { "OpenIPC", "/usr/bin/vtesse", "/etc/init.d/S99vtesse", "S99vtesse", 0755,
-                      "/usr/libexec/vtesse" },
-    [SYS_OPENWRT] = { "OpenWrt", "/usr/bin/vtesse", "/etc/init.d/vtesse", "vtesse.init", 0755,
-                      "/usr/libexec/vtesse" },
+    [SYS_OPENIPC] = { "OpenIPC", "/usr/bin/vtesse", "/etc/init.d/S99vtesse", "S99vtesse", 0755 },
+    [SYS_OPENWRT] = { "OpenWrt", "/usr/bin/vtesse", "/etc/init.d/vtesse", "vtesse.init", 0755 },
     [SYS_SYSTEMD] = { "Linux with systemd", "/usr/local/bin/vtesse", "/etc/systemd/system/vtesse.service",
-                      "vtesse.service", 0644, "/usr/local/libexec/vtesse" },
+                      "vtesse.service", 0644 },
     [SYS_BUSYBOX] = { "BusyBox init (/etc/init.d)", "/usr/bin/vtesse", "/etc/init.d/S99vtesse", "S99vtesse",
-                      0755, "/usr/libexec/vtesse" },
+                      0755 },
 };
 
 #define OPENWRT_RC   "/etc/rc.d/S99vtesse"
 #define OPENWRT_KEEP "/lib/upgrade/keep.d/vtesse"
 #define LEGACY_DIR   "/usr/share/vtesse"     /* the hook scripts up to 1.13 */
 
+/* the TAP backend's hook scripts of 1.x (removed in 2.0.0, #72): only cleaned up */
 static const char *hook_scripts[] = { "vtesse-hook.sh", "vtesse-udhcpc.script" };
 
 /* everything --uninstall removes, whatever the layout */
@@ -119,43 +110,6 @@ const char *vi_self_path(void)
     if (n > 10 && !strcmp(path + n - 10, " (deleted)"))
         path[n - 10] = '\0';
     return path;
-}
-
-int vi_run_embedded(int argc, char **argv)
-{
-    const char *text = vi_script("vtesse-udhcpc.script");
-    char *args[16];
-    int i, n = 0;
-
-    unsetenv("VTESSE_RUN");
-    if (!text)
-        return 127;
-    args[n++] = "sh";
-    args[n++] = "-c";
-    args[n++] = (char *)text;
-    args[n++] = "vtesse-udhcpc";
-    for (i = 1; i < argc && n < 15; i++)
-        args[n++] = argv[i];
-    args[n] = NULL;
-    execv("/bin/sh", args);
-    perror("vtesse: /bin/sh");
-    return 127;
-}
-
-const char *vi_libexec_hook(void)
-{
-    static char path[600];
-    char dir[512];
-    char *slash;
-
-    snprintf(dir, sizeof(dir), "%s", vi_self_path());
-    slash = strrchr(dir, '/');
-    if (!slash)
-        return NULL;
-    *slash = '\0';
-    /* <prefix>/bin/vtesse -> <prefix>/libexec/vtesse/vtesse-hook.sh */
-    snprintf(path, sizeof(path), "%s/../libexec/vtesse/vtesse-hook.sh", dir);
-    return access(path, R_OK) == 0 ? path : NULL;
 }
 
 int vi_wanted(int argc, char **argv)
@@ -519,7 +473,7 @@ static int build_config(const char *old, kv_t *set, int n, char *out, const ve_t
 {
     static char iface[64];
     int has_host = 0, has_port = 0, bad_port = 0, has_pass = 0, has_session = 0, has_idfrom = 0, has_ip = 0,
-        has_gw = 0, i;
+        has_gw = 0, has_accept = 0, i;
     outbuf_t o = { out, 0 };
     const char *p = old;
     char key[64];
@@ -588,6 +542,8 @@ static int build_config(const char *old, kv_t *set, int n, char *out, const ve_t
                 has_ip = v;
             else if (!strcmp(key, "gw") || !strcmp(key, "route"))
                 has_gw |= v;
+            else if (!strcmp(key, "accept"))
+                has_accept |= v;
         }
         p = e + 1;
     }
@@ -615,6 +571,14 @@ static int build_config(const char *old, kv_t *set, int n, char *out, const ve_t
     if (has_gw && !has_ip) {
         fprintf(stderr, "vtesse: gw and route need ip (--ip A.B.C.D/P)\n");
         return -1;
+    }
+    /* inbound access for the server (#67), as the TAP backend of 1.x gave it: the
+     * camera's web, ssh and RTSP on its LAN address; with the U-Boot environment and
+     * no accept line the client opens the same itself */
+    if (!has_accept && (!env || old)) {
+        if (out_kv(&o, "accept", "80") < 0 || out_kv(&o, "accept", "22") < 0 || out_kv(&o, "accept", "554") < 0)
+            return -1;
+        printf("accept=80, 22, 554: the server reaches the camera's web, ssh and RTSP (#67)\n");
     }
     if (env)
         return 0;
@@ -695,7 +659,7 @@ static void usage(void)
     fprintf(stderr,
             "usage: vtesse --install [--host SERVER] [--port N] [--password PASSWORD|-]\n"
             "                        [--session ID | --id-from IFACE] [--ip A.B.C.D/P] [--gw A.B.C.D]\n"
-            "                        [--scripts] [--no-start] [--system SYSTEM] [--root DIR]\n"
+            "                        [--no-start] [--system SYSTEM] [--root DIR]\n"
             "       vtesse --uninstall [--system SYSTEM] [--root DIR]\n"
             "  SYSTEM: openipc, openwrt, systemd or busybox (default: detected)\n"
             "  the keys go to /etc/vtesse.conf; an existing file keeps its other lines\n");
@@ -746,76 +710,53 @@ static int write_script(const char *path, const char *name, mode_t mode)
     return 0;
 }
 
-/* Hook scripts of 1.13 and older in /usr/share/vtesse: moved to libexec, where the
- * binary finds them, so that a hand-edited copy keeps working. Sets moved[i] for each
- * script moved (--scripts must not overwrite it). The 1.13 path in an /etc/default/vtesse
- * override (ARGS="... --hook /usr/share/vtesse/vtesse-hook.sh") is changed to match. */
-static void migrate_legacy(const layout_t *l, int moved[])
+/* The hook scripts of 1.x (libexec, and /usr/share/vtesse up to 1.13) belonged to
+ * the TAP backend, removed in 2.0.0 (#72): an update removes them. Never through a
+ * symlink: only a real directory of ours is emptied. Returns 0, or -1 when a file
+ * could not be removed. */
+static int remove_old_scripts(void)
 {
-    const char *def_path = rp("/etc/default/vtesse");
-    char path[1100];
-    size_t i, len;
-    char *def;
-    int named;
+    static const char *dirs[] = { "/usr/libexec/vtesse", "/usr/local/libexec/vtesse", LEGACY_DIR };
+    size_t i, j;
+    int rc = 0;
 
-    /* Only an /etc/default/vtesse that names the old path chose those scripts on
-     * purpose: they move to libexec and stay in use. Otherwise they were the stock
-     * scripts of the old init script: they are kept as inactive *.1.13 copies and the
-     * built-in ones (with their fixes) take over. */
-    snprintf(path, sizeof(path), "%s", def_path);
-    def = read_file(path, &len);
-    named = def && strstr(def, LEGACY_DIR "/") != NULL;
-
-    for (i = 0; i < sizeof(hook_scripts) / sizeof(hook_scripts[0]); i++) {
-        char from[1024], to[1024];
-
-        moved[i] = 0;
-        snprintf(from, sizeof(from), "%s%s/%s", root, LEGACY_DIR, hook_scripts[i]);
-        snprintf(to, sizeof(to), "%s%s/%s%s", root, l->libexec, hook_scripts[i], named ? "" : ".1.13");
-        if (!exists(from))
-            continue;
-        if (exists(to)) {
-            /* both edited? keep both: the binary uses the libexec copy */
-            fprintf(stderr, "vtesse: %s and %s both exist: %s is used, the other is left in place\n",
-                    from, to, to);
-            continue;
-        }
-        if (mkdir_p(rp(l->libexec)) == 0 && rename(from, to) == 0) {
-            moved[i] = named;
-            if (named)
-                printf("moved %s to %s, named in /etc/default/vtesse (delete it for the built-in copy)\n", from, to);
-            else
-                printf("kept %s as %s, unused: the built-in copy runs (rename it to use it)\n", from, to);
-        } else {
-            fprintf(stderr, "vtesse: cannot move %s to %s: %s\n", from, to, strerror(errno));
-        }
-    }
-    rmdir(rp(LEGACY_DIR));
-
-    /* only when the scripts are now in libexec: a failed move keeps the old paths */
-    if (named && !exists(rp(LEGACY_DIR "/vtesse-hook.sh"))) {
+    for (i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
         struct stat st;
-        mode_t mode = stat(path, &st) == 0 ? st.st_mode & 07777 : 0644;
-        static char fixed[CONF_MAX + 1];
-        const char *p = def, *hit;
-        size_t n = 0, add = strlen(l->libexec) + 1;
+        char path[1024];
 
-        while ((hit = strstr(p, LEGACY_DIR "/")) && n + (size_t)(hit - p) + add < CONF_MAX) {
-            memcpy(fixed + n, p, (size_t)(hit - p));
-            n += (size_t)(hit - p);
-            snprintf(fixed + n, CONF_MAX + 1 - n, "%s/", l->libexec);
-            n += add;
-            p = hit + strlen(LEGACY_DIR "/");
+        if (lstat(rp(dirs[i]), &st) < 0)
+            continue;
+        if (!S_ISDIR(st.st_mode)) {
+            fprintf(stderr, "vtesse: %s is not a directory, left in place\n", rp(dirs[i]));
+            continue;
         }
-        if (!hit && n + strlen(p) < CONF_MAX) {
-            memcpy(fixed + n, p, strlen(p));
-            n += strlen(p);
-            if (write_file(path, fixed, n, mode) == 0)
-                printf("updated %s: %s/ -> %s/\n", path, LEGACY_DIR, l->libexec);
-        } else {
-            fprintf(stderr, "vtesse: %s still names %s/: change it by hand\n", path, LEGACY_DIR);
+        for (j = 0; j < sizeof(hook_scripts) / sizeof(hook_scripts[0]); j++) {
+            snprintf(path, sizeof(path), "%s%s/%s", root, dirs[i], hook_scripts[j]);
+            if (remove_file(path) < 0)
+                rc = -1;
+            snprintf(path, sizeof(path), "%s%s/%s.1.13", root, dirs[i], hook_scripts[j]);
+            if (remove_file(path) < 0)
+                rc = -1;
         }
+        if (rmdir(rp(dirs[i])) == 0)
+            printf("removed %s (hook scripts of the TAP backend, gone in 2.0.0)\n", rp(dirs[i]));
+        else if (errno != ENOENT)
+            fprintf(stderr, "vtesse: %s is not empty, left in place\n", rp(dirs[i]));
     }
+    return rc;
+}
+
+/* /etc/default/vtesse of 1.x may still pass TAP options (ARGS="--tap ..."): the client
+ * refuses them, so the service would not start. Said loudly, the file is not changed. */
+static void check_default_args(void)
+{
+    size_t len;
+    char *def = read_file(rp("/etc/default/vtesse"), &len);
+
+    if (def && (strstr(def, "--tap") || strstr(def, "--hook") || strstr(def, "--ifname")))
+        fprintf(stderr, "vtesse: warning: %s passes --tap/--hook/--ifname: the TAP backend was removed in "
+                        "2.0.0 (#72) and the service will not start; remove those options\n",
+                rp("/etc/default/vtesse"));
     free(def);
 }
 
@@ -879,42 +820,16 @@ static int service(sys_t sys, const layout_t *l, int start)
     return 0;
 }
 
-/* udhcpc in PATH (the built-in hook does not fall back to dhclient) */
-static int have_udhcpc(void)
-{
-    const char *path = getenv("PATH");
-    char dir[512], file[600];
-
-    while (path && *path) {
-        size_t n = strcspn(path, ":");
-
-        if (n && n < sizeof(dir)) {
-            memcpy(dir, path, n);
-            dir[n] = '\0';
-            snprintf(file, sizeof(file), "%s/udhcpc", dir);
-            if (access(file, X_OK) == 0)
-                return 1;
-        }
-        path += n + (path[n] == ':');
-    }
-    return 0;
-}
-
-static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
+static int do_install(sys_t sys, kv_t *set, int n, int start)
 {
     char env_host[256] = "";
     ve_t env;
     const layout_t *l = &layouts[sys];
     static char conf[CONF_MAX + 1];
-    int moved[sizeof(hook_scripts) / sizeof(hook_scripts[0])];
     size_t len;
     char *old;
     int env_write;
 
-    if (!VTESSE_WITH_TAP) {
-        fprintf(stderr, "vtesse: --install needs the TAP backend (this binary is built with TAP=0)\n");
-        return 1;
-    }
     printf("system: %s%s\n", l->name, root[0] ? " (below --root)" : "");
     /* this device's environment: under --root it says nothing about the image */
     memset(&env, 0, sizeof(env));
@@ -1022,7 +937,7 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         }
     }
     if (sys == SYS_OPENWRT) {
-        const char *keep = "/usr/bin/vtesse\n/usr/libexec/vtesse/\n/etc/init.d/vtesse\n"
+        const char *keep = "/usr/bin/vtesse\n/etc/init.d/vtesse\n"
                            OPENWRT_RC "\n" CONF_PATH "\n" OPENWRT_KEEP "\n";
 
         unlink(rp(OPENWRT_RC));
@@ -1037,23 +952,9 @@ static int do_install(sys_t sys, kv_t *set, int n, int scripts, int start)
         printf("wrote %s (kept by sysupgrade)\n", rp(OPENWRT_KEEP));
     }
 
-    migrate_legacy(l, moved);
-    if (scripts) {
-        size_t i;
-        char path[1024];
-
-        for (i = 0; i < sizeof(hook_scripts) / sizeof(hook_scripts[0]); i++) {
-            snprintf(path, sizeof(path), "%s/%s", l->libexec, hook_scripts[i]);
-            if (moved[i])
-                printf("kept %s (moved from %s; delete it for the built-in copy)\n", rp(path), LEGACY_DIR);
-            else if (write_script(rp(path), hook_scripts[i], 0755) < 0)
-                return 1;
-        }
-    }
-
-    if (sys == SYS_SYSTEMD && !have_udhcpc())
-        fprintf(stderr, "vtesse: warning: no udhcpc found: the built-in hook needs BusyBox udhcpc "
-                        "(e.g. the udhcpc package) to get an address on vtesse0\n");
+    if (remove_old_scripts() < 0)
+        return 1;
+    check_default_args();
     if (root[0]) {
         printf("--root: the service is not started\n");
         return 0;
@@ -1254,7 +1155,7 @@ int vi_main(int argc, char **argv)
     static char password[256];
     kv_t set[MAX_KEYS];
     const char *sys_name = NULL;
-    int i, n = 0, install = 0, uninstall = 0, scripts = 0, start = 1;
+    int i, n = 0, install = 0, uninstall = 0, start = 1;
     sys_t sys;
 
     for (i = 1; i < argc; i++) {
@@ -1265,8 +1166,10 @@ int vi_main(int argc, char **argv)
             install = 1;
         else if (!strcmp(a, "--uninstall"))
             uninstall = 1;
-        else if (!strcmp(a, "--scripts"))
-            scripts = 1;
+        else if (!strcmp(a, "--scripts")) {
+            fprintf(stderr, "vtesse: --scripts: the hook scripts went with the TAP backend in 2.0.0 (#72)\n");
+            return 2;
+        }
         else if (!strcmp(a, "--no-start"))
             start = 0;
         else if (!strcmp(a, "--root") && i + 1 < argc) {
@@ -1337,7 +1240,7 @@ int vi_main(int argc, char **argv)
         fprintf(stderr, "vtesse: --session and --id-from exclude each other\n");
         return 2;
     }
-    if (uninstall && (n || scripts || !start)) {
+    if (uninstall && (n || !start)) {
         fprintf(stderr, "vtesse: --uninstall takes only --system and --root\n");
         return 2;
     }
@@ -1358,8 +1261,8 @@ int vi_main(int argc, char **argv)
         return do_uninstall(sys);
     if (sys == SYS_NONE) {
         fprintf(stderr, "vtesse: unknown system (no systemd, no BusyBox init): name one with --system,\n"
-                        "  or run the binary in the foreground: vtesse --config FILE --tap\n");
+                        "  or run the binary in the foreground: vtesse --config FILE\n");
         return 1;
     }
-    return do_install(sys, set, n, scripts, start);
+    return do_install(sys, set, n, start);
 }
