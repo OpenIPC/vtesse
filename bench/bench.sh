@@ -10,10 +10,11 @@
 #   bench.sh selftest        protocol self-test against the running bench
 #   bench.sh cli-test        stage 1 acceptance: build/vtesse-cli (lwIP, DHCP) on the bench
 #   bench.sh proxy-test      stage 2 acceptance: SOCKS5 and port forwards of build/vtesse-cli
-#   bench.sh tap-test        TAP backend acceptance: vtesse-cli --tap (LWIP=0 build) in a container
-#   bench.sh tun-test        type tun session (#8): manual IPv4, lwIP and --tap (TUN interface)
+#   bench.sh tun-test        type tun session (#8): manual IPv4
+#   bench.sh accept-test     inbound forwards (#67) and ip=learn (#68) on a type tun session
 #   bench.sh udp-test        UDP relay (#28): datagrams from the device to the tunnel address -> 127.0.0.1
 #   bench.sh fault-test      failures (#9): link loss, server restart, no option 121, lease renewal (~6 min)
+#   bench.sh route-wait-test the client waits for a default route before it starts (#73)
 set -eu
 
 IMAGE=${BENCH_IMAGE:-vtesse-bench}
@@ -115,72 +116,9 @@ cmd_cli_test() {
     [ "$fails" -eq 0 ]
 }
 
-cmd_tap_test() {
-    repo=$(cd "$HERE/.." && pwd)
-    tapc=vtesse-bench-tapclient
-    fails=0
-    check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails + 1)); fi; }
-    inc() { docker exec "$tapc" sh -c "$1"; }
-    dev() { docker exec "$SERVER" ip netns exec device sh -c "$1"; }
-
-    # build the TAP-only CLI for the bench image (Debian bookworm)
-    docker build -q -t vtesse-ci-native -f "$repo/ci/Dockerfile.native" "$repo/ci" >/dev/null
-    docker run --rm --user "$(id -u):$(id -g)" -v "$repo:/src" -w /src vtesse-ci-native \
-        make -s BUILD=build-bench-tap LWIP=0 all >/dev/null
-
-    docker rm -f "$tapc" >/dev/null 2>&1 || true
-    docker run -d --name "$tapc" --privileged --network "$NET" -v "$repo:/src:ro" "$IMAGE" sh -c "
-        mkdir -p /var/lib/dhcp
-        # device ID from an interface MAC (id_from, #6): a dummy NIC with the session's MAC
-        ip link add idsrc0 type dummy
-        ip link set idsrc0 address $(echo $SESSION | sed 's/../&:/g; s/:$//')
-        printf 'host=$SERVER\nport=5000\nid_from=idsrc0\npassword=$PASSWORD\n' > /tmp/vtesse.conf
-        python3 -m http.server 8080 --bind 0.0.0.0 --directory /etc >/dev/null 2>&1 &
-        # no --hook: the built-in hook and udhcpc script (#52); tun-test uses the file
-        exec /src/build-bench-tap/vtesse-cli --tap --ifname vtesse0 --config /tmp/vtesse.conf
-    " >/dev/null
-
-    i=0
-    until inc 'ip -4 addr show vtesse0 2>/dev/null | grep -q "inet 10\.77\.0\."' || [ $i -gt 20 ]; do sleep 1; i=$((i + 1)); done
-    addr=$(inc "ip -4 -o addr show vtesse0" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p')
-    check "device ID taken from the MAC of idsrc0 (id_from)" 'docker logs "$tapc" 2>&1 | grep -q "device ID $SESSION (MAC of idsrc0)"'
-    check "built-in hook (no --hook)" 'docker logs "$tapc" 2>&1 | grep -q "^hook: built-in"'
-    check "tap interface vtesse0 with DHCP address" '[ -n "$addr" ]'
-    check "MAC of vtesse0 is the device ID" 'inc "cat /sys/class/net/vtesse0/address" | grep -qi "^02:be:0c:00:00:01$"'
-    check "option 121 route via the tunnel, no default route through it" \
-        'inc "ip route" | grep -q "10.78.0.0/24 via 10.77.0.1 dev vtesse0" && ! inc "ip route" | grep -q "default.*vtesse0"'
-    check "ping the device from the client" 'inc "ping -c 2 -W 2 10.78.0.10" >/dev/null'
-    check "HTTP to the device from any process (kernel stack)" 'inc "curl -fsS --max-time 5 http://10.78.0.10/" | grep -q "vtesse bench device"'
-    check "inbound: the device pings the client" 'dev "ping -c 2 -W 2 $addr" >/dev/null'
-    check "inbound: the device opens TCP to the client (HTTP :8080)" 'dev "curl -fsS --max-time 5 http://$addr:8080/hostname" >/dev/null'
-    sha=$(docker exec "$SERVER" cat /opt/device/www/big.sha256)
-    check "20 MiB download through the tap, sha256 matches" \
-        '[ "$(inc "curl -fsS --max-time 60 http://10.78.0.10/big.bin | sha256sum | cut -d\" \" -f1")" = "$sha" ]'
-
-    cmd_probe --seconds 1 >/dev/null 2>&1     # take the session over (multi killold)
-    i=0
-    until [ "$(docker logs "$tapc" 2>&1 | grep -c 'carrier on')" -ge 1 ] || [ $i -gt 15 ]; do sleep 1; i=$((i + 1)); done
-    check "reconnect after take-over keeps the interface" 'docker logs "$tapc" 2>&1 | grep -q "carrier on"'
-    sleep 2
-    check "same address after reconnect" 'inc "ip -4 -o addr show vtesse0" | grep -q "inet $addr/"'
-    check "traffic works after reconnect (both directions)" \
-        'inc "ping -c 2 -W 2 10.78.0.10" >/dev/null && dev "ping -c 2 -W 2 $addr" >/dev/null'
-
-    docker stop -t 5 "$tapc" >/dev/null
-    check "clean exit on SIGTERM" 'docker logs "$tapc" 2>&1 | grep -q "frames in"'
-    echo "--- client log"; docker logs "$tapc" 2>&1 | grep -v "^\(Internet\|Listening\|Sending\|Copyright\|For info\|DHCP\|bound\)" | tail -20
-    docker rm -f "$tapc" >/dev/null 2>&1
-    echo "$fails failure(s)"
-    [ "$fails" -eq 0 ]
-}
-
-# type tun (#8): no DHCP over L3, the client address comes from ip=/gw=/route=.
-# lwIP: HTTP to the device through the tunnel and inbound ping of the client;
-# --tap (LWIP=0 build, as in tap-test): a TUN interface configured by the hook.
 cmd_tun_test() {
     repo=$(cd "$HERE/.." && pwd)
     cli="$repo/build/vtesse-cli"
-    tunc=vtesse-bench-tunclient
     [ -x "$cli" ] || { echo "build the CLI first: make"; exit 1; }
     fails=0
     check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails + 1)); fi; }
@@ -207,28 +145,130 @@ cmd_tun_test() {
     rm -f "$conf" "$log"
     sleep 1
 
-    # --- TAP backend: TUN interface, addressing by the hook
+    echo "$fails failure(s)"
+    [ "$fails" -eq 0 ]
+}
+
+# Inbound forwards (#67) and ip=learn (#68): vtesse-cli in a container on the bench
+# network, type tun session 02BE0C000006 with ip=learn; a web server on its 127.0.0.1
+# is reached from the server through the tunnel address.
+cmd_accept_test() {
+    repo=$(cd "$HERE/.." && pwd)
+    c=vtesse-bench-acceptclient
+    fails=0
+    check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails + 1)); fi; }
+    srv() { docker exec "$SERVER" sh -c "$1"; }
+    logs() { docker logs "$c" 2>&1; }
+    # built for the bench image (Debian bookworm), like tun-test
     docker build -q -t vtesse-ci-native -f "$repo/ci/Dockerfile.native" "$repo/ci" >/dev/null
     docker run --rm --user "$(id -u):$(id -g)" -v "$repo:/src" -w /src vtesse-ci-native \
-        make -s BUILD=build-bench-tap LWIP=0 all >/dev/null
-    docker rm -f "$tunc" >/dev/null 2>&1 || true
-    docker run -d --name "$tunc" --privileged --network "$NET" -v "$repo:/src:ro" "$IMAGE" sh -c "
-        printf 'host=$SERVER\nport=5000\nsession=$TUN_SESSION\npassword=$TUN_PASSWORD\n$tunconf' > /tmp/vtesse.conf
-        exec /src/build-bench-tap/vtesse-cli --tap --ifname vtun0 --hook /src/scripts/vtesse-hook.sh --config /tmp/vtesse.conf
+        make -s BUILD=build-bench-accept all >/dev/null
+
+    docker rm -f "$c" >/dev/null 2>&1 || true
+    docker run -d --name "$c" --network "$NET" -v "$repo:/src:ro" "$IMAGE" sh -c "
+        mkdir -p /tmp/www && head -c 20971520 /dev/urandom > /tmp/www/big.bin
+        sha256sum /tmp/www/big.bin | cut -d' ' -f1 > /tmp/www/big.sha256
+        python3 -m http.server 8000 --bind 127.0.0.1 --directory /tmp/www >/dev/null 2>&1 &
+        printf 'host=$SERVER\nport=5000\nsession=$TUN_SESSION\npassword=$TUN_PASSWORD\nip=learn\n' > /tmp/c.conf
+        printf 'accept=8080:127.0.0.1:8000\naccept=8081:127.0.0.1:8001\n' >> /tmp/c.conf
+        exec /src/build-bench-accept/vtesse-cli --no-env --config /tmp/c.conf
     " >/dev/null
-    inc() { docker exec "$tunc" sh -c "$1"; }
     i=0
-    until inc 'ip -4 addr show vtun0 2>/dev/null | grep -q "inet 10\.76\.0\.2"' || [ $i -gt 15 ]; do sleep 1; i=$((i + 1)); done
-    check "tap: vtun0 is a TUN (L3) interface" 'inc "ip -d link show vtun0" | grep -q "tun type tun"'
-    check "tap: hook set 10.76.0.2 and the route to 10.78.0.0/24" \
-        'inc "ip -4 addr show vtun0" | grep -q "inet 10.76.0.2/32" && inc "ip route" | grep -q "10.78.0.0/24 dev vtun0"'
-    check "tap: no default route through the tunnel" '! inc "ip route" | grep -q "default.*vtun0"'
-    check "tap: ping the device from the client" 'inc "ping -c 2 -W 2 10.78.0.10" >/dev/null'
-    check "tap: HTTP to the device from any process" 'inc "curl -fsS --max-time 5 http://10.78.0.10/" | grep -q "vtesse bench device"'
-    check "tap: inbound: the device pings the client" 'dev "ping -c 2 -W 2 10.76.0.2" >/dev/null'
-    docker stop -t 5 "$tunc" >/dev/null
-    echo "--- tap client log"; docker logs "$tunc" 2>&1 | tail -8
-    docker rm -f "$tunc" >/dev/null 2>&1
+    until logs | grep -q "waiting for the first packet" || [ $i -gt 20 ]; do sleep 1; i=$((i + 1)); done
+    # shellcheck disable=SC2034  # sha, t0: used inside the eval strings of check
+    sha=$(docker exec "$c" cat /tmp/www/big.sha256)
+    check "ip=learn: no address before the first packet" '! logs | grep -q "address 10.76"'
+    check "accept: the server reaches the client's web server (first SYN teaches the address)" \
+        'srv "curl -fsS --max-time 10 -o /dev/null http://10.76.0.2:8080/big.sha256"'
+    check "ip=learn: address 10.76.0.2/32, peer 10.76.0.1" \
+        'logs | grep -q "address 10.76.0.2 mask 255.255.255.255 (learnt), peer 10.76.0.1"'
+    check "accept: 8 parallel 20 MiB downloads, sha256 intact" '
+        srv "for n in 1 2 3 4 5 6 7 8; do (curl -fsS --max-time 120 http://10.76.0.2:8080/big.bin | sha256sum > /tmp/acc.\$n) & done; wait"
+        [ "$(srv "cat /tmp/acc.*" | cut -d" " -f1 | sort -u)" = "$sha" ]'
+    # shellcheck disable=SC2034
+    t0=$(date +%s)
+    check "accept to a closed local port: the connection is reset at once" \
+        '! srv "curl -fsS --max-time 10 http://10.76.0.2:8081/" 2>/dev/null && [ $(($(date +%s) - t0)) -lt 5 ]'
+    check "accept: log lines and counters" 'logs | grep -q "accept 8080 -> 127.0.0.1:8000: connected" &&
+        logs | grep -q "accept 8081 -> 127.0.0.1:8001: Connection refused"'
+    # the proxy's connection limit (24, shared with outbound forwards): the 25th is reset
+    # shellcheck disable=SC2034  # over: used inside the eval string of check
+    over=$(srv "python3 -c '
+import socket, time
+held = [socket.create_connection((\"10.76.0.2\", 8080), timeout=5) for _ in range(24)]
+time.sleep(1)
+x = socket.create_connection((\"10.76.0.2\", 8080), timeout=5)
+x.settimeout(5)
+try:
+    print(\"reset\" if x.recv(1) == b\"\" else \"data\")
+except ConnectionResetError:
+    print(\"reset\")
+except socket.timeout:
+    print(\"timeout\")
+for s in held:
+    s.close()
+'" 2>&1)
+    check "accept: over the connection limit (24 held) the next one is reset" \
+        '[ "$over" = reset ] && logs | grep -q "accept 8080: connection limit reached (24), reset"'
+
+    # a changed address after a server restart is learnt again
+    srv "sed -i 's/peer 10.76.0.2 /peer 10.76.0.3 /' /etc/vtund.conf"
+    docker restart -t 2 "$SERVER" >/dev/null
+    i=0
+    until [ "$(logs | grep -c "\] up: ")" -ge 2 ] || [ $i -gt 60 ]; do sleep 1; i=$((i + 1)); done
+    sleep 1
+    check "after a reconnect with another address: 10.76.0.3 reached and learnt" \
+        'srv "curl -fsS --max-time 10 -o /dev/null http://10.76.0.3:8080/big.sha256" &&
+         logs | grep -q "address 10.76.0.3 mask 255.255.255.255 (learnt)"'
+    srv "sed -i 's/peer 10.76.0.3 /peer 10.76.0.2 /' /etc/vtund.conf"
+    docker rm -f "$c" >/dev/null 2>&1
+    docker restart -t 2 "$SERVER" >/dev/null
+
+    # ip=learn on a type ether session: refused once the session is up
+    docker run -d --name "$c" --network "$NET" -v "$repo:/src:ro" "$IMAGE" sh -c "
+        printf 'host=$SERVER\nport=5000\nsession=$SESSION\npassword=$PASSWORD\nip=learn\n' > /tmp/c.conf
+        exec /src/build-bench-accept/vtesse-cli --no-env --config /tmp/c.conf
+    " >/dev/null
+    check "ip=learn on type ether: refused, exit 2" \
+        '[ "$(timeout 60 docker wait "$c")" = 2 ] && logs | grep -q "ip=learn needs a type tun session"'
+    echo "--- client log"; docker logs "$c" 2>&1 | tail -4
+    docker rm -f "$c" >/dev/null 2>&1
+    echo "$fails failure(s)"
+    [ "$fails" -eq 0 ]
+}
+
+# Default-route wait (#73): in a container without a network the client must wait, not
+# connect, and go on as soon as a default route appears; SIGTERM during the wait is exit 0.
+cmd_route_wait_test() {
+    repo=$(cd "$HERE/.." && pwd)
+    c=vtesse-bench-routewait
+    fails=0
+    check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails + 1)); fi; }
+    # built for the bench image (Debian bookworm), like tun-test
+    docker build -q -t vtesse-ci-native -f "$repo/ci/Dockerfile.native" "$repo/ci" >/dev/null
+    docker run --rm --user "$(id -u):$(id -g)" -v "$repo:/src" -w /src vtesse-ci-native \
+        make -s BUILD=build-bench-wait all >/dev/null
+    conf='printf "host=10.9.9.9\nport=5000\nsession=02BE0C000001\npassword=x\n" >/tmp/c.conf'
+    run="exec /src/build-bench-wait/vtesse-cli --no-env --config /tmp/c.conf"
+
+    docker rm -f "$c" >/dev/null 2>&1 || true
+    docker run -d --name "$c" --network none -v "$repo:/src:ro" "$IMAGE" sh -c "$conf; $run" >/dev/null
+    sleep 3
+    check "no default route: waiting, still running, not connecting" \
+        'docker logs "$c" 2>&1 | grep -q "^waiting for a default route" &&
+         [ "$(docker inspect -f "{{.State.Running}}" "$c")" = true ] && ! docker logs "$c" 2>&1 | grep -q connecting'
+    docker stop -t 5 "$c" >/dev/null
+    check "SIGTERM during the wait: exit 0" '[ "$(docker inspect -f "{{.State.ExitCode}}" "$c")" = 0 ]'
+    docker rm -f "$c" >/dev/null 2>&1
+
+    docker run -d --name "$c" --privileged --network none -v "$repo:/src:ro" "$IMAGE" sh -c "$conf; $run" >/dev/null
+    sleep 2
+    docker exec "$c" sh -c "ip link set lo up; ip route add default dev lo"
+    sleep 3
+    check "a default route appears: the wait ends and the client connects" \
+        'docker logs "$c" 2>&1 | grep -q "^default route present after" && docker logs "$c" 2>&1 | grep -q connecting'
+    echo "--- client log"; docker logs "$c" 2>&1 | tail -5
+    docker rm -f "$c" >/dev/null 2>&1
     echo "$fails failure(s)"
     [ "$fails" -eq 0 ]
 }
@@ -382,10 +422,11 @@ case "${1:-}" in
     stock-test) cmd_stock_test ;;
     probe) shift; cmd_probe "$@" ;;
     cli-test) cmd_cli_test ;;
-    tap-test) cmd_tap_test ;;
+    accept-test) cmd_accept_test ;;
     tun-test) cmd_tun_test ;;
     udp-test) cmd_udp_test ;;
     fault-test) cmd_fault_test ;;
+    route-wait-test) cmd_route_wait_test ;;
     proxy-test) python3 "$HERE/proxy_test.py" "$HERE/../build/vtesse-cli" "$BENCH_PORT" "$SERVER" ;;
     selftest) python3 "$HERE/selftest.py" 127.0.0.1 "$BENCH_PORT" ;;
     *) sed -n '2,16p' "$0"; exit 1 ;;

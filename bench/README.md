@@ -72,16 +72,22 @@ and 8 MiB TCP echo through forwards with integrity checks, RTSP `OPTIONS`, 8 par
 downloads, SOCKS5 username/password. The device also serves `/big.bin` (20 MiB,
 sha256 in `/big.sha256`) and a TCP echo on port 7.
 
-`bench.sh tap-test` is the TAP backend acceptance test (the device ID comes from the MAC
-of a dummy interface, `id_from`): it builds `vtesse-cli` with
-`LWIP=0` in a Debian bookworm container (`ci/Dockerfile.native`) and runs it with
-`--tap` in a second privileged container; addressing via `udhcpc` and
-`scripts/vtesse-udhcpc.script`; inbound ping and HTTP from the device to the client.
-
 `bench.sh tun-test` is the `type tun` acceptance test (#8): session `02BE0C000006` with
-manual IPv4 (`ip=10.76.0.2/32`, `gw=10.76.0.1`, `route=10.78.0.0/24`); lwIP: HTTP to the
-device and inbound ping; `--tap`: a TUN interface addressed by the hook, ping/HTTP to the
-device, inbound ping, no default route.
+manual IPv4 (`ip=10.76.0.2/32`, `gw=10.76.0.1`, `route=10.78.0.0/24`): HTTP to the device
+and inbound ping.
+
+`bench.sh accept-test` covers inbound forwards (#67) and `ip=learn` (#68): it builds
+`vtesse-cli` in a Debian bookworm container (`ci/Dockerfile.native`) and runs it in a
+container on the bench network with session `02BE0C000006`, `ip=learn` and
+`accept=8080:127.0.0.1:8000` to a web server on its `127.0.0.1`. The server opens
+`http://10.76.0.2:8080/` (the first SYN teaches the address), 8 parallel 20 MiB downloads
+with sha256, a closed local port (reset at once); after a server restart with the peer
+changed to `10.76.0.3` the new address is learnt (the configuration is restored at the
+end); `ip=learn` on a `type ether` session stops the client with exit code 2.
+
+`bench.sh route-wait-test` (#73): the client in a container without a network waits for
+a default route and does not connect; SIGTERM during the wait is exit code 0; a default
+route ends the wait. The TAP backend and its `tap-test` were removed in 2.0.0 (#72).
 
 `bench.sh udp-test` is the UDP relay acceptance test (#28): `vtesse-cli` with
 `udp_relay=1559`; the device sends 500 numbered datagrams and a fragmented 4000-byte

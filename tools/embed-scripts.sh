@@ -2,7 +2,7 @@
 # embed-scripts.sh FILE... > vtesse_scripts.h
 #
 # Turns the scripts from scripts/ into NUL-terminated byte arrays, so that the
-# binary carries them (built-in hook, "vtesse --install"). Byte arrays instead of
+# binary carries them ("vtesse --install"). Byte arrays instead of
 # string literals: no escaping, and no limit on the length of a literal.
 set -e
 

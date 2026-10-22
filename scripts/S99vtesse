@@ -3,15 +3,15 @@
 #
 #   /etc/init.d/S99vtesse start|stop|restart|status
 #
-# Installed by "vtesse --install". Runs the TAP backend with the built-in hook
-# scripts, or with the copies in /usr/libexec/vtesse when they exist
-# ("vtesse --install --scripts"). Settings can be overridden in /etc/default/vtesse.
+# Installed by "vtesse --install". Runs the userspace stack; the server reaches the
+# camera's services through accept= (#67). Settings can be overridden in
+# /etc/default/vtesse.
 # The U-Boot variables vtesse (the server) and vtesse_* override the config.
 
 DAEMON=/usr/bin/vtesse
 CONFIG=/etc/vtesse.conf
 PIDFILE=/var/run/vtesse.pid
-ARGS="--tap --ifname vtesse0"
+ARGS=
 [ -f /etc/default/vtesse ] && . /etc/default/vtesse
 # stop/status match the process by name, not by the executable: "vtesse --install"
 # replaces the binary under a running daemon
@@ -28,7 +28,6 @@ start() {
         echo "vtesse: neither $CONFIG nor vtesse in the U-Boot environment, not starting"
         return 1
     fi
-    [ -e /dev/net/tun ] || modprobe tun 2>/dev/null
     printf "Starting vtesse: "
     start-stop-daemon -S -q -b -m -p "$PIDFILE" -x "$DAEMON" -- --config "$CONFIG" $ARGS \
         && echo "OK" || echo "FAIL"

@@ -1,13 +1,11 @@
 /*
  * vtesse-cli: Linux console client.
  *
- * Two backends:
- *  - lwIP (default): userspace stack over the tunnel, address and routes via
- *    DHCP (type ether), local proxy: --socks PORT and --forward LPORT:IP:RPORT;
- *    --fetch performs one HTTP GET through the stack.
- *  - TAP (--tap): kernel interface through /dev/net/tun; addressing is done by
- *    the system (e.g. a DHCP client started from the --hook script).
- * Build without lwIP: make LWIP=0 (TAP only).
+ * A userspace stack (lwIP) over the tunnel: address and routes via DHCP (type
+ * ether), manual or learnt from the first packet (type tun); local proxy:
+ * --socks PORT and --forward LPORT:IP:RPORT; inbound forwards from the tunnel
+ * address: --accept PORT[:IP:PORT]; --fetch performs one HTTP GET through the
+ * stack. No kernel interface: the TAP backend was removed in 2.0.0 (#72).
  *
  * Credentials are read from a key=value file, never from the command line
  * ("--install" writes that file from its keys, see install.c).
@@ -30,37 +28,21 @@
 #include "vtesse/vtun_client.h"
 #include "vtesse/vtun_proto.h"
 
-#ifndef VTESSE_WITH_LWIP
-#define VTESSE_WITH_LWIP 1
-#endif
-
-#if VTESSE_WITH_LWIP
 #include "lwip/ip4_addr.h"
 #include "lwip/tcp.h"
 #include "netcore/proxy.h"
 #include "netcore/stack.h"
-#endif
 #include "netcore/udprelay.h"   /* limits only; the relay itself needs lwIP */
 
-/* optional modules (make SOCKS=0 UDP_RELAY=0 TAP=0) */
+/* optional modules (make SOCKS=0 UDP_RELAY=0) */
 #ifndef NC_WITH_SOCKS
-#define NC_WITH_SOCKS VTESSE_WITH_LWIP
+#define NC_WITH_SOCKS 1
 #endif
 #ifndef VTESSE_WITH_UDP_RELAY
-#define VTESSE_WITH_UDP_RELAY VTESSE_WITH_LWIP
-#endif
-#ifndef VTESSE_WITH_TAP
-#ifdef __linux__
-#define VTESSE_WITH_TAP 1
-#else
-#define VTESSE_WITH_TAP 0
-#endif
-#endif
-#if VTESSE_WITH_TAP
-#include "netcore/tapdev.h"
+#define VTESSE_WITH_UDP_RELAY 1
 #endif
 
-#if VTESSE_WITH_LWIP && !VTESSE_WITH_UDP_RELAY
+#if !VTESSE_WITH_UDP_RELAY
 /* built without the UDP relay (udprelay.c not linked): the options are refused */
 int nc_udp_relay_parse(const char *s, uint16_t *port, uint16_t *local_port)
 {
@@ -86,7 +68,7 @@ void nc_udp_relay_destroy(nc_udp_relay_t *r)
 #endif
 
 #define DEFAULT_CONFIG "~/.config/vtesse/probe.conf"
-#define ENV_ROUTE_WAIT 60       /* seconds: environment mode waits for the uplink at boot */
+#define ROUTE_WAIT_LOG_S 60     /* seconds between the "still waiting" lines (#73) */
 
 typedef struct cfg_file {
     char host[256];
@@ -96,6 +78,8 @@ typedef struct cfg_file {
     char route[16][32];     /* NET/P, repeatable */
     char udp_relay[NC_UDP_RELAY_MAX][16];   /* PORT[:LOCAL_PORT], repeatable */
     int udp_relay_count;
+    char accept[NC_PROXY_MAX_ACCEPTS][32];  /* PORT[:IP:PORT], repeatable (#67) */
+    int accept_count;
     int route_count;
     char password[128];
     char auth[16];
@@ -113,32 +97,47 @@ static void on_signal(int sig)
     loop.stop = 1;
 }
 
+/* 0 when there is a default route; -1 when a signal stopped the wait (#73) */
+static int wait_default_route(void)
+{
+    unsigned waited = 0;
+
+    while (!ve_has_default_route()) {
+        if (loop.stop)
+            return -1;
+        if (!waited)
+            printf("waiting for a default route\n");
+        else if (waited % ROUTE_WAIT_LOG_S == 0)
+            printf("still waiting for a default route (%u min)\n", waited / 60);
+        fflush(stdout);
+        sleep(1);
+        waited++;
+    }
+    if (waited)
+        printf("default route present after %u s\n", waited);
+    return 0;
+}
+
 static void usage(void)
 {
     fprintf(stderr,
             "usage: vtesse-cli [--config FILE] [--seconds N] [-v] [--version]\n"
-#if VTESSE_WITH_LWIP
-            "  lwIP backend (default):\n"
             "                  [--socks PORT] [--forward LPORT:IP:RPORT]... [--listen ADDR]\n"
+            "                  [--accept PORT[:IP:PORT]]...  (inbound: tunnel address:PORT -> host)\n"
             "                  [--fetch http://IP[:PORT]/PATH] [--udp-relay PORT[:LOCAL_PORT]]...\n"
-            "                  [--ip A.B.C.D/P [--gw A.B.C.D]]   (manual IPv4 instead of DHCP)\n"
-#endif
-#if VTESSE_WITH_TAP
-            "  TAP backend:    --tap [--ifname NAME] [--hook SCRIPT|none]\n"
-            "                  (no --hook: <prefix>/libexec/vtesse/vtesse-hook.sh, else the built-in one)\n"
-            "  vtesse --install [--host SERVER --password PASSWORD ...]   install as a service\n"
-            "  vtesse --uninstall                                         remove it (--install --help)\n"
-#endif
+            "                  [--ip A.B.C.D/P|learn [--gw A.B.C.D]]   (manual IPv4 instead of DHCP)\n"
             "  --id-from IFACE  device ID (session name) = MAC of IFACE, e.g. eth0\n"
             "  --show-config    print the settings in effect and exit\n"
             "  --no-env         ignore the U-Boot environment (fw_printenv vtesse, vtesse_*)\n"
             "  FILE: key=value lines: host, port, session, password, auth (xor),\n"
             "        optional id_from (instead of session: MAC of that interface),\n"
             "        ip=A.B.C.D/P, gw=A.B.C.D, route=NET/P (repeatable): manual IPv4\n"
+            "        (needed for type tun; ip=learn: the address of the first packet),\n"
+            "        accept=PORT[:IP:PORT] (repeatable, up to %d): inbound forwards, by default\n"
+            "        to the same port on the address of the default-route interface,\n"
             "        udp_relay=PORT[:LOCAL_PORT] (repeatable): UDP to the tunnel address -> 127.0.0.1\n"
-            "        (needed for type tun; with --tap passed to the hook),\n"
             "        socks_user, socks_password (SOCKS5 user/password auth)\n"
-            "        default " DEFAULT_CONFIG "\n");
+            "        default " DEFAULT_CONFIG "\n", NC_PROXY_MAX_ACCEPTS);
 }
 
 static void expand_home(const char *in, char *out, size_t size)
@@ -203,7 +202,14 @@ static int load_config(const char *path, cfg_file_t *c, int must_exist)
             snprintf(c->ip, sizeof(c->ip), "%s", v);
         else if (!strcmp(k, "gw"))
             snprintf(c->gw, sizeof(c->gw), "%s", v);
-        else if (!strcmp(k, "udp_relay")) {
+        else if (!strcmp(k, "accept")) {
+            if (c->accept_count >= NC_PROXY_MAX_ACCEPTS) {
+                fprintf(stderr, "%s: at most %d accept lines\n", full, NC_PROXY_MAX_ACCEPTS);
+                fclose(f);
+                return -1;
+            }
+            snprintf(c->accept[c->accept_count++], sizeof(c->accept[0]), "%s", v);
+        } else if (!strcmp(k, "udp_relay")) {
             if (c->udp_relay_count >= NC_UDP_RELAY_MAX) {
                 fprintf(stderr, "%s: at most %d udp_relay lines\n", full, NC_UDP_RELAY_MAX);
                 fclose(f);
@@ -227,6 +233,13 @@ static int load_config(const char *path, cfg_file_t *c, int must_exist)
             snprintf(c->socks_user, sizeof(c->socks_user), "%s", v);
         else if (!strcmp(k, "socks_password"))
             snprintf(c->socks_password, sizeof(c->socks_password), "%s", v);
+        else if (!strcmp(k, "tap") || !strcmp(k, "hook") || !strcmp(k, "ifname")) {
+            /* a 1.x setting must not be ignored silently: the client would run another mode */
+            fprintf(stderr, "%s: %s: the TAP backend was removed in vtesse 2.0.0 (#72); remove the line "
+                            "(inbound access: accept=PORT)\n", full, k);
+            fclose(f);
+            return -1;
+        }
     }
     fclose(f);
     return 0;
@@ -365,7 +378,6 @@ static vt_t *vt;
 static void print_tunnel_event(int tev, int err);
 
 
-#if VTESSE_WITH_LWIP
 
 /* ---- --fetch: one HTTP GET through lwIP ---- */
 
@@ -521,13 +533,14 @@ static int parse_forward(const char *s, nc_forward_t *f)
 /* ---- events ---- */
 
 static int manual_ip;   /* ip= / --ip: no DHCP */
-#if VTESSE_WITH_LWIP
+static int learn_mode;  /* ip=learn: type tun only (#68) */
+static int learnt_once;
+static int config_error;    /* found only once the session is up: exit code 2 */
 static struct {
     uint16_t port, local;
     nc_udp_relay_t *r;
 } relays[NC_UDP_RELAY_MAX];
 static int nrelays;
-#endif
 
 static void print_info(void)
 {
@@ -536,10 +549,14 @@ static void print_info(void)
     int i;
 
     nc_stack_get_info(&in);
+    learnt_once = 1;
     nc_ip4_format(in.addr, a, sizeof(a));
     nc_ip4_format(in.mask, m, sizeof(m));
     nc_ip4_format(in.gw, g, sizeof(g));
-    if (manual_ip)
+    if (learn_mode)
+        printf("[%8.3f] address %s mask %s (learnt), peer %s%s\n", elapsed(t_start), a, m, g,
+               in.default_route ? " (default route)" : "");
+    else if (manual_ip)
         printf("[%8.3f] address %s mask %s (manual), gw %s%s\n", elapsed(t_start), a, m, g,
                in.default_route ? " (default route)" : "");
     else
@@ -569,7 +586,16 @@ static void on_stack_event(void *user, int ev, int tev, int err)
     fflush(stdout);
 }
 
-#endif /* VTESSE_WITH_LWIP */
+
+static void print_accept(const nc_accept_t *a, const char *prefix)
+{
+    char ip[16];
+
+    if (a->ip)
+        nc_ip4_format(a->ip, ip, sizeof(ip));
+    printf("%s%u -> %s:%u\n", prefix, (unsigned)a->port, a->ip ? ip : "(default-route address)",
+           (unsigned)a->local_port);
+}
 
 static void print_tunnel_event(int tev, int err)
 {
@@ -578,6 +604,13 @@ static void print_tunnel_event(int tev, int err)
     if (tev == TUNNEL_EV_UP) {
         vt_flags_format(vt_session_flags(vt), flags, sizeof(flags));
         printf("[%8.3f] up: %s, flags %s\n", elapsed(t_start), vt_greeting(vt), flags);
+        if (learn_mode && vt_tunnel(vt).ops->link_type(vt) != TUNNEL_LINK_L3) {
+            printf("[%8.3f] ip=learn needs a type tun session; this one is type ether (use DHCP)\n",
+                   elapsed(t_start));
+            config_error = 1;
+            loop.stop = 1;
+        } else if (learn_mode && !learnt_once)
+            printf("[%8.3f] waiting for the first packet from the server for the address\n", elapsed(t_start));
     } else if (err) {
         printf("[%8.3f] %s: %s\n", elapsed(t_start), tunnel_event_name(tev), tunnel_strerror(err));
     } else {
@@ -587,151 +620,6 @@ static void print_tunnel_event(int tev, int err)
         loop.stop = 1;
 }
 
-#if VTESSE_WITH_TAP
-/* ---- TAP backend: hook script ---- */
-
-static const char *hook;        /* --hook FILE, NULL: the built-in hook */
-static int no_hook;             /* --hook none */
-static const char *session_name;
-static nc_tap_t *tap;
-
-static void reap_children(void)
-{
-    while (waitpid(-1, NULL, WNOHANG) > 0)
-        ;
-}
-
-/* Hooks still running, by PID: as PID 1 (in a container) we also inherit the DHCP
- * client the hook daemonized, so waiting for "any child" would never return. */
-static pid_t hook_pids[16];
-
-/* 1: the hook has exited (or was already reaped), 0: still running. EINTR is
- * retried, so an interrupted check never counts as an exit. */
-static int hook_done(pid_t pid)
-{
-    pid_t r;
-
-    while ((r = waitpid(pid, NULL, WNOHANG)) < 0 && errno == EINTR)
-        ;
-    return r != 0;      /* pid, or -1 with ECHILD */
-}
-
-/* Waits for the hooks started so far: "stop" must not overtake an earlier "up" that
- * has yet to start the DHCP client (it would be left running after we exit). A hook
- * still running after HOOK_WAIT_MS is terminated, so shutdown cannot hang on it. */
-#define HOOK_WAIT_MS 5000
-
-static void wait_hooks(void)
-{
-    uint64_t deadline = nc_now_ms() + HOOK_WAIT_MS;
-    size_t i;
-
-    for (i = 0; i < sizeof(hook_pids) / sizeof(hook_pids[0]); i++) {
-        while (hook_pids[i] > 0) {
-            if (hook_done(hook_pids[i])) {
-                hook_pids[i] = 0;               /* finished, or already reaped */
-            } else if (nc_now_ms() >= deadline) {
-                uint64_t grace = nc_now_ms() + 1000;
-                printf("[%8.3f] hook: pid %d still running, terminated\n", elapsed(t_start),
-                       (int)hook_pids[i]);
-                /* the whole group: also a udhcpc still in the hook's foreground */
-                kill(-hook_pids[i], SIGTERM);
-                while (!hook_done(hook_pids[i]) && nc_now_ms() < grace) {
-                    struct timespec ts = { 0, 20 * 1000000L };
-                    nanosleep(&ts, NULL);
-                }
-                kill(-hook_pids[i], SIGKILL);
-                while (waitpid(hook_pids[i], NULL, 0) < 0 && errno == EINTR)
-                    ;
-                hook_pids[i] = 0;
-            } else {
-                struct timespec ts = { 0, 20 * 1000000L };
-                nanosleep(&ts, NULL);
-            }
-        }
-    }
-}
-
-/* Runs "$hook <event>" asynchronously with VTESSE_* in the environment. */
-static void run_hook(const char *event)
-{
-    pid_t pid;
-    size_t slot;
-
-    reap_children();
-    if (no_hook)
-        return;
-    /* a free slot first: every hook we start must be one shutdown can wait for */
-    for (slot = 0; slot < sizeof(hook_pids) / sizeof(hook_pids[0]); slot++)
-        if (hook_pids[slot] <= 0 || hook_done(hook_pids[slot]))
-            break;
-    if (slot == sizeof(hook_pids) / sizeof(hook_pids[0])) {
-        printf("[%8.3f] hook: too many hooks still running, \"%s\" not started\n",
-               elapsed(t_start), event);
-        return;
-    }
-    pid = fork();
-    if (pid == 0) {
-        setpgid(0, 0);      /* own process group, so a stuck hook can be ended as a whole */
-        setenv("VTESSE_EVENT", event, 1);
-        setenv("VTESSE_IFNAME", nc_tap_ifname(tap), 1);
-        setenv("VTESSE_LINK", nc_tap_link(tap) == TUNNEL_LINK_L3 ? "tun" : "ether", 1);
-        setenv("VTESSE_SESSION", session_name, 1);
-        if (hook)
-            execl("/bin/sh", "sh", hook, event, (char *)NULL);
-        else {
-            char self[32];
-            const char *path = vi_self_path();
-
-            /* the built-in hook runs the binary itself as its udhcpc script: by its
-             * path, which a daemonized udhcpc can keep using after we are gone (a
-             * replaced file is a newer vtesse); /proc/<pid>/exe only when the file
-             * was removed, as that path is valid only while this process lives */
-            snprintf(self, sizeof(self), "/proc/%d/exe", (int)getppid());
-            setenv("VTESSE_SELF", path[0] && access(path, X_OK) == 0 ? path : self, 1);
-            execl("/bin/sh", "sh", "-c", vi_script("vtesse-hook.sh"), "vtesse-hook", event, (char *)NULL);
-        }
-        _exit(127);
-    }
-    if (pid < 0)
-        printf("[%8.3f] hook: fork failed: %s\n", elapsed(t_start), strerror(errno));
-    else {
-        setpgid(pid, pid);  /* also here: no race with a kill() before the child ran */
-        hook_pids[slot] = pid;
-    }
-}
-
-static void on_tap_event(void *user, int ev, int tev, int err)
-{
-    (void)user;
-    switch (ev) {
-    case NC_TAP_EV_CREATED:
-        printf("[%8.3f] interface %s (%s) created\n", elapsed(t_start), nc_tap_ifname(tap),
-               nc_tap_link(tap) == TUNNEL_LINK_L3 ? "tun" : "tap");
-        if (no_hook)
-            printf("[%8.3f] --hook none: configure the address yourself (e.g. udhcpc -i %s)\n",
-                   elapsed(t_start), nc_tap_ifname(tap));
-        run_hook("up");
-        break;
-    case NC_TAP_EV_RECONNECTED:
-        printf("[%8.3f] interface %s: carrier on\n", elapsed(t_start), nc_tap_ifname(tap));
-        run_hook("reconnect");
-        break;
-    case NC_TAP_EV_ERROR:
-        printf("[%8.3f] cannot create the interface: %s%s\n", elapsed(t_start), strerror(err),
-               err == EPERM || err == EACCES ? " (needs root or CAP_NET_ADMIN)" :
-               err == ENOENT || err == ENODEV ? " (no /dev/net/tun: load the tun module)" : "");
-        loop.stop = 1;
-        break;
-    default:
-        print_tunnel_event(tev, err);
-        if (tev == TUNNEL_EV_DOWN && nc_tap_link(tap) != TUNNEL_LINK_NONE)
-            run_hook("down");
-        break;
-    }
-    fflush(stdout);
-}
-#endif /* VTESSE_WITH_TAP */
 
 
 int main(int argc, char **argv)
@@ -747,24 +635,13 @@ int main(int argc, char **argv)
     uint8_t mac[6];
     tunnel_t t;
     nc_source_t src;
-    int i, err, rc, use_tap = !VTESSE_WITH_LWIP, lwip_opts = 0;
-#if VTESSE_WITH_LWIP
+    int i, err, rc, stop_early, learn_ip = 0, accept_none = 0;
     nc_stack_cfg_t sc;
     nc_proxy_cfg_t pc;
     nc_proxy_t *px = NULL;
-#endif
-#if VTESSE_WITH_TAP
-    nc_tap_cfg_t tc;
 
-    memset(&tc, 0, sizeof(tc));
-#endif
-#if VTESSE_WITH_LWIP
     memset(&sc, 0, sizeof(sc));
     memset(&pc, 0, sizeof(pc));
-#endif
-    /* called by udhcpc as its script (the built-in hook sets this up) */
-    if (getenv("VTESSE_RUN") && !strcmp(getenv("VTESSE_RUN"), "udhcpc-script"))
-        return vi_run_embedded(argc, argv);
     if (vi_wanted(argc, argv))
         return vi_main(argc, argv);
     for (i = 1; i < argc; i++) {
@@ -789,38 +666,21 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--id-from") && i + 1 < argc)
             id_from = argv[++i];
         else if (!strcmp(argv[i], "--version")) {
-            printf("vtesse-cli %s (%s%s%s%s%s)\n", VTESSE_VERSION,
-                   VTESSE_WITH_LWIP ? "lwip, forwards" : "",
-                   VTESSE_WITH_LWIP && NC_WITH_SOCKS ? ", socks5" : "",
-                   VTESSE_WITH_LWIP && VTESSE_WITH_UDP_RELAY ? ", udp-relay" : "",
-                   VTESSE_WITH_LWIP && VTESSE_WITH_TAP ? ", " : "",
-                   VTESSE_WITH_TAP ? "tap" : "");
+            printf("vtesse-cli %s (lwip, forwards, accept%s%s)\n", VTESSE_VERSION,
+                   NC_WITH_SOCKS ? ", socks5" : "", VTESSE_WITH_UDP_RELAY ? ", udp-relay" : "");
             return 0;
         }
-#if VTESSE_WITH_TAP
-        else if (!strcmp(argv[i], "--tap"))
-            use_tap = 1;
-        else if (!strcmp(argv[i], "--ifname") && i + 1 < argc)
-            tc.ifname = argv[++i];
-        else if (!strcmp(argv[i], "--hook") && i + 1 < argc) {
-            hook = argv[++i];
-            no_hook = !strcmp(hook, "none");    /* the last --hook wins */
-            if (no_hook)
-                hook = NULL;
-        }
-#else
         else if (!strcmp(argv[i], "--tap") || !strcmp(argv[i], "--ifname") || !strcmp(argv[i], "--hook")) {
-            fprintf(stderr, "%s: built without the TAP/TUN backend (make TAP=0)\n", argv[i]);
+            fprintf(stderr, "%s: the TAP backend was removed in vtesse 2.0.0 (#72): the client runs the "
+                            "userspace stack only; inbound access: --accept PORT\n", argv[i]);
             return 2;
         }
-#endif
-#if VTESSE_WITH_LWIP
         else if (!strcmp(argv[i], "--fetch") && i + 1 < argc) {
             if (parse_url(argv[++i]) < 0) {
                 fprintf(stderr, "--fetch: expected http://IPv4[:port]/path\n");
                 return 2;
             }
-            fetch.wanted = lwip_opts = 1;
+            fetch.wanted = 1;
         } else if (!strcmp(argv[i], "--socks") && i + 1 < argc && !NC_WITH_SOCKS) {
             fprintf(stderr, "--socks: built without SOCKS5 (make SOCKS=0)\n");
             return 2;
@@ -831,7 +691,6 @@ int main(int argc, char **argv)
                 return 2;
             }
             pc.socks_port = (uint16_t)p;
-            lwip_opts = 1;
         } else if (!strcmp(argv[i], "--forward") && i + 1 < argc) {
             if (pc.forward_count >= NC_PROXY_MAX_FORWARDS ||
                 parse_forward(argv[++i], &pc.forwards[pc.forward_count]) < 0) {
@@ -839,7 +698,6 @@ int main(int argc, char **argv)
                 return 2;
             }
             pc.forward_count++;
-            lwip_opts = 1;
         } else if (!strcmp(argv[i], "--udp-relay") && !VTESSE_WITH_UDP_RELAY) {
             fprintf(stderr, "--udp-relay: built without the UDP relay (make UDP_RELAY=0)\n");
             return 2;
@@ -850,28 +708,27 @@ int main(int argc, char **argv)
                 return 2;
             }
             nrelays++;
-            lwip_opts = 1;
+        } else if (!strcmp(argv[i], "--accept") && i + 1 < argc && !strcmp(argv[i + 1], "none")) {
+            accept_none = 1;
+            i++;
+        } else if (!strcmp(argv[i], "--accept") && i + 1 < argc) {
+            if (pc.accept_count >= NC_PROXY_MAX_ACCEPTS ||
+                nc_accept_parse(argv[++i], &pc.accepts[pc.accept_count]) < 0) {
+                fprintf(stderr, "--accept: expected PORT or PORT:A.B.C.D:PORT (max %d)\n", NC_PROXY_MAX_ACCEPTS);
+                return 2;
+            }
+            pc.accept_count++;
         } else if (!strcmp(argv[i], "--listen") && i + 1 < argc) {
             pc.listen_addr = argv[++i];
-            lwip_opts = 1;
         } else if ((!strcmp(argv[i], "--ip") || !strcmp(argv[i], "--debug-ip")) && i + 1 < argc) {
             ip_arg = argv[++i];
         } else if ((!strcmp(argv[i], "--gw") || !strcmp(argv[i], "--debug-gw")) && i + 1 < argc) {
             gw_arg = argv[++i];
         }
-#endif
         else {
             usage();
             return 2;
         }
-    }
-    if (use_tap && lwip_opts) {
-        fprintf(stderr, "--tap cannot be combined with --socks/--forward/--listen/--fetch/--udp-relay\n");
-        return 2;
-    }
-    if (!VTESSE_WITH_TAP && use_tap) {
-        fprintf(stderr, "built without any backend\n");
-        return 2;
     }
     if (!no_env)
         env_mode = ve_load(&env);
@@ -888,36 +745,122 @@ int main(int argc, char **argv)
     }
     if (!no_env && env_any(&env))
         apply_env(&c, &env);
+    /* the settings that do not need the device's MAC are checked before the route wait:
+     * a mistake must not wait for the network to be reported */
+    /* manual IPv4: command line overrides the file */
+    if (ip_arg)
+        snprintf(c.ip, sizeof(c.ip), "%s", ip_arg);
+    if (gw_arg)
+        snprintf(c.gw, sizeof(c.gw), "%s", gw_arg);
+    memset(&st_routes, 0, sizeof(st_routes));
+    if (!c.ip[0] && (c.gw[0] || c.route_count)) {
+        fprintf(stderr, "gw/route need ip\n");
+        return 2;
+    }
+    learn_ip = !strcmp(c.ip, "learn");     /* type tun: the first packet tells it (#68) */
+    if (learn_ip && c.gw[0]) {
+        fprintf(stderr, "ip=learn: no gw (the peer is the source of the first packet)\n");
+        return 2;
+    }
+    if (c.ip[0] && !learn_ip && parse_prefix(c.ip, &st_addr, &st_mask) < 0) {
+        fprintf(stderr, "ip: expected A.B.C.D/P or learn, got '%s'\n", c.ip);
+        return 2;
+    }
+    if (c.gw[0] && parse_ip4(c.gw, &st_gw) < 0) {
+        fprintf(stderr, "gw: expected A.B.C.D, got '%s'\n", c.gw);
+        return 2;
+    }
+    for (i = 0; i < c.route_count; i++) {
+        uint32_t net, m;
+        int p = 0;
+
+        if (parse_prefix(c.route[i], &net, &m) < 0) {
+            fprintf(stderr, "route: expected NET/P, got '%s'\n", c.route[i]);
+            return 2;
+        }
+        while (p < 32 && (m & (0x80000000u >> p)))
+            p++;
+        nc_routes_add(&st_routes, net, (uint8_t)p, st_gw);
+    }
+
+    /* inbound forwards from the file come after the command line ones (#67); "none" (file
+     * or command line) means no inbound forwards at all, also no service defaults */
+    for (i = 0; i < c.accept_count; i++) {
+        if (!strcmp(c.accept[i], "none")) {
+            accept_none = 1;
+            continue;
+        }
+        if (pc.accept_count >= NC_PROXY_MAX_ACCEPTS ||
+            nc_accept_parse(c.accept[i], &pc.accepts[pc.accept_count]) < 0) {
+            fprintf(stderr, "%s: accept: expected PORT or PORT:A.B.C.D:PORT (max %d), got '%s'\n", config,
+                    NC_PROXY_MAX_ACCEPTS, c.accept[i]);
+            return 2;
+        }
+        pc.accept_count++;
+    }
+    /* the service started from the U-Boot environment: the camera's web, ssh and RTSP are
+     * reachable from the server, on the camera's own LAN address (its web asks for the
+     * password as from the LAN) */
+    if (accept_none && pc.accept_count) {
+        fprintf(stderr, "accept=none cannot be combined with other accept lines or --accept\n");
+        return 2;
+    }
+    if (env_mode && !pc.accept_count && !accept_none) {
+        static const uint16_t def[] = { 80, 22, 554 };
+
+        for (i = 0; i < (int)(sizeof(def) / sizeof(def[0])); i++) {
+            pc.accepts[i].port = pc.accepts[i].local_port = def[i];
+            pc.accepts[i].ip = 0;
+        }
+        pc.accept_count = i;
+    }
+    /* the same check as at start, without creating the relays; before the route wait */
+    if (c.udp_relay_count && !VTESSE_WITH_UDP_RELAY) {
+        fprintf(stderr, "%s: udp_relay: built without the UDP relay\n", config);
+        return 2;
+    }
+    for (i = 0; i < c.udp_relay_count; i++) {
+        uint16_t port, local;
+
+        if (nrelays + i >= NC_UDP_RELAY_MAX || nc_udp_relay_parse(c.udp_relay[i], &port, &local) < 0) {
+            fprintf(stderr, "%s: udp_relay: expected PORT[:LOCAL_PORT] (max %d)\n", config, NC_UDP_RELAY_MAX);
+            return 2;
+        }
+    }
+    /* what needs no MAC is checked before the route wait as well (#73): with only the
+     * U-Boot environment the password and the session may still come from the MAC */
+    if (!env_mode && c.session[0] && !c.id_from[0] && !id_from && !vt_session_name_valid(c.session)) {
+        fprintf(stderr, "session '%s': no spaces, colons or control characters\n", c.session);
+        return 2;
+    }
+    if (!env_mode && check_config(&c, config) < 0)
+        return 2;
+    if (env_mode && strcmp(c.auth, "xor") != 0) {
+        fprintf(stderr, "U-Boot environment and config: unsupported auth '%s' (only xor)\n", c.auth);
+        return 2;
+    }
+    /* without a default route there is nothing to connect to (#73): wait for one in every
+     * start mode, with no time limit. At boot the uplink (wlan0 with a background udhcpc)
+     * may get it after the service starts; the MAC is then the uplink's, not eth0's. Any
+     * default route ends the wait: through PPPoE or tun (no MAC) eth0 is taken as before. */
+    if (!show_config) {
+        signal(SIGINT, on_signal);
+        signal(SIGTERM, on_signal);
+        if (wait_default_route() < 0)
+            return 0;               /* stopped while waiting */
+    }
     if (env_mode) {
         /* only the server given: the VTun defaults of OpenIPC's tunnel */
         if (!c.port)
             c.port = 5000;
-        /* at boot the uplink (wlan0 with a background udhcpc) may get its default
-         * route after the service starts: the MAC must be the uplink's, not eth0's */
-        if (!show_config && (!c.password[0] || (!c.session[0] && !c.id_from[0] && !id_from))) {
-            int waited;
-
-            /* any default route ends the wait: through PPPoE or tun (no MAC) eth0 is
-             * taken at once */
-            for (waited = 0; waited < ENV_ROUTE_WAIT && !ve_has_default_route(); waited++) {
-                if (!waited)
-                    printf("waiting up to %d s for a default route (the MAC for the VTun defaults)\n",
-                           ENV_ROUTE_WAIT);
-                sleep(1);
-            }
-        }
         if (!c.session[0] && !c.id_from[0] && !id_from &&
             ve_default_iface(c.id_from, sizeof(c.id_from)) < 0) {
             fprintf(stderr, "no interface with a MAC for the device ID: set vtesse_session or vtesse_id_from\n");
             return 2;
         }
     }
-    if (c.udp_relay_count && !(VTESSE_WITH_LWIP && VTESSE_WITH_UDP_RELAY)) {
+    if (c.udp_relay_count && !VTESSE_WITH_UDP_RELAY) {
         fprintf(stderr, "%s: udp_relay: built without the UDP relay\n", config);
-        return 2;
-    }
-    if (c.udp_relay_count && use_tap) {
-        fprintf(stderr, "%s: udp_relay needs the lwIP backend (with --tap the kernel receives UDP itself)\n", config);
         return 2;
     }
     if (id_from)
@@ -950,52 +893,10 @@ int main(int argc, char **argv)
     }
     if (check_config(&c, env_mode ? "U-Boot environment and config" : config) < 0)
         return 2;
-    /* manual IPv4: command line overrides the file */
-    if (ip_arg)
-        snprintf(c.ip, sizeof(c.ip), "%s", ip_arg);
-    if (gw_arg)
-        snprintf(c.gw, sizeof(c.gw), "%s", gw_arg);
-    memset(&st_routes, 0, sizeof(st_routes));
-    if (!c.ip[0] && (c.gw[0] || c.route_count)) {
-        fprintf(stderr, "gw/route need ip\n");
-        return 2;
-    }
-    if (c.ip[0] && parse_prefix(c.ip, &st_addr, &st_mask) < 0) {
-        fprintf(stderr, "ip: expected A.B.C.D/P, got '%s'\n", c.ip);
-        return 2;
-    }
-    if (c.gw[0] && parse_ip4(c.gw, &st_gw) < 0) {
-        fprintf(stderr, "gw: expected A.B.C.D, got '%s'\n", c.gw);
-        return 2;
-    }
-    for (i = 0; i < c.route_count; i++) {
-        uint32_t net, m;
-        int p = 0;
-
-        if (parse_prefix(c.route[i], &net, &m) < 0) {
-            fprintf(stderr, "route: expected NET/P, got '%s'\n", c.route[i]);
-            return 2;
-        }
-        while (p < 32 && (m & (0x80000000u >> p)))
-            p++;
-        nc_routes_add(&st_routes, net, (uint8_t)p, st_gw);
-    }
-
     if (show_config && !vt_session_name_valid(c.session)) {
         fprintf(stderr, "session '%s': no spaces, colons or control characters\n", c.session);
         return 2;
     }
-#if VTESSE_WITH_LWIP
-    /* the same check as at start, without creating the relays */
-    for (i = 0; show_config && i < c.udp_relay_count; i++) {
-        uint16_t port, local;
-
-        if (nrelays + i >= NC_UDP_RELAY_MAX || nc_udp_relay_parse(c.udp_relay[i], &port, &local) < 0) {
-            fprintf(stderr, "%s: udp_relay: expected PORT[:LOCAL_PORT] (max %d)\n", config, NC_UDP_RELAY_MAX);
-            return 2;
-        }
-    }
-#endif
     if (show_config) {
         printf("host %s\nport %d\nsession %s\npassword %s\n", c.host, c.port, c.session,
                derived_password ? c.password : "(set)");
@@ -1005,6 +906,8 @@ int main(int argc, char **argv)
             printf("route %s\n", c.route[i]);
         for (i = 0; i < c.udp_relay_count; i++)
             printf("udp_relay %s\n", c.udp_relay[i]);
+        for (i = 0; i < pc.accept_count; i++)
+            print_accept(&pc.accepts[i], "accept ");
         if (c.socks_user[0])
             printf("socks_user %s\nsocks_password (set)\n", c.socks_user);
         return 0;
@@ -1036,105 +939,77 @@ int main(int argc, char **argv)
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
     signal(SIGPIPE, SIG_IGN);
+    stop_early = loop.stop;     /* a signal after the route wait (#73) is kept */
     nc_loop_init(&loop);
+    loop.stop = stop_early;
     src = nc_source_from_tunnel(&t);
     nc_loop_add(&loop, &src);
 
-#if VTESSE_WITH_TAP
-    if (use_tap) {
-        memcpy(tc.mac, mac, 6);
-        /* manual IPv4 for the hook (it configures the interface) */
-        if (c.ip[0]) {
-            char routes[16 * 32 + 16] = "";
-
-            for (i = 0; i < c.route_count; i++) {
-                strcat(routes, i ? " " : "");
-                strcat(routes, c.route[i]);
-            }
-            setenv("VTESSE_IP", c.ip, 1);
-            if (c.gw[0])
-                setenv("VTESSE_GW", c.gw, 1);
-            if (routes[0])
-                setenv("VTESSE_ROUTES", routes, 1);
-        }
-        session_name = c.session;
-        if (!hook && !no_hook)
-            hook = vi_libexec_hook();   /* NULL: the built-in hook */
-        printf("hook: %s\n", no_hook ? "none" : hook ? hook : "built-in");
-        tap = nc_tap_create(&t, &tc, on_tap_event, NULL);
-        if (!tap) {
-            fprintf(stderr, "out of memory\n");
+    memcpy(sc.mac, mac, 6);
+    if (learn_ip) {
+        sc.learn_ip = learn_mode = 1;
+        sc.routes = st_routes;
+    } else if (c.ip[0]) {
+        sc.static_ip = manual_ip = 1;
+        sc.addr = st_addr;
+        sc.mask = st_mask;
+        sc.gw = st_gw;
+        sc.routes = st_routes;
+    }
+    if (nc_stack_init(&t, &sc, on_stack_event, NULL) < 0) {
+        fprintf(stderr, "stack initialisation failed\n");
+        return 2;
+    }
+    src = nc_stack_timer_source();
+    nc_loop_add(&loop, &src);
+    /* UDP relays from the file come after the command line ones */
+    for (i = 0; i < c.udp_relay_count; i++) {
+        if (nrelays >= NC_UDP_RELAY_MAX ||
+            nc_udp_relay_parse(c.udp_relay[i], &relays[nrelays].port, &relays[nrelays].local) < 0) {
+            fprintf(stderr, "%s: udp_relay: expected PORT[:LOCAL_PORT] (max %d)\n", config, NC_UDP_RELAY_MAX);
             return 2;
         }
-        src = nc_tap_source(tap);
-        nc_loop_add(&loop, &src);
+        nrelays++;
     }
-#endif
-#if VTESSE_WITH_LWIP
-    if (!use_tap) {
-        memcpy(sc.mac, mac, 6);
-        if (c.ip[0]) {
-            sc.static_ip = manual_ip = 1;
-            sc.addr = st_addr;
-            sc.mask = st_mask;
-            sc.gw = st_gw;
-            sc.routes = st_routes;
-        }
-        if (nc_stack_init(&t, &sc, on_stack_event, NULL) < 0) {
-            fprintf(stderr, "stack initialisation failed\n");
+    for (i = 0; i < nrelays; i++) {
+        char msg[128];
+
+        relays[i].r = nc_udp_relay_create(relays[i].port, NULL, relays[i].local, msg, sizeof(msg));
+        if (!relays[i].r) {
+            fprintf(stderr, "%s\n", msg);
             return 2;
         }
-        src = nc_stack_timer_source();
-        nc_loop_add(&loop, &src);
-        /* UDP relays from the file come after the command line ones */
-        for (i = 0; i < c.udp_relay_count; i++) {
-            if (nrelays >= NC_UDP_RELAY_MAX ||
-                nc_udp_relay_parse(c.udp_relay[i], &relays[nrelays].port, &relays[nrelays].local) < 0) {
-                fprintf(stderr, "%s: udp_relay: expected PORT[:LOCAL_PORT] (max %d)\n", config, NC_UDP_RELAY_MAX);
-                return 2;
-            }
-            nrelays++;
-        }
-        for (i = 0; i < nrelays; i++) {
-            char msg[128];
-
-            relays[i].r = nc_udp_relay_create(relays[i].port, NULL, relays[i].local, msg, sizeof(msg));
-            if (!relays[i].r) {
-                fprintf(stderr, "%s\n", msg);
-                return 2;
-            }
-            printf("udp relay :%u -> 127.0.0.1:%u\n", (unsigned)relays[i].port, (unsigned)relays[i].local);
-        }
-        if (pc.socks_port || pc.forward_count) {
-            pc.socks_user = c.socks_user;
-            pc.socks_password = c.socks_password;
-            px = nc_proxy_create(&pc, on_proxy_log, NULL);
-            memset(c.socks_password, 0, sizeof(c.socks_password));
-            if (!px) {
-                fprintf(stderr, "cannot start the local proxy\n");
-                return 2;
-            }
-            if (pc.socks_port)
-                printf("socks5 on %s:%u%s\n", pc.listen_addr ? pc.listen_addr : "127.0.0.1",
-                       (unsigned)pc.socks_port, c.socks_user[0] ? " (user/password)" : "");
-            for (i = 0; i < pc.forward_count; i++) {
-                char ip[16];
-                nc_ip4_format(pc.forwards[i].ip, ip, sizeof(ip));
-                printf("forward %s:%u -> %s:%u\n", pc.listen_addr ? pc.listen_addr : "127.0.0.1",
-                       (unsigned)pc.forwards[i].local_port, ip, (unsigned)pc.forwards[i].port);
-            }
-            src = nc_proxy_source(px);
-            nc_loop_add(&loop, &src);
-        }
+        printf("udp relay :%u -> 127.0.0.1:%u\n", (unsigned)relays[i].port, (unsigned)relays[i].local);
     }
-#endif
+    if (pc.socks_port || pc.forward_count || pc.accept_count) {
+        pc.socks_user = c.socks_user;
+        pc.socks_password = c.socks_password;
+        px = nc_proxy_create(&pc, on_proxy_log, NULL);
+        memset(c.socks_password, 0, sizeof(c.socks_password));
+        if (!px) {
+            fprintf(stderr, "cannot start the local proxy\n");
+            return 2;
+        }
+        if (pc.socks_port)
+            printf("socks5 on %s:%u%s\n", pc.listen_addr ? pc.listen_addr : "127.0.0.1",
+                   (unsigned)pc.socks_port, c.socks_user[0] ? " (user/password)" : "");
+        for (i = 0; i < pc.forward_count; i++) {
+            char ip[16];
+            nc_ip4_format(pc.forwards[i].ip, ip, sizeof(ip));
+            printf("forward %s:%u -> %s:%u\n", pc.listen_addr ? pc.listen_addr : "127.0.0.1",
+                   (unsigned)pc.forwards[i].local_port, ip, (unsigned)pc.forwards[i].port);
+        }
+        for (i = 0; i < pc.accept_count; i++)
+            print_accept(&pc.accepts[i], "accept tunnel:");
+        src = nc_proxy_source(px);
+        nc_loop_add(&loop, &src);
+    }
 
     t_start = nc_now_ms();
     vt_start(vt);
     nc_loop_run(&loop, seconds > 0 ? t_start + (uint64_t)(seconds * 1000) : 0);
 
-    rc = vt_is_up(vt) ? 0 : 1;
-#if VTESSE_WITH_LWIP
+    rc = config_error ? 2 : vt_is_up(vt) ? 0 : 1;
     if (px) {
         nc_proxy_stats_t ps;
         nc_proxy_get_stats(px, &ps);
@@ -1152,21 +1027,6 @@ int main(int argc, char **argv)
                (unsigned)relays[i].port, us.datagrams, us.bytes, us.dropped);
         nc_udp_relay_destroy(relays[i].r);
     }
-#endif
-#if VTESSE_WITH_TAP
-    if (tap) {
-        nc_tap_stats_t ts;
-        nc_tap_get_stats(tap, &ts);
-        printf("[%8.3f] interface %s: frames in %lu, out %lu, dropped %lu\n", elapsed(t_start),
-               nc_tap_ifname(tap), ts.frames_in, ts.frames_out, ts.dropped);
-        if (nc_tap_link(tap) == TUNNEL_LINK_NONE && vt_is_up(vt))
-            rc = 1;     /* interface creation failed */
-        wait_hooks();
-        run_hook("stop");
-        wait_hooks();
-        nc_tap_destroy(tap);
-    }
-#endif
     t.ops->close(vt);
     vt_destroy(vt);
     return rc;

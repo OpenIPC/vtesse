@@ -2,9 +2,8 @@
 #
 #   systemctl enable --now vtesse
 #
-# Installed by "vtesse --install". Runs the TAP backend with the built-in hook
-# scripts, or with the copies in /usr/local/libexec/vtesse when they exist
-# ("vtesse --install --scripts").
+# Installed by "vtesse --install". Runs the userspace stack; the server reaches
+# the services of this machine through the accept= lines of /etc/vtesse.conf.
 
 [Unit]
 Description=VTesse VTun client
@@ -12,8 +11,7 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-ExecStartPre=-/sbin/modprobe tun
-ExecStart=/usr/local/bin/vtesse --config /etc/vtesse.conf --tap --ifname vtesse0
+ExecStart=/usr/local/bin/vtesse --config /etc/vtesse.conf
 Restart=always
 RestartSec=5
 

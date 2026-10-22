@@ -140,8 +140,7 @@ waits ~0.5 s before its first data frame. Keepalive frames are not affected.
 no fixed MAC, the bridge takes a port's MAC, so the gateway MAC on the segment
 changes when taps join and leave. A client that cached the gateway MAC before a
 reconnect sends to a dead MAC until the gateway re-ARPs; VTesse flushes its ARP
-cache on every reconnect (lwIP backend) or switches the interface carrier off while
-the tunnel is down, which makes the kernel drop its neighbours (TAP backend).
+cache on every reconnect.
 
 ## UDP transport
 

@@ -27,6 +27,7 @@ static struct {
     int link;                   /* enum tunnel_link the netif is configured for */
     int dhcp_started;
     int bound;
+    int learnt;                 /* learn_ip: the address of this session is known */
 
     nc_routes_t routes;         /* in effect */
     int use_default;            /* default route via netif gw */
@@ -144,6 +145,10 @@ int nc_stack_route_ok(uint32_t dst)
 
     if (!st.bound)
         return 0;
+    /* learn_ip: after a reconnect the old address may be gone; nothing goes out until a
+     * packet of the new session confirms (or replaces) it (#68) */
+    if (st.cfg.learn_ip && !st.learnt)
+        return 0;
     addr = lwip_ntohl(ip4_addr_get_u32(netif_ip4_addr(&st.netif)));
     mask = lwip_ntohl(ip4_addr_get_u32(netif_ip4_netmask(&st.netif)));
     if ((dst & mask) == (addr & mask))
@@ -252,7 +257,8 @@ static void status_cb(struct netif *n)
     int has_addr = netif_is_up(n) && !ip4_addr_isany_val(*netif_ip4_addr(n));
 
     if (has_addr && !st.bound) {
-        if (!st.cfg.static_ip)
+        /* a manual or learnt address has its routes already (#68): only DHCP sets them here */
+        if (!st.cfg.static_ip && !st.cfg.learn_ip)
             apply_dhcp_routes(netif_dhcp_data(n));
         st.bound = 1;
         emit(NC_STACK_EV_ADDR_BOUND, 0, 0);
@@ -277,6 +283,55 @@ static int l2_accept(const uint8_t *f, size_t len)
     return type == 0x0800 || type == 0x0806;
 }
 
+/* 0.0.0.0/8, multicast 224/4 and everything above (class E, broadcast) are not unicast */
+static int unicast(uint32_t a)
+{
+    return (a >> 24) != 0 && (a >> 28) < 14;
+}
+
+/* learn_ip (#68): the server routes only our address into a type tun session, so the
+ * destination of the first unicast packet is it, the source the peer. Set before the
+ * packet enters lwIP, so a first SYN is accepted. A packet of a new session with the
+ * same address changes nothing; another address replaces the old one. */
+/* a whole, well-formed IPv4 header: lengths and checksum, as lwIP checks them, so a
+ * packet lwIP would drop cannot teach the address */
+static int ip4_header_ok(const uint8_t *pkt, size_t len)
+{
+    size_t hl = (size_t)(pkt[0] & 0x0f) * 4, tot = (size_t)pkt[2] << 8 | pkt[3], i;
+    uint32_t sum = 0;
+
+    if (hl < 20 || hl > len || tot < hl || tot > len)
+        return 0;
+    for (i = 0; i < hl; i += 2)
+        sum += (uint32_t)pkt[i] << 8 | pkt[i + 1];
+    while (sum >> 16)
+        sum = (sum & 0xffff) + (sum >> 16);
+    return sum == 0xffff;
+}
+
+static void learn(const uint8_t *pkt, size_t len)
+{
+    uint32_t src = (uint32_t)pkt[12] << 24 | (uint32_t)pkt[13] << 16 | (uint32_t)pkt[14] << 8 | pkt[15];
+    uint32_t dst = (uint32_t)pkt[16] << 24 | (uint32_t)pkt[17] << 16 | (uint32_t)pkt[18] << 8 | pkt[19];
+    ip4_addr_t a, m, g;
+    int was_bound = st.bound;
+
+    if (!ip4_header_ok(pkt, len) || !unicast(dst) || !unicast(src) || dst == src)
+        return;                         /* the next packet may teach it */
+    st.learnt = 1;
+    if (was_bound && lwip_ntohl(ip4_addr_get_u32(netif_ip4_addr(&st.netif))) == dst &&
+        lwip_ntohl(ip4_addr_get_u32(netif_ip4_gw(&st.netif))) == src)
+        return;
+    ip4_addr_set_u32(&a, lwip_htonl(dst));
+    ip4_addr_set_u32(&m, lwip_htonl(0xffffffffu));
+    ip4_addr_set_u32(&g, lwip_htonl(src));
+    /* like the manual address: explicit routes, or a default route via the peer */
+    apply_routes(&st.cfg.routes, st.cfg.routes.count == 0);
+    netif_set_addr(&st.netif, &a, &m, &g);
+    if (was_bound)
+        emit(NC_STACK_EV_ADDR_BOUND, 0, 0);     /* changed: status_cb reports only the first */
+}
+
 static void on_rx(void *user, const uint8_t *pkt, size_t len)
 {
     struct pbuf *p;
@@ -284,6 +339,8 @@ static void on_rx(void *user, const uint8_t *pkt, size_t len)
     (void)user;
     if (st.link == TUNNEL_LINK_L2 ? !l2_accept(pkt, len) : (len < 20 || (pkt[0] >> 4) != 4))
         return;
+    if (st.link == TUNNEL_LINK_L3 && st.cfg.learn_ip && !st.learnt)
+        learn(pkt, len);
     p = pbuf_alloc(PBUF_RAW, (u16_t)len, PBUF_POOL);
     if (!p)
         return;
@@ -308,6 +365,7 @@ static void on_tunnel_event(void *user, int ev, int err)
             etharp_cleanup_netif(&st.netif);
         netif_set_up(&st.netif);
         netif_set_link_up(&st.netif);   /* restarts DHCP with the previous address */
+        st.learnt = 0;                  /* learn_ip: the next packet tells the address again */
         if (st.cfg.static_ip) {
             ip4_addr_t a, m, g;
 

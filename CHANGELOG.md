@@ -6,6 +6,38 @@ from every push to `main`; this file is the change history. Versions after 1.12 
 `MAJOR.MINOR.PATCH` (1.12 is followed by 1.12.1 or 1.13.0); the headings below keep the
 numbers as released.
 
+## 2.0.0 — 2026-10-22
+
+The userspace stack only: inbound access without a kernel interface, the TAP backend
+removed (#72). Incompatible: read the last points before updating a device.
+
+- Inbound forwards (#67): `accept=PORT[:IP:PORT]` / `--accept`, up to 4: the stack
+  listens on `PORT` of the tunnel address and relays each connection from the server to
+  a host socket, by default the same port on the address of the default-route interface
+  (the device's own LAN address, so its web interface asks for the password as on the
+  LAN). A closed or silent local port resets the connection; each connection is logged
+  and counted.
+- `ip=learn` / `--ip learn` for `type tun` (#68): the address is the destination of the
+  first unicast packet from the server, its source the peer; set before the packet
+  enters the stack, so a first SYN is accepted; a changed address after a reconnect
+  replaces the old one. `type ether` with `ip=learn` stops the client (exit code 2).
+- The service opens the device's web interface, ssh and RTSP to the server: `--install`
+  writes `accept=80`, `accept=22` and `accept=554` to a configuration without `accept`
+  lines, and a client started from the U-Boot environment (`fw_setenv vtesse`) without
+  `accept` lines opens the same ports. `accept=none` (or `--accept none`) turns them off.
+- The client always waits for a default route before it starts (#73), in every start
+  mode, with no time limit: one line when the wait starts and one per minute;
+  SIGINT/SIGTERM end it (exit code 0). It used to wait up to 60 s, only in the U-Boot
+  environment mode.
+- Removed (#72): the TAP backend (`--tap`, `--ifname`, `--hook`, refused with the reason, as
+  are `tap=`, `hook=` and `ifname=` lines in the configuration),
+  the `LWIP=0` and `TAP=0` build switches, the hook scripts `vtesse-hook.sh` and
+  `vtesse-udhcpc.script` (no longer in the release) and `--install --scripts`.
+- Updating a 1.x installation: `vtesse --install` removes the old hook scripts and adds
+  the `accept` lines; an `/etc/default/vtesse` with `ARGS="--tap ..."` is reported and
+  must be cleaned by hand, otherwise the service does not start. The service scripts no
+  longer load `tun`.
+
 ## 1.15.0 — 2026-10-18
 
 Settings in the U-Boot environment for helpdesk access (#64).
