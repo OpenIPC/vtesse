@@ -14,6 +14,7 @@
 #   bench.sh tun-test        type tun session (#8): manual IPv4, lwIP and --tap (TUN interface)
 #   bench.sh udp-test        UDP relay (#28): datagrams from the device to the tunnel address -> 127.0.0.1
 #   bench.sh fault-test      failures (#9): link loss, server restart, no option 121, lease renewal (~6 min)
+#   bench.sh route-wait-test the client waits for a default route before it starts (#73)
 set -eu
 
 IMAGE=${BENCH_IMAGE:-vtesse-bench}
@@ -233,6 +234,42 @@ cmd_tun_test() {
     [ "$fails" -eq 0 ]
 }
 
+# Default-route wait (#73): in a container without a network the client must wait, not
+# connect, and go on as soon as a default route appears; SIGTERM during the wait is exit 0.
+cmd_route_wait_test() {
+    repo=$(cd "$HERE/.." && pwd)
+    c=vtesse-bench-routewait
+    fails=0
+    check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails + 1)); fi; }
+    # built for the bench image (Debian bookworm), like tun-test
+    docker build -q -t vtesse-ci-native -f "$repo/ci/Dockerfile.native" "$repo/ci" >/dev/null
+    docker run --rm --user "$(id -u):$(id -g)" -v "$repo:/src" -w /src vtesse-ci-native \
+        make -s BUILD=build-bench-wait all >/dev/null
+    conf='printf "host=10.9.9.9\nport=5000\nsession=02BE0C000001\npassword=x\n" >/tmp/c.conf'
+    run="exec /src/build-bench-wait/vtesse-cli --no-env --config /tmp/c.conf"
+
+    docker rm -f "$c" >/dev/null 2>&1 || true
+    docker run -d --name "$c" --network none -v "$repo:/src:ro" "$IMAGE" sh -c "$conf; $run" >/dev/null
+    sleep 3
+    check "no default route: waiting, still running, not connecting" \
+        'docker logs "$c" 2>&1 | grep -q "^waiting for a default route" &&
+         [ "$(docker inspect -f "{{.State.Running}}" "$c")" = true ] && ! docker logs "$c" 2>&1 | grep -q connecting'
+    docker stop -t 5 "$c" >/dev/null
+    check "SIGTERM during the wait: exit 0" '[ "$(docker inspect -f "{{.State.ExitCode}}" "$c")" = 0 ]'
+    docker rm -f "$c" >/dev/null 2>&1
+
+    docker run -d --name "$c" --privileged --network none -v "$repo:/src:ro" "$IMAGE" sh -c "$conf; $run" >/dev/null
+    sleep 2
+    docker exec "$c" sh -c "ip link set lo up; ip route add default dev lo"
+    sleep 3
+    check "a default route appears: the wait ends and the client connects" \
+        'docker logs "$c" 2>&1 | grep -q "^default route present after" && docker logs "$c" 2>&1 | grep -q connecting'
+    echo "--- client log"; docker logs "$c" 2>&1 | tail -5
+    docker rm -f "$c" >/dev/null 2>&1
+    echo "$fails failure(s)"
+    [ "$fails" -eq 0 ]
+}
+
 # UDP relay (#28): the "device" behind the server pushes numbered RTP-like
 # datagrams to the client's tunnel address; vtesse-cli --udp-relay relays them to
 # a listener on 127.0.0.1. Checks count, order, content and a fragmented datagram.
@@ -386,6 +423,7 @@ case "${1:-}" in
     tun-test) cmd_tun_test ;;
     udp-test) cmd_udp_test ;;
     fault-test) cmd_fault_test ;;
+    route-wait-test) cmd_route_wait_test ;;
     proxy-test) python3 "$HERE/proxy_test.py" "$HERE/../build/vtesse-cli" "$BENCH_PORT" "$SERVER" ;;
     selftest) python3 "$HERE/selftest.py" 127.0.0.1 "$BENCH_PORT" ;;
     *) sed -n '2,16p' "$0"; exit 1 ;;

@@ -100,6 +100,14 @@ The CLI brings the tunnel and the userspace stack up, prints link events, the DH
 address and routes, runs the local proxy and prints proxy statistics on exit. Exit
 code 0 means the tunnel was up at the end (and `--fetch`, if given, succeeded).
 
+Before it starts, the client waits for a default route (any interface): without one
+there is nothing to connect to. The wait has no time limit and cannot be turned off;
+it prints `waiting for a default route`, then a line every minute, and
+`default route present after N s` when one appears. SIGINT/SIGTERM end the wait
+(exit code 0). `--show-config` and `--install` do not wait. At boot this covers an
+uplink that gets its route after the service starts (Wi-Fi with a background DHCP
+client).
+
 ```sh
 vtesse-cli --socks 1080 --forward 8554:10.78.0.10:554
 curl --socks5 127.0.0.1:1080 http://10.78.0.10/
@@ -228,10 +236,9 @@ so it reaches the same server with the same credentials:
 - session = that MAC without colons (the [device ID](#device-id));
 - password = `echo "$MAC" | sha1sum`: SHA-1 of the MAC with colons **and a newline**.
 
-At boot the uplink may get its default route after the service starts (Wi-Fi with a
-background DHCP client): the client then waits up to 60 s for it before it falls back
-to `eth0`. `vtesse_session` and `vtesse_id_from` exclude each other; with both set the
-client refuses to start.
+The client first [waits for a default route](#vtesse-cli); a route through an interface
+without a MAC (PPPoE, a tunnel) means `eth0`. `vtesse_session` and `vtesse_id_from`
+exclude each other; with both set the client refuses to start.
 
 Optional variables override these and the file, one key at a time:
 

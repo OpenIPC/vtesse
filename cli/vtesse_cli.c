@@ -86,7 +86,7 @@ void nc_udp_relay_destroy(nc_udp_relay_t *r)
 #endif
 
 #define DEFAULT_CONFIG "~/.config/vtesse/probe.conf"
-#define ENV_ROUTE_WAIT 60       /* seconds: environment mode waits for the uplink at boot */
+#define ROUTE_WAIT_LOG_S 60     /* seconds between the "still waiting" lines (#73) */
 
 typedef struct cfg_file {
     char host[256];
@@ -111,6 +111,27 @@ static void on_signal(int sig)
 {
     (void)sig;
     loop.stop = 1;
+}
+
+/* 0 when there is a default route; -1 when a signal stopped the wait (#73) */
+static int wait_default_route(void)
+{
+    unsigned waited = 0;
+
+    while (!ve_has_default_route()) {
+        if (loop.stop)
+            return -1;
+        if (!waited)
+            printf("waiting for a default route\n");
+        else if (waited % ROUTE_WAIT_LOG_S == 0)
+            printf("still waiting for a default route (%u min)\n", waited / 60);
+        fflush(stdout);
+        sleep(1);
+        waited++;
+    }
+    if (waited)
+        printf("default route present after %u s\n", waited);
+    return 0;
 }
 
 static void usage(void)
@@ -747,7 +768,7 @@ int main(int argc, char **argv)
     uint8_t mac[6];
     tunnel_t t;
     nc_source_t src;
-    int i, err, rc, use_tap = !VTESSE_WITH_LWIP, lwip_opts = 0;
+    int i, err, rc, use_tap = !VTESSE_WITH_LWIP, lwip_opts = 0, stop_early;
 #if VTESSE_WITH_LWIP
     nc_stack_cfg_t sc;
     nc_proxy_cfg_t pc;
@@ -888,24 +909,20 @@ int main(int argc, char **argv)
     }
     if (!no_env && env_any(&env))
         apply_env(&c, &env);
+    /* without a default route there is nothing to connect to (#73): wait for one in every
+     * start mode, with no time limit. At boot the uplink (wlan0 with a background udhcpc)
+     * may get it after the service starts; the MAC is then the uplink's, not eth0's. Any
+     * default route ends the wait: through PPPoE or tun (no MAC) eth0 is taken as before. */
+    if (!show_config) {
+        signal(SIGINT, on_signal);
+        signal(SIGTERM, on_signal);
+        if (wait_default_route() < 0)
+            return 0;               /* stopped while waiting */
+    }
     if (env_mode) {
         /* only the server given: the VTun defaults of OpenIPC's tunnel */
         if (!c.port)
             c.port = 5000;
-        /* at boot the uplink (wlan0 with a background udhcpc) may get its default
-         * route after the service starts: the MAC must be the uplink's, not eth0's */
-        if (!show_config && (!c.password[0] || (!c.session[0] && !c.id_from[0] && !id_from))) {
-            int waited;
-
-            /* any default route ends the wait: through PPPoE or tun (no MAC) eth0 is
-             * taken at once */
-            for (waited = 0; waited < ENV_ROUTE_WAIT && !ve_has_default_route(); waited++) {
-                if (!waited)
-                    printf("waiting up to %d s for a default route (the MAC for the VTun defaults)\n",
-                           ENV_ROUTE_WAIT);
-                sleep(1);
-            }
-        }
         if (!c.session[0] && !c.id_from[0] && !id_from &&
             ve_default_iface(c.id_from, sizeof(c.id_from)) < 0) {
             fprintf(stderr, "no interface with a MAC for the device ID: set vtesse_session or vtesse_id_from\n");
@@ -1036,7 +1053,9 @@ int main(int argc, char **argv)
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
     signal(SIGPIPE, SIG_IGN);
+    stop_early = loop.stop;     /* a signal after the route wait (#73) is kept */
     nc_loop_init(&loop);
+    loop.stop = stop_early;
     src = nc_source_from_tunnel(&t);
     nc_loop_add(&loop, &src);
 
