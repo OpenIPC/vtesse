@@ -233,6 +233,13 @@ static int load_config(const char *path, cfg_file_t *c, int must_exist)
             snprintf(c->socks_user, sizeof(c->socks_user), "%s", v);
         else if (!strcmp(k, "socks_password"))
             snprintf(c->socks_password, sizeof(c->socks_password), "%s", v);
+        else if (!strcmp(k, "tap") || !strcmp(k, "hook") || !strcmp(k, "ifname")) {
+            /* a 1.x setting must not be ignored silently: the client would run another mode */
+            fprintf(stderr, "%s: %s: the TAP backend was removed in vtesse 2.0.0 (#72); remove the line "
+                            "(inbound access: accept=PORT)\n", full, k);
+            fclose(f);
+            return -1;
+        }
     }
     fclose(f);
     return 0;
@@ -628,7 +635,7 @@ int main(int argc, char **argv)
     uint8_t mac[6];
     tunnel_t t;
     nc_source_t src;
-    int i, err, rc, stop_early, learn_ip = 0;
+    int i, err, rc, stop_early, learn_ip = 0, accept_none = 0;
     nc_stack_cfg_t sc;
     nc_proxy_cfg_t pc;
     nc_proxy_t *px = NULL;
@@ -701,6 +708,9 @@ int main(int argc, char **argv)
                 return 2;
             }
             nrelays++;
+        } else if (!strcmp(argv[i], "--accept") && i + 1 < argc && !strcmp(argv[i + 1], "none")) {
+            accept_none = 1;
+            i++;
         } else if (!strcmp(argv[i], "--accept") && i + 1 < argc) {
             if (pc.accept_count >= NC_PROXY_MAX_ACCEPTS ||
                 nc_accept_parse(argv[++i], &pc.accepts[pc.accept_count]) < 0) {
@@ -735,6 +745,75 @@ int main(int argc, char **argv)
     }
     if (!no_env && env_any(&env))
         apply_env(&c, &env);
+    /* the settings that do not need the device's MAC are checked before the route wait:
+     * a mistake must not wait for the network to be reported */
+    /* manual IPv4: command line overrides the file */
+    if (ip_arg)
+        snprintf(c.ip, sizeof(c.ip), "%s", ip_arg);
+    if (gw_arg)
+        snprintf(c.gw, sizeof(c.gw), "%s", gw_arg);
+    memset(&st_routes, 0, sizeof(st_routes));
+    if (!c.ip[0] && (c.gw[0] || c.route_count)) {
+        fprintf(stderr, "gw/route need ip\n");
+        return 2;
+    }
+    learn_ip = !strcmp(c.ip, "learn");     /* type tun: the first packet tells it (#68) */
+    if (learn_ip && c.gw[0]) {
+        fprintf(stderr, "ip=learn: no gw (the peer is the source of the first packet)\n");
+        return 2;
+    }
+    if (c.ip[0] && !learn_ip && parse_prefix(c.ip, &st_addr, &st_mask) < 0) {
+        fprintf(stderr, "ip: expected A.B.C.D/P or learn, got '%s'\n", c.ip);
+        return 2;
+    }
+    if (c.gw[0] && parse_ip4(c.gw, &st_gw) < 0) {
+        fprintf(stderr, "gw: expected A.B.C.D, got '%s'\n", c.gw);
+        return 2;
+    }
+    for (i = 0; i < c.route_count; i++) {
+        uint32_t net, m;
+        int p = 0;
+
+        if (parse_prefix(c.route[i], &net, &m) < 0) {
+            fprintf(stderr, "route: expected NET/P, got '%s'\n", c.route[i]);
+            return 2;
+        }
+        while (p < 32 && (m & (0x80000000u >> p)))
+            p++;
+        nc_routes_add(&st_routes, net, (uint8_t)p, st_gw);
+    }
+
+    /* inbound forwards from the file come after the command line ones (#67); "none" (file
+     * or command line) means no inbound forwards at all, also no service defaults */
+    for (i = 0; i < c.accept_count; i++) {
+        if (!strcmp(c.accept[i], "none")) {
+            accept_none = 1;
+            continue;
+        }
+        if (pc.accept_count >= NC_PROXY_MAX_ACCEPTS ||
+            nc_accept_parse(c.accept[i], &pc.accepts[pc.accept_count]) < 0) {
+            fprintf(stderr, "%s: accept: expected PORT or PORT:A.B.C.D:PORT (max %d), got '%s'\n", config,
+                    NC_PROXY_MAX_ACCEPTS, c.accept[i]);
+            return 2;
+        }
+        pc.accept_count++;
+    }
+    /* the service started from the U-Boot environment: the camera's web, ssh and RTSP are
+     * reachable from the server, on the camera's own LAN address (its web asks for the
+     * password as from the LAN) */
+    if (accept_none && pc.accept_count) {
+        fprintf(stderr, "accept=none cannot be combined with other accept lines or --accept\n");
+        return 2;
+    }
+    if (env_mode && !pc.accept_count && !accept_none) {
+        static const uint16_t def[] = { 80, 22, 554 };
+
+        for (i = 0; i < (int)(sizeof(def) / sizeof(def[0])); i++) {
+            pc.accepts[i].port = pc.accepts[i].local_port = def[i];
+            pc.accepts[i].ip = 0;
+        }
+        pc.accept_count = i;
+    }
     /* without a default route there is nothing to connect to (#73): wait for one in every
      * start mode, with no time limit. At boot the uplink (wlan0 with a background udhcpc)
      * may get it after the service starts; the MAC is then the uplink's, not eth0's. Any
@@ -789,64 +868,6 @@ int main(int argc, char **argv)
     }
     if (check_config(&c, env_mode ? "U-Boot environment and config" : config) < 0)
         return 2;
-    /* manual IPv4: command line overrides the file */
-    if (ip_arg)
-        snprintf(c.ip, sizeof(c.ip), "%s", ip_arg);
-    if (gw_arg)
-        snprintf(c.gw, sizeof(c.gw), "%s", gw_arg);
-    memset(&st_routes, 0, sizeof(st_routes));
-    if (!c.ip[0] && (c.gw[0] || c.route_count)) {
-        fprintf(stderr, "gw/route need ip\n");
-        return 2;
-    }
-    learn_ip = !strcmp(c.ip, "learn");     /* type tun: the first packet tells it (#68) */
-    if (learn_ip && c.gw[0]) {
-        fprintf(stderr, "ip=learn: no gw (the peer is the source of the first packet)\n");
-        return 2;
-    }
-    if (c.ip[0] && !learn_ip && parse_prefix(c.ip, &st_addr, &st_mask) < 0) {
-        fprintf(stderr, "ip: expected A.B.C.D/P or learn, got '%s'\n", c.ip);
-        return 2;
-    }
-    if (c.gw[0] && parse_ip4(c.gw, &st_gw) < 0) {
-        fprintf(stderr, "gw: expected A.B.C.D, got '%s'\n", c.gw);
-        return 2;
-    }
-    for (i = 0; i < c.route_count; i++) {
-        uint32_t net, m;
-        int p = 0;
-
-        if (parse_prefix(c.route[i], &net, &m) < 0) {
-            fprintf(stderr, "route: expected NET/P, got '%s'\n", c.route[i]);
-            return 2;
-        }
-        while (p < 32 && (m & (0x80000000u >> p)))
-            p++;
-        nc_routes_add(&st_routes, net, (uint8_t)p, st_gw);
-    }
-
-    /* inbound forwards from the file come after the command line ones (#67) */
-    for (i = 0; i < c.accept_count; i++) {
-        if (pc.accept_count >= NC_PROXY_MAX_ACCEPTS ||
-            nc_accept_parse(c.accept[i], &pc.accepts[pc.accept_count]) < 0) {
-            fprintf(stderr, "%s: accept: expected PORT or PORT:A.B.C.D:PORT (max %d), got '%s'\n", config,
-                    NC_PROXY_MAX_ACCEPTS, c.accept[i]);
-            return 2;
-        }
-        pc.accept_count++;
-    }
-    /* the service started from the U-Boot environment: the camera's web, ssh and RTSP are
-     * reachable from the server, on the camera's own LAN address (its web asks for the
-     * password as from the LAN) */
-    if (env_mode && !pc.accept_count) {
-        static const uint16_t def[] = { 80, 22, 554 };
-
-        for (i = 0; i < (int)(sizeof(def) / sizeof(def[0])); i++) {
-            pc.accepts[i].port = pc.accepts[i].local_port = def[i];
-            pc.accepts[i].ip = 0;
-        }
-        pc.accept_count = i;
-    }
     if (show_config && !vt_session_name_valid(c.session)) {
         fprintf(stderr, "session '%s': no spaces, colons or control characters\n", c.session);
         return 2;

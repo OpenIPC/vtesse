@@ -14,6 +14,8 @@ trap 'rm -rf "$T"' EXIT
 check() { if eval "$2"; then echo "PASS  $1"; else echo "FAIL  $1"; fails=$((fails + 1)); fi; }
 
 conf_has() { grep -qx "$2" "$1/etc/vtesse.conf"; }
+# a build without the UDP relay (make UDP_RELAY=0) refuses udp_relay lines
+if "$CLI" --version | grep -q udp-relay; then RELAY=udp_relay=1559; else RELAY="# no UDP relay in this build"; fi
 mode() { stat -c %a "$1"; }
 
 # ---- OpenIPC: detected from /etc/os-release
@@ -68,6 +70,10 @@ echo accept=8080 >> "$R/etc/vtesse.conf"
 "$CLI" --install --root "$R" >/dev/null 2>&1
 check "a config with its own accept line keeps it, no defaults added" \
     'conf_has "$R" accept=8080 && [ "$(grep -c "^accept=" "$R/etc/vtesse.conf")" = 1 ]'
+sed -i 's/^accept=8080$/accept=none/' "$R/etc/vtesse.conf"
+"$CLI" --install --root "$R" >/dev/null 2>&1
+check "accept=none: the opt-out is kept, no defaults added" \
+    'conf_has "$R" accept=none && [ "$(grep -c "^accept=" "$R/etc/vtesse.conf")" = 1 ]'
 
 "$CLI" --uninstall --root "$R" >"$T/log" 2>&1
 check "uninstall: everything removed, the config included" \
@@ -181,6 +187,9 @@ check "port=abc in the file: refused" '[ $rc -ne 0 ]'
 # ---- TAP options of 1.x: refused with the reason (#72)
 "$CLI" --tap --config "$T/none.conf" >"$T/log" 2>&1; rc=$?
 check "--tap: refused, the TAP backend was removed" '[ $rc -eq 2 ] && grep -q "TAP backend was removed" "$T/log"'
+printf 'host=h\nport=5000\nsession=02AB34CD56EF\npassword=p\ntap=1\n' > "$T/tap.conf"
+"$CLI" --no-env --config "$T/tap.conf" --show-config >"$T/log" 2>&1; rc=$?
+check "tap= in the configuration: refused, not ignored" '[ $rc -ne 0 ] && grep -q "tap: the TAP backend was removed" "$T/log"'
 
 # ---- U-Boot environment (#64): fake fw_printenv / fw_setenv in PATH
 mkdir -p "$T/env"
@@ -206,6 +215,13 @@ if [ -n "$iface" ] && [ -r "/sys/class/net/$iface/address" ]; then
         'grep -qx "accept 80 -> (default-route address):80" "$T/log" &&
          grep -qx "accept 22 -> (default-route address):22" "$T/log" &&
          grep -qx "accept 554 -> (default-route address):554" "$T/log"'
+    printf 'accept=none\n' > "$T/none-accept.conf"
+    echo "vtesse=vtun.helpdesk" > "$T/env/vars"
+    PATH=$EP "$CLI" --config "$T/none-accept.conf" --show-config >"$T/log" 2>&1
+    check "env: accept=none turns the default ports off" '! grep -q "^accept " "$T/log" && grep -qx "host vtun.helpdesk" "$T/log"'
+    printf 'accept=none\naccept=80\n' > "$T/none-accept.conf"
+    PATH=$EP "$CLI" --config "$T/none-accept.conf" --show-config >"$T/log" 2>&1; rc=$?
+    check "accept=none with another accept line: refused" '[ $rc -eq 2 ] && grep -q "accept=none cannot be combined" "$T/log"'
     printf 'vtesse=vtun.helpdesk\nvtesse_session=02AB34CD56EF\n' > "$T/env/vars"
     PATH=$EP "$CLI" --config "$T/none.conf" --show-config >"$T/log" 2>&1
     check "env: an explicit session still gets the MAC-derived password" \
@@ -222,10 +238,10 @@ PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
 check "env overrides the file key by key" \
     'grep -qx "host env.example" "$T/log" && grep -qx "port 7000" "$T/log" &&
      grep -qx "session 02AB34CD56EF" "$T/log" && grep -qx "password (set)" "$T/log"'
-printf 'route=10.78.0.0/24\nip=10.76.0.2/32\nudp_relay=1559\naccept=8080:127.0.0.1:80\n' >> "$T/f.conf"
+printf 'route=10.78.0.0/24\nip=10.76.0.2/32\n%s\naccept=8080:127.0.0.1:80\n' "$RELAY" >> "$T/f.conf"
 PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1
 check "--show-config lists routes, UDP relays and accepts" \
-    'grep -qx "route 10.78.0.0/24" "$T/log" && grep -qx "udp_relay 1559" "$T/log" &&
+    'grep -qx "route 10.78.0.0/24" "$T/log" && { [ "$RELAY" != udp_relay=1559 ] || grep -qx "udp_relay 1559" "$T/log"; } &&
      grep -qx "accept 8080 -> 127.0.0.1:80" "$T/log" && ! grep -q "accept 80 " "$T/log"'
 sed -i '/^accept=/d' "$T/f.conf"
 printf 'port=abc\n' >> "$T/f.conf"
@@ -255,7 +271,11 @@ check "vtesse_ip with a malformed prefix: refused, not taken for /0" '[ $rc -eq 
 printf 'host=file.example\nport=6000\nsession=02AB34CD56EF\npassword=filepw\nudp_relay=not-a-port\n' > "$T/r.conf"
 echo vtesse=env.example > "$T/env/vars"
 PATH=$EP "$CLI" --config "$T/r.conf" --show-config >"$T/log" 2>&1; rc=$?
-check "--show-config refuses a udp_relay the client would refuse" '[ $rc -eq 2 ] && grep -q "udp_relay: expected" "$T/log"'
+if [ "$RELAY" = udp_relay=1559 ]; then
+    check "--show-config refuses a udp_relay the client would refuse" '[ $rc -eq 2 ] && grep -q "udp_relay: expected" "$T/log"'
+else
+    check "--show-config refuses udp_relay in a build without it" '[ $rc -eq 2 ] && grep -q "built without the UDP relay" "$T/log"'
+fi
 printf 'vtesse=env.example\nvtesse_port=7000\n' > "$T/env/vars"
 echo 1 > "$T/env/rc"
 PATH=$EP "$CLI" --config "$T/f.conf" --show-config >"$T/log" 2>&1

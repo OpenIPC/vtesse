@@ -25,20 +25,26 @@ uint32_t nc_default_route_addr(void)
 
     if (!f)
         return 0;
-    while (!found && fgets(line, sizeof(line), f))
+    if ((s = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        fclose(f);
+        return 0;
+    }
+    /* every default route in order: one through an interface without IPv4 is skipped */
+    while (!a && fgets(line, sizeof(line), f)) {
         found = sscanf(line, "%15s %lx %lx %x %d %d %d %lx", ifname, &dst, &gw, &flags, &ref, &use,
                        &metric, &mask) == 8 && dst == 0 && mask == 0;
-    fclose(f);
-    if (!found || (s = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
-        return 0;
-    memset(&ifr, 0, sizeof(ifr));
-    memcpy(ifr.ifr_name, ifname, strlen(ifname) + 1);
-    if (ioctl(s, SIOCGIFADDR, &ifr) == 0 && ifr.ifr_addr.sa_family == AF_INET) {
-        struct sockaddr_in sin;
+        if (!found)
+            continue;
+        memset(&ifr, 0, sizeof(ifr));
+        memcpy(ifr.ifr_name, ifname, strlen(ifname) + 1);
+        if (ioctl(s, SIOCGIFADDR, &ifr) == 0 && ifr.ifr_addr.sa_family == AF_INET) {
+            struct sockaddr_in sin;
 
-        memcpy(&sin, &ifr.ifr_addr, sizeof(sin));
-        a = ntohl(sin.sin_addr.s_addr);
+            memcpy(&sin, &ifr.ifr_addr, sizeof(sin));
+            a = ntohl(sin.sin_addr.s_addr);
+        }
     }
+    fclose(f);
     close(s);
     return a;
 }

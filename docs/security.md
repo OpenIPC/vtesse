@@ -41,7 +41,8 @@
   opens one port of the device to everyone on the VTun server side, in clear text. The
   service started by `vtesse --install` or the U-Boot environment opens 80, 22 and 554
   by default, to the device's LAN address: its own logins (web, ssh, RTSP) still
-  apply, so keep them set; remove the `accept` lines that are not needed.
+  apply, so keep them set. Remove the `accept` lines that are not needed; `accept=none`
+  opens no port at all (and `vtesse --install` then adds none).
 
 ## U-Boot environment
 

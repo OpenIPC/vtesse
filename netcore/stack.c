@@ -145,6 +145,10 @@ int nc_stack_route_ok(uint32_t dst)
 
     if (!st.bound)
         return 0;
+    /* learn_ip: after a reconnect the old address may be gone; nothing goes out until a
+     * packet of the new session confirms (or replaces) it (#68) */
+    if (st.cfg.learn_ip && !st.learnt)
+        return 0;
     addr = lwip_ntohl(ip4_addr_get_u32(netif_ip4_addr(&st.netif)));
     mask = lwip_ntohl(ip4_addr_get_u32(netif_ip4_netmask(&st.netif)));
     if ((dst & mask) == (addr & mask))
@@ -253,7 +257,8 @@ static void status_cb(struct netif *n)
     int has_addr = netif_is_up(n) && !ip4_addr_isany_val(*netif_ip4_addr(n));
 
     if (has_addr && !st.bound) {
-        if (!st.cfg.static_ip)
+        /* a manual or learnt address has its routes already (#68): only DHCP sets them here */
+        if (!st.cfg.static_ip && !st.cfg.learn_ip)
             apply_dhcp_routes(netif_dhcp_data(n));
         st.bound = 1;
         emit(NC_STACK_EV_ADDR_BOUND, 0, 0);

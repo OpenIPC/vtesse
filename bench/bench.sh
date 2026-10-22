@@ -175,6 +175,7 @@ cmd_accept_test() {
     " >/dev/null
     i=0
     until logs | grep -q "waiting for the first packet" || [ $i -gt 20 ]; do sleep 1; i=$((i + 1)); done
+    # shellcheck disable=SC2034  # sha, t0: used inside the eval strings of check
     sha=$(docker exec "$c" cat /tmp/www/big.sha256)
     check "ip=learn: no address before the first packet" '! logs | grep -q "address 10.76"'
     check "accept: the server reaches the client's web server (first SYN teaches the address)" \
@@ -184,11 +185,31 @@ cmd_accept_test() {
     check "accept: 8 parallel 20 MiB downloads, sha256 intact" '
         srv "for n in 1 2 3 4 5 6 7 8; do (curl -fsS --max-time 120 http://10.76.0.2:8080/big.bin | sha256sum > /tmp/acc.\$n) & done; wait"
         [ "$(srv "cat /tmp/acc.*" | cut -d" " -f1 | sort -u)" = "$sha" ]'
+    # shellcheck disable=SC2034
     t0=$(date +%s)
     check "accept to a closed local port: the connection is reset at once" \
         '! srv "curl -fsS --max-time 10 http://10.76.0.2:8081/" 2>/dev/null && [ $(($(date +%s) - t0)) -lt 5 ]'
     check "accept: log lines and counters" 'logs | grep -q "accept 8080 -> 127.0.0.1:8000: connected" &&
         logs | grep -q "accept 8081 -> 127.0.0.1:8001: Connection refused"'
+    # the proxy's connection limit (24, shared with outbound forwards): the 25th is reset
+    # shellcheck disable=SC2034  # over: used inside the eval string of check
+    over=$(srv "python3 -c '
+import socket, time
+held = [socket.create_connection((\"10.76.0.2\", 8080), timeout=5) for _ in range(24)]
+time.sleep(1)
+x = socket.create_connection((\"10.76.0.2\", 8080), timeout=5)
+x.settimeout(5)
+try:
+    print(\"reset\" if x.recv(1) == b\"\" else \"data\")
+except ConnectionResetError:
+    print(\"reset\")
+except socket.timeout:
+    print(\"timeout\")
+for s in held:
+    s.close()
+'" 2>&1)
+    check "accept: over the connection limit (24 held) the next one is reset" \
+        '[ "$over" = reset ] && logs | grep -q "accept 8080: connection limit reached (24), reset"'
 
     # a changed address after a server restart is learnt again
     srv "sed -i 's/peer 10.76.0.2 /peer 10.76.0.3 /' /etc/vtund.conf"

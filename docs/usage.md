@@ -146,7 +146,9 @@ accept=8554:127.0.0.1:554    # explicit target
   configuration without `accept` lines, and a client started from the
   [U-Boot environment](#u-boot-environment-helpdesk-access) without `accept` lines opens
   the same ports: the server reaches the camera's web interface, ssh and RTSP, as the
-  TAP backend of 1.x gave it.
+  TAP backend of 1.x gave it. `accept=none` (or `--accept none`) turns that off: no
+  inbound forwards, and `--install` adds nothing; it cannot be combined with other
+  `accept` lines.
 - On a `type tun` session the server needs the client's address before it can connect:
   set it with `ip=`, or let the client learn it from the first connection
   (`ip=learn`, [manual IPv4](#manual-ipv4-type-tun)).
@@ -275,7 +277,7 @@ never from the command line; keep it outside the repository with mode 600.
 | `session`                      | session name = [device ID](#device-id)                                                                                                                   |
 | `id_from`                      | instead of `session`: take the device ID from the MAC of this interface, e.g. `eth0`                                                                     |
 | `udp_relay`                    | `PORT[:LOCAL_PORT]`, repeatable: [UDP relay](#udp-relay-rtp-from-cameras)                                                                                |
-| `accept`                       | `PORT[:IP:PORT]`, repeatable, up to 4: [inbound forwards](#inbound-forwards)                                                                             |
+| `accept`                       | `PORT[:IP:PORT]`, repeatable, up to 4: [inbound forwards](#inbound-forwards); `none`: none at all, not even the service defaults                         |
 | `ip`, `gw`, `route`            | [manual IPv4](#manual-ipv4-type-tun): `ip=A.B.C.D/P` or `ip=learn`, optional `gw=A.B.C.D`, `route=NET/P` (repeatable, up to 16); required for `type tun` |
 | `password`                     | session password                                                                                                                                         |
 | `auth`                         | challenge response, `xor` (default; servers built without OpenSSL)                                                                                       |
