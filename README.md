@@ -6,7 +6,7 @@
 
 [![Build](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml/badge.svg)](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml)
 [![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/OpenIPC/vtesse/releases/latest)
-[![License](https://img.shields.io/badge/license-Prosperity%203.0-blue)](LICENSE.md)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE.md)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android-brightgreen)](docs/architecture.md)
 [![Status](https://img.shields.io/badge/status-prototype-orange)](docs/security.md)
 
@@ -162,7 +162,7 @@ Stages and tasks are tracked as [GitHub issues](https://github.com/OpenIPC/vtess
 
 ## License
 
-[The Prosperity Public License 3.0.0](LICENSE.md): free for noncommercial use, with a 30-day trial for commercial use. See [LICENSE.md](LICENSE.md) for the full terms. Third-party code keeps its own license (lwIP: BSD-3-Clause).
+[MIT License](LICENSE.md). Third-party code keeps its own license: lwIP — BSD-3-Clause; the VTun server patches in [`server/patches`](server/patches) and the `vtund-*` binary — GPL, as VTun.
 
 ## Support
 

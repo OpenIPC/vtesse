@@ -6,7 +6,7 @@
 
 [![Build](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml/badge.svg)](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml)
 [![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/OpenIPC/vtesse/releases/latest)
-[![License](https://img.shields.io/badge/license-Prosperity%203.0-blue)](LICENSE.md)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE.md)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android-brightgreen)](docs/architecture.md)
 [![Status](https://img.shields.io/badge/status-prototype-orange)](docs/security.md)
 
@@ -164,7 +164,7 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 
 ## 许可证
 
-[The Prosperity Public License 3.0.0](LICENSE.md)：非商业用途免费，商业用途可试用 30 天。完整条款见 [LICENSE.md](LICENSE.md)。第三方代码沿用其自身的许可证（lwIP：BSD-3-Clause）。
+[MIT License](LICENSE.md)。第三方代码沿用其自身的许可证：lwIP 为 BSD-3-Clause；[`server/patches`](server/patches) 中的 VTun 服务器补丁及 `vtund-*` 二进制文件与 VTun 相同，为 GPL。
 
 ## 支持
 
