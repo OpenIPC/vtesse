@@ -6,7 +6,7 @@
 
 [![Build](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml/badge.svg)](https://github.com/OpenIPC/vtesse/actions/workflows/build.yml)
 [![Release](https://img.shields.io/badge/download-latest-blue)](https://github.com/OpenIPC/vtesse/releases/latest)
-[![License](https://img.shields.io/badge/license-Prosperity%203.0-blue)](LICENSE.md)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE.md)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Android-brightgreen)](docs/architecture.md)
 [![Status](https://img.shields.io/badge/status-prototype-orange)](docs/security.md)
 
@@ -164,7 +164,7 @@ ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/stream
 
 ## Лицензия
 
-[The Prosperity Public License 3.0.0](LICENSE.md): бесплатно для некоммерческого использования, для коммерческого — пробный период 30 дней. Полные условия — в [LICENSE.md](LICENSE.md). Сторонний код распространяется под своей лицензией (lwIP: BSD-3-Clause).
+[MIT License](LICENSE.md). Сторонний код распространяется под своей лицензией: lwIP — BSD-3-Clause; патчи сервера VTun в [`server/patches`](server/patches) и бинарник `vtund-*` — GPL, как сам VTun.
 
 ## Поддержка
 
