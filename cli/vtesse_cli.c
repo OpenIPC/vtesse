@@ -814,6 +814,31 @@ int main(int argc, char **argv)
         }
         pc.accept_count = i;
     }
+    /* the same check as at start, without creating the relays; before the route wait */
+    if (c.udp_relay_count && !VTESSE_WITH_UDP_RELAY) {
+        fprintf(stderr, "%s: udp_relay: built without the UDP relay\n", config);
+        return 2;
+    }
+    for (i = 0; i < c.udp_relay_count; i++) {
+        uint16_t port, local;
+
+        if (nrelays + i >= NC_UDP_RELAY_MAX || nc_udp_relay_parse(c.udp_relay[i], &port, &local) < 0) {
+            fprintf(stderr, "%s: udp_relay: expected PORT[:LOCAL_PORT] (max %d)\n", config, NC_UDP_RELAY_MAX);
+            return 2;
+        }
+    }
+    /* what needs no MAC is checked before the route wait as well (#73): with only the
+     * U-Boot environment the password and the session may still come from the MAC */
+    if (!env_mode && c.session[0] && !c.id_from[0] && !id_from && !vt_session_name_valid(c.session)) {
+        fprintf(stderr, "session '%s': no spaces, colons or control characters\n", c.session);
+        return 2;
+    }
+    if (!env_mode && check_config(&c, config) < 0)
+        return 2;
+    if (env_mode && strcmp(c.auth, "xor") != 0) {
+        fprintf(stderr, "U-Boot environment and config: unsupported auth '%s' (only xor)\n", c.auth);
+        return 2;
+    }
     /* without a default route there is nothing to connect to (#73): wait for one in every
      * start mode, with no time limit. At boot the uplink (wlan0 with a background udhcpc)
      * may get it after the service starts; the MAC is then the uplink's, not eth0's. Any
@@ -871,15 +896,6 @@ int main(int argc, char **argv)
     if (show_config && !vt_session_name_valid(c.session)) {
         fprintf(stderr, "session '%s': no spaces, colons or control characters\n", c.session);
         return 2;
-    }
-    /* the same check as at start, without creating the relays */
-    for (i = 0; show_config && i < c.udp_relay_count; i++) {
-        uint16_t port, local;
-
-        if (nrelays + i >= NC_UDP_RELAY_MAX || nc_udp_relay_parse(c.udp_relay[i], &port, &local) < 0) {
-            fprintf(stderr, "%s: udp_relay: expected PORT[:LOCAL_PORT] (max %d)\n", config, NC_UDP_RELAY_MAX);
-            return 2;
-        }
     }
     if (show_config) {
         printf("host %s\nport %d\nsession %s\npassword %s\n", c.host, c.port, c.session,
