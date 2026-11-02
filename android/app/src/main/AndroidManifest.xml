@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- the status broadcast from the tunnel service to the screen: our own app only -->
+    <permission
+        android:name="org.openipc.vtesse.permission.STATUS"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="org.openipc.vtesse.permission.STATUS" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />

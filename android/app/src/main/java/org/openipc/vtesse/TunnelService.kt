@@ -110,10 +110,14 @@ class TunnelService : Service() {
     }
 
     private fun publish(status: String) {
-        sendBroadcast(Intent(ACTION_STATUS).setPackage(packageName).putExtra(EXTRA_STATUS, status))
+        sendBroadcast(
+            Intent(ACTION_STATUS).setPackage(packageName).putExtra(EXTRA_STATUS, status),
+            STATUS_PERMISSION
+        )
         if (running) {
             val s = Status.parse(status)
-            getSystemService(NotificationManager::class.java)
+            // the Class overload needs API 23 (minSdk is 21)
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager?)
                 ?.notify(NOTIFY_ID, notification(s.summary(this)))
         }
     }
@@ -196,6 +200,9 @@ class TunnelService : Service() {
         const val EXTRA_CONFIG = "config"
         const val EXTRA_LABEL = "label"
         const val EXTRA_STATUS = "status"
+        /** Signature permission of the app (manifest): below API 33 a runtime receiver
+         *  cannot be registered as not exported, so only our own app may send it the status. */
+        const val STATUS_PERMISSION = "org.openipc.vtesse.permission.STATUS"
         private const val CHANNEL = "tunnel"
         private const val NOTIFY_ID = 1
 
