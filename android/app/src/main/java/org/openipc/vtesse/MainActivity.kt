@@ -1,6 +1,7 @@
 package org.openipc.vtesse
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.ActivityManager
 import android.content.BroadcastReceiver
@@ -124,11 +125,14 @@ class MainActivity : Activity() {
         ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
     }
 
+    // Below API 33 there is no RECEIVER_NOT_EXPORTED: the receiver is protected by the
+    // app's signature permission instead, which lint does not recognise.
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onStart() {
         super.onStart()
         val filter = IntentFilter(TunnelService.ACTION_STATUS)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        else registerReceiver(receiver, filter)
+        else registerReceiver(receiver, filter, TunnelService.STATUS_PERMISSION, null)
         handler.post(staleCheck)
     }
 

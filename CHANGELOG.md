@@ -6,6 +6,13 @@ from every push to `main`; this file is the change history. Versions after 1.12 
 `MAJOR.MINOR.PATCH` (1.12 is followed by 1.12.1 or 1.13.0); the headings below keep the
 numbers as released.
 
+## 2.0.2 — 2026-11-02
+
+- Android 5.x (API 21–22): the status update of a running tunnel no longer calls a
+  method that appeared in API 23 (#77).
+- Android below 13: the screen accepts the tunnel status only from VTesse itself (a
+  signature-level permission); other apps could send it a false status before (#77).
+
 ## 2.0.1 — 2026-11-02
 
 - Android: the OpenIPC brand launcher icon and Android TV banner (#75). The icon is
